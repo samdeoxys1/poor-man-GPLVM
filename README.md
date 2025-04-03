@@ -4,56 +4,44 @@ A simplified implementation of Gaussian Process Latent Variable Models (GPLVM). 
 
 ## Installation
 
-You can install the package from PyPI (once published):
+### Recommended: Conda Installation
 
-### Basic Installation
+The recommended way to install this package is through conda, which correctly handles the JAX, CUDA, and other dependencies:
+
 ```bash
-pip install poor-man-gplvm
+# Create a new conda environment with all required dependencies
+conda create -n pmgplvm -c conda-forge -c nvidia cuda-nvcc jaxlib=0.4.26=cuda120py312h4008524_201 jax=0.4.26 python=3.12.5 jaxopt=0.8.2 optax=0.2.2
+
+# Activate the environment
+conda activate pmgplvm
+
+# Install poor-man-gplvm
+pip install poor-man-gplvm  # (once published)
 ```
 
-### With JAX CPU Support
+### For CPU-Only Installation
+
+If you don't have a compatible GPU:
+
 ```bash
-pip install poor-man-gplvm[cpu]
+conda create -n pmgplvm -c conda-forge python=3.12.5 jax=0.4.26 jaxlib=0.4.26 jaxopt=0.8.2 optax=0.2.2
+conda activate pmgplvm
+pip install poor-man-gplvm  # (once published)
 ```
-
-### With JAX GPU Support
-```bash
-pip install poor-man-gplvm[gpu]
-```
-
-Note: For GPU support, you need compatible CUDA and cuDNN installations. The package assumes CUDA 12 and cuDNN 8.9 by default. If you have different versions, please install JAX and JAXlib separately following [JAX installation instructions](https://github.com/google/jax#installation).
-
-For more detailed installation instructions, including conda environments and troubleshooting, see [INSTALL.md](INSTALL.md).
 
 ### From Source
-You can also install directly from the repository:
+
+To install the latest development version:
 
 ```bash
-# Basic installation
-pip install git+https://github.com/samdeoxys1/poor-man-GPLVM.git
-
-# With CPU JAX support
-pip install "git+https://github.com/samdeoxys1/poor-man-GPLVM.git#egg=poor-man-gplvm[cpu]"
-
-# With GPU JAX support
-pip install "git+https://github.com/samdeoxys1/poor-man-GPLVM.git#egg=poor-man-gplvm[gpu]"
+# First create and set up the conda environment as above
+# Then:
+git clone https://github.com/samdeoxys1/poor-man-GPLVM.git
+cd poor-man-GPLVM
+pip install -e .
 ```
 
-### From Conda Environment
-If you're using conda, you might want to set up your environment first:
-
-```bash
-# Create a new conda environment
-conda create -n gplvm python=3.9
-conda activate gplvm
-
-# For CPU installation
-pip install poor-man-gplvm[cpu]
-
-# For GPU installation, first install CUDA and cuDNN through conda
-conda install -c nvidia cuda=12.0 cudnn=8.9
-pip install poor-man-gplvm[gpu]
-```
+For more detailed installation instructions and troubleshooting, see [INSTALL.md](INSTALL.md).
 
 ## Usage
 
@@ -80,27 +68,20 @@ X_new = model.transform(Y_new)
 
 ## Features
 
-- Simple and intuitive API
-- Efficient implementation of GPLVM
-- Customizable kernel functions
-- PCA-based initialization
-- Visualization tools
-- Optional JAX acceleration (CPU or GPU)
 
 ## Development
 
 ### Setting up the development environment
 
 ```bash
+# Create and activate the conda environment first
+conda create -n pmgplvm -c conda-forge -c nvidia cuda-nvcc jaxlib=0.4.26=cuda120py312h4008524_201 jax=0.4.26 python=3.12.5 jaxopt=0.8.2 optax=0.2.2
+conda activate pmgplvm
+
+# Then install the package in development mode
 git clone https://github.com/samdeoxys1/poor-man-GPLVM.git
 cd poor-man-GPLVM
 pip install -e ".[dev]"
-
-# For JAX CPU development
-pip install -e ".[dev,cpu]"
-
-# For JAX GPU development
-pip install -e ".[dev,gpu]"
 ```
 
 ### Running tests

@@ -1,99 +1,73 @@
 # Installation Guide
 
-This document provides detailed installation instructions for the Poor Man's GPLVM package, including how to set up the package with different JAX backends (CPU or GPU).
+This document provides detailed installation instructions for the Poor Man's GPLVM package.
 
-## Prerequisites
+## Recommended Installation Method: Using Conda
 
-- Python 3.7 or newer
-- pip package manager
+The recommended way to install this package is through conda, which handles complex dependencies like JAX, CUDA, and cuDNN properly.
 
-### For GPU Support
-- CUDA Toolkit (recommended version: 12.x)
-- cuDNN (recommended version: 8.9.x)
+### One-Step Installation with Conda
 
-## Installation Methods
+```bash
+# Create a new conda environment with all required dependencies
+conda create -n pmgplvm -c conda-forge -c nvidia cuda-nvcc jaxlib=0.4.26=cuda120py312h4008524_201 jax=0.4.26 python=3.12.5 jaxopt=0.8.2 optax=0.2.2
 
-### 1. Installing from PyPI
+# Activate the environment
+conda activate pmgplvm
 
-#### Basic Installation
+# Install poor-man-gplvm
+pip install poor-man-gplvm
+# OR from source:
+# git clone https://github.com/samdeoxys1/poor-man-GPLVM.git
+# cd poor-man-GPLVM
+# pip install -e .
+```
+
+This single conda command handles all the complex dependencies including:
+- Python 3.12.5
+- JAX 0.4.26 with CUDA 12.0 support
+- JAXopt 0.8.2 for optimization
+- Optax 0.2.2 for optimization algorithms
+- All necessary CUDA components
+
+### For CPU-Only Installation
+
+If you don't have a compatible GPU, you can install a CPU-only version:
+
+```bash
+conda create -n pmgplvm -c conda-forge python=3.12.5 jax=0.4.26 jaxlib=0.4.26 jaxopt=0.8.2 optax=0.2.2
+conda activate pmgplvm
+pip install poor-man-gplvm
+```
+
+## Alternative: Manual Installation (Advanced Users)
+
+If you prefer not to use conda or need a custom configuration, you can install the components separately.
+
+### 1. Install poor-man-gplvm
+
 ```bash
 pip install poor-man-gplvm
 ```
 
-#### With JAX CPU Support
+### 2. Install JAX Manually
+
+Follow the [official JAX installation guide](https://github.com/google/jax#installation) to install JAX with your specific CUDA configuration.
+
+For example:
 ```bash
-pip install poor-man-gplvm[cpu]
+# For CPU
+pip install jax jaxlib
+
+# For GPU with CUDA 12 support
+pip install jax jaxlib==0.4.26+cuda12.cudnn89
 ```
 
-#### With JAX GPU Support
-```bash
-pip install poor-man-gplvm[gpu]
-```
-
-### 2. Installing from Source
-
-#### Basic Installation
-```bash
-git clone https://github.com/samdeoxys1/poor-man-GPLVM.git
-cd poor-man-GPLVM
-pip install -e .
-```
-
-#### With JAX CPU Support
-```bash
-git clone https://github.com/samdeoxys1/poor-man-GPLVM.git
-cd poor-man-GPLVM
-pip install -e ".[cpu]"
-```
-
-#### With JAX GPU Support
-```bash
-git clone https://github.com/samdeoxys1/poor-man-GPLVM.git
-cd poor-man-GPLVM
-pip install -e ".[gpu]"
-```
-
-### 3. Installation with Conda
-
-Conda can be used to manage both Python and system-level dependencies, which is especially useful for GPU support.
-
-#### Create and Activate Environment
-```bash
-conda create -n gplvm python=3.9
-conda activate gplvm
-```
-
-#### For CPU Installation
-```bash
-pip install poor-man-gplvm[cpu]
-```
-
-#### For GPU Installation with Conda-managed CUDA
-```bash
-# Install CUDA and cuDNN via conda
-conda install -c nvidia cuda=12.0 cudnn=8.9
-
-# Install the package with GPU support
-pip install poor-man-gplvm[gpu]
-```
-
-## Custom JAX Installation
-
-If you need specific JAX versions or have custom CUDA requirements, you might want to install JAX separately:
+### 3. Install Additional Dependencies
 
 ```bash
-# First install the package without JAX
-pip install poor-man-gplvm
-
-# Then install JAX with your specific requirements
-pip install jax==0.4.26
-pip install jaxlib==0.4.26  # For CPU
-
-# OR for GPU with specific CUDA version (example):
-pip install jaxlib==0.4.26+cuda12.cudnn89
+pip install jaxopt optax
 ```
-
-Refer to the [official JAX installation guide](https://github.com/google/jax#installation) for more details on installing JAX with specific CUDA configurations.
 
 ## Verifying Installation
 
@@ -110,12 +84,19 @@ For JAX installations:
 python -c "import jax; print('JAX version:', jax.__version__); print('Available devices:', jax.devices())"
 ```
 
+If JAX detects your GPU, the devices output should include `gpu:0`.
+
 ## Troubleshooting
 
-### CUDA Version Mismatch
-If you encounter errors related to CUDA versions, ensure your CUDA toolkit version matches the jaxlib+cuda version you've installed.
+### CUDA Not Found
+
+If JAX cannot find your CUDA installation, ensure:
+1. Your CUDA version matches the jaxlib+cuda version you've installed
+2. CUDA is in your PATH
+3. You've installed the correct drivers for your GPU
 
 ### Memory Issues with GPU
+
 If you encounter GPU memory errors, you might need to limit JAX's GPU memory usage:
 
 ```python
@@ -124,9 +105,6 @@ os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
 os.environ['XLA_PYTHON_CLIENT_ALLOCATOR'] = 'platform'
 ```
 
-### Import Errors
-If you encounter import errors, ensure all dependencies are properly installed:
+### Version Conflicts
 
-```bash
-pip install -r requirements.txt
-``` 
+If you're experiencing version conflicts between packages, the conda installation method is strongly recommended as it resolves these conflicts automatically. 

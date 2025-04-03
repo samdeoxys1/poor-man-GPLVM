@@ -4,8 +4,10 @@ pytest>=6.0.0
 pytest-cov>=2.10.0
 black>=22.0.0
 flake8>=3.8.0
-jax==0.4.26  # Base JAX requirement, specific variants handled via extras 
 tqdm==4.66.5
 xarray==2024.3.0
 matplotlib==3.9.2
-jaxopt==0.8.2
+
+# Note: JAX-related packages (jax, jaxlib, jaxopt, optax) are NOT included
+# in the dependencies. Please install them separately via conda.
+# See INSTALL.md for detailed instructions.

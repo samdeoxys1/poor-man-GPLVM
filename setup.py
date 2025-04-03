@@ -6,9 +6,14 @@ from setuptools import setup, find_packages
 with open("README.md", encoding="utf-8") as f:
     long_description = f.read()
 
-# Read requirements
+# Read requirements - exclude JAX-related packages
 with open("requirements.txt", encoding="utf-8") as f:
-    requirements = [line.strip() for line in f if line.strip() and not line.startswith("#")]
+    requirements = [
+        line.strip() for line in f 
+        if line.strip() and not line.startswith("#") 
+        and "jax" not in line.lower()
+        and "optax" not in line.lower()
+    ]
 
 # Development requirements
 try:
@@ -21,17 +26,6 @@ except FileNotFoundError:
         "black>=22.0.0",
         "flake8>=3.8.0",
     ]
-
-# JAX requirements
-jax_cpu_requirements = [
-    "jax==0.4.26",
-    "jaxlib==0.4.26",
-]
-
-jax_gpu_requirements = [
-    "jax==0.4.26",
-    "jaxlib==0.4.26+cuda12.cudnn89",  # Adjust based on your CUDA version
-]
 
 setup(
     name="poor-man-gplvm",
@@ -55,7 +49,5 @@ setup(
     install_requires=requirements,
     extras_require={
         "dev": dev_requirements,
-        "cpu": jax_cpu_requirements,
-        "gpu": jax_gpu_requirements,
     },
 ) 
