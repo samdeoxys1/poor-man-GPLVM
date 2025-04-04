@@ -165,7 +165,7 @@ class PoissonGPLVMJump1D:
         '''
         key_l = jax.random.split(key,T)
         latent_l = self.sample_latent(T,key_l[0],movement_variance,p_move_to_jump,p_jump_to_move,init_dynamics,init_latent)
-        y_l = self.sample_y(latent_l,tuning,dt,key_l[1])
+        y_l = self.sample_y(latent_l[:,1],tuning,dt,key_l[1]) # only using the latent and not the dynamics
         return latent_l,y_l
     
 
