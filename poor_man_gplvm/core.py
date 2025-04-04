@@ -130,9 +130,9 @@ class PoissonGPLVMJump1D:
             state = jnp.array([dynamics_curr,latent_curr])
             return carry, state
 
-        _,state_l=jax.lax.scan(step,carry_init,xs=key_l)
+        _,latent_l=jax.lax.scan(step,carry_init,xs=key_l)
 
-        return state_l
+        return latent_l
 
     def sample_y(self,latent_l,tuning=None,dt=1.,key=jax.random.PRNGKey(10)):
         if tuning is None:
@@ -141,6 +141,16 @@ class PoissonGPLVMJump1D:
         
         spk_sim=jax.random.poisson(key,rate * dt)
         return spk_sim
+    
+    def sample(self,T,key=jax.random.PRNGKey(0),movement_variance=1,p_move_to_jump=0.01,p_jump_to_move=0.01,
+                      init_dynamics=None,init_latent=None,dt=1.,tuning=None):
+        '''
+        sample both latent and y
+        '''
+        key_l = jax.random.split(key,T)
+        latent_l = self.sample_latent(T,key_l[0],movement_variance,p_move_to_jump,p_jump_to_move,init_dynamics,init_latent)
+        y_l = self.sample_y(latent_l,tuning,dt,key_l[1])
+        return latent_l,y_l
     
 
     
