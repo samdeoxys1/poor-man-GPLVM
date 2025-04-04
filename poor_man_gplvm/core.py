@@ -50,6 +50,10 @@ class PoissonGPLVMJump1D:
         self.n_neuron = n_neuron
         self.possible_latent_bin = jnp.arange(self.n_latent_bin)
         self.possible_dynamics = jnp.arange(2)
+        self.w_init_variance = w_init_variance
+        self.w_init_mean = w_init_mean
+        self.b_init_variance = b_init_variance
+        self.b_init_mean = b_init_mean
         
         # generate the basis
         self.tuning_basis = generate_basis(self.tuning_lengthscale,self.n_latent_bin,self.explained_variance_threshold_basis)
