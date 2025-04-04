@@ -28,6 +28,12 @@ def rbf_kernel_multi_d(x,y,ls,var):
 
 
 @jit
+def discrete_transition_kernel(x,y,trans_mat):
+    val= trans_mat[x,y]
+    log_val = get_log(val)
+    return val,log_val
+
+@jit
 def uniform_kernel(x,y,n_tuning_state):
     val = 1/n_tuning_state
     log_val = get_log(val)

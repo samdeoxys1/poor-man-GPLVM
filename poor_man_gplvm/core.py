@@ -67,6 +67,7 @@ class PoissonGPLVMJump1D:
             [movement_variance,1.],
             [self.n_latent_bin]
         ]
+        dynamics_transition_kernel_func = gpk.
         
         for latent_transition_kernel_func,latent_transition_kernel_args in zip(latent_transition_kernel_func_l,
                                                                                            latent_transition_kernel_args_l
