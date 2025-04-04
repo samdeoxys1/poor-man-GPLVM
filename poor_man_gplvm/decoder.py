@@ -8,6 +8,8 @@ import jax.random as jr
 import jax.scipy.special as jscipy
 from jax.scipy.special import logsumexp
 from jax import jit, vmap
+from functools import partial
+from jax.lax import scan
 
 '''
 _chunk: for dealing with longer data; chunk the data and only scan / vectorize within the chunk, for loop across chunks
@@ -106,3 +108,29 @@ def filter_one_step(carry,ll_curr,log_latent_transition_kernel_l,log_dynamics_tr
     
     carry_next = (log_post_curr,log_marginal_tillcurr)
     return carry_next,(log_post_curr,log_prior_curr) # return carry, y
+
+def filter_all_step(ll_all,log_latent_transition_kernel_l,log_dynamics_transition_kernel,carry_init=None,likelihood_scale=1):
+    '''
+    run causal filter
+    carry_init: posterior init, marginal ll till curr
+    '''
+    n_pos = log_latent_transition_kernel_l[0].shape[0]
+    n_nontuning_state = log_dynamics_transition_kernel.shape[0]
+    log_posterior_init = jnp.log(jnp.ones((n_nontuning_state,n_pos))/(n_nontuning_state*n_pos))
+    if carry_init is None:
+        carry_init = (log_posterior_init,jnp.array(0.))
+    f = partial(filter_one_step,log_latent_transition_kernel_l=log_latent_transition_kernel_l,log_dynamics_transition_kernel=log_dynamics_transition_kernel,likelihood_scale=likelihood_scale)
+    carry_final, (log_posterior_all,log_prior_curr_all) = scan(f,carry_init,xs=ll_all) 
+    log_marginal_final = carry_final[1]
+    return log_posterior_all, log_marginal_final, log_prior_curr_all
+
+
+def filter_all_step_combined_ma(y, tuning, ma,log_latent_transition_kernel_l,log_dynamics_transition_kernel,carry_init=None,likelihood_scale=1):
+    '''
+    get ll and then filter
+    
+    '''
+    
+    ll_all=get_loglikelihood_ma_all(y,tuning,ma)
+    log_posterior_all,log_marginal_final,log_prior_curr_all =filter_all_step(ll_all,log_latent_transition_kernel_l,log_dynamics_transition_kernel,carry_init=carry_init,likelihood_scale=likelihood_scale)
+    return log_posterior_all,log_marginal_final,log_prior_curr_all
