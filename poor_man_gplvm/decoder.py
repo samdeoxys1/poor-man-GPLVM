@@ -10,6 +10,7 @@ from jax.scipy.special import logsumexp
 from jax import jit, vmap
 from functools import partial
 from jax.lax import scan
+import tqdm
 
 '''
 _chunk: for dealing with longer data; chunk the data and only scan / vectorize within the chunk, for loop across chunks
@@ -73,7 +74,7 @@ def get_loglikelihood_ma_chunk(y_l,tuning,ma,n_time_per_chunk=10000):
     n_chunks = int( jnp.ceil(n_time_tot / n_time_per_chunk))
     ll_per_pos_l = []
     ma = jnp.broadcast_to(ma,y_l.shape)
-    for n in range(n_chunks):
+    for n in tqdm.trange(n_chunks):
         sl = slice((n) * n_time_per_chunk , (n+1) * n_time_per_chunk )
         y_chunk = y_l[sl]
         ma_chunk = ma[sl]
