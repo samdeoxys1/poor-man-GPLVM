@@ -5,7 +5,7 @@ decode the latent and dynamics
 import jax.numpy as jnp
 import jax
 import jax.random as jr
-import jax.scipy.special as jscipy
+import jax.scipy as jscipy
 from jax.scipy.special import logsumexp
 from jax import jit, vmap
 from functools import partial
