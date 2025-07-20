@@ -36,6 +36,10 @@ def get_loglikelihood_ma_all(y_l, tuning, ma):
     # ll_per_pos_l = vmap(get_loglikelihood_ma,in_axes=(0,None,None))(y_l,tuning,ma)
     
     # spatio-temporal mask
+    jax.debug.print("y_l.shape: {0}",y_l.shape)
+    jax.debug.print("ma.shape: {0}",ma.shape)
+    jax.debug.print("tuning.shape: {0}",tuning.shape)
+    
     ma = jnp.broadcast_to(ma,y_l.shape)
     ll_per_pos_l = vmap(get_loglikelihood_ma,in_axes=(0,None,0))(y_l,tuning,ma)
 
