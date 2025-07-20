@@ -10,10 +10,13 @@ import jax
 import jax.random as jr
 from jax.scipy.special import logsumexp
 from poor_man_gplvm import fit_tuning_with_basis as ftwb
-
+from abc import ABC, abstractmethod
 
 '''
 hyperparams = {'tuning_lengthscale':,'movement_variance':,'prior_variance':}
+to model non jump can use the transition matrix
+at each EM iteration, create the transition matrix based on the hyperparams;
+fix lenscale, so eigenvalue and eigenvectors are fixed; but allow a latent mask in decoder such that i can do downsampled test lml for model selection;
 '''
 
 def generate_basis(lengthscale,n_latent_bin,explained_variance_threshold_basis = 0.999 ):
@@ -27,8 +30,9 @@ def generate_basis(lengthscale,n_latent_bin,explained_variance_threshold_basis =
     tuning_basis = tuning_basis[:,:n_basis] * sqrt_eigval[:n_basis][None,:] 
     return tuning_basis
 
-class PoissonGPLVMJump1D:
-    """Poisson GPLVM with jumps.
+
+class AbstractGPLVMJump1D(ABC):
+    """GPLVM with smooth 1d latent + jumps.
     The latent governs firing rate; the dynamics governs the transition probabilities between the latent states;
     """
     
@@ -107,6 +111,83 @@ class PoissonGPLVMJump1D:
         dynamics_transition_kernel,log_dynamics_transition_kernel = vmap(vmap(lambda x,y:dynamics_transition_kernel_func(x,y,dynamics_transition_matrix),in_axes=(0,None),out_axes=0),in_axes=(None,0),out_axes=1)(self.possible_dynamics,self.possible_dynamics) 
 
         return latent_transition_kernel_l,log_latent_transition_kernel_l,dynamics_transition_kernel,log_dynamics_transition_kernel
+
+    def _decode_latent(self,y,log_latent_transition_kernel_l,log_dynamics_transition_kernel,likelihood_scale=1.):
+        '''
+        decode the latent and dynamics
+        y: observed data, spike counts here; n_time x n_neuron
+
+        log_latent_transition_kernel_l: n_dynamics x n_latent x n_latent
+        log_dynamics_transition_kernel: n_dynamics x n_dynamics
+        '''
+        pass
+
+
+    def sample_latent(self,T,key=jax.random.PRNGKey(0),movement_variance=1,p_move_to_jump=0.01,p_jump_to_move=0.01,
+                      init_dynamics=None,init_latent=None):
+        
+        latent_transition_kernel_l,log_latent_transition_kernel_l,dynamics_transition_kernel,log_dynamics_transition_kernel = self.create_transition_prob(movement_variance,p_move_to_jump,p_jump_to_move)
+
+        if init_dynamics is None:
+            init_dynamics = jax.random.choice(key,self.possible_dynamics)
+        if init_latent is None:
+            init_latent = jax.random.choice(key,self.possible_latent_bin)
+        key_l = jax.random.split(key,T)
+        dynamics_prev = init_dynamics
+        latent_prev = init_latent
+
+        # nontuning_state_l = [nontuning_state_prev]
+        # tuning_state_l = [tuning_state_prev]
+        carry_init = (dynamics_prev, latent_prev)
+
+        @jit
+        def step(carry, key):
+            k1,k2=jax.random.split(key,2)
+            dynamics_prev,latent_prev = carry 
+            dynamics_curr = jax.random.choice(k1,self.possible_dynamics, p=dynamics_transition_kernel[dynamics_prev])
+            latent_curr = jax.random.choice(k2, self.possible_latent_bin,p=latent_transition_kernel_l[dynamics_curr][latent_prev])
+            carry = dynamics_curr,latent_curr
+            state = jnp.array([dynamics_curr,latent_curr])
+            return carry, state
+
+        _,latent_l=jax.lax.scan(step,carry_init,xs=key_l)
+
+        return latent_l
+
+    def sample_y(self,latent_l,hyperparam,tuning=None,dt=1.,key=jax.random.PRNGKey(10)):
+        if tuning is None:
+            tuning = self.tuning
+        rate = tuning[latent_l,:]
+        
+        spk_sim=jax.random.poisson(key,rate * dt)
+        return spk_sim
+    
+    def sample(self,T,hyperparam,key=jax.random.PRNGKey(0),
+                      init_dynamics=None,init_latent=None,dt=1.,tuning=None):
+        '''
+        sample both latent and y
+        '''
+        key_l = jax.random.split(key,T)
+        movement_variance = hyperparam['movement_variance']
+        p_move_to_jump = hyperparam['p_move_to_jump']
+        p_jump_to_move = hyperparam['p_jump_to_move']
+        latent_l = self.sample_latent(T,key_l[0],movement_variance,p_move_to_jump,p_jump_to_move,init_dynamics,init_latent)
+        y_l = self.sample_y(latent_l[:,1],tuning,dt,key_l[1]) # only using the latent and not the dynamics
+        return latent_l,y_l
+    
+
+    
+    
+
+
+class PoissonGPLVMJump1D(AbstractGPLVMJump1D):
+    """Poisson GPLVM with jumps.
+    The latent governs firing rate; the dynamics governs the transition probabilities between the latent states;
+    """
+    
+    def loglikelihood(self):
+        # todo
+        pass
 
     def _decode_latent(self,y,log_latent_transition_kernel_l,log_dynamics_transition_kernel,likelihood_scale=1.):
         '''
