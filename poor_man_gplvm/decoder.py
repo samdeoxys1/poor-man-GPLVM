@@ -65,6 +65,21 @@ def get_naive_bayes_ma(y_l,tuning,ma,dt_l=1):
     log_marginal = jnp.sum(log_marginal_l)
     return log_post, log_marginal
 
+def get_loglikelihood_ma_chunk(y_l,tuning,ma,n_time_per_chunk=10000):
+    '''
+    testing the memory bottleneck, whether it's in the scan in smoothing, or just in likelihood computation
+    '''
+    n_time_tot = y_l.shape[0]
+    n_chunks = int( jnp.ceil(n_time_tot / n_time_per_chunk))
+    ll_per_pos_l = []
+    ma = jnp.broadcast_to(ma,y_l.shape)
+    for n in range(n_chunks):
+        sl = slice((n) * n_time_per_chunk , (n+1) * n_time_per_chunk )
+        y_chunk = y_l[sl]
+        ma_chunk = ma[sl]
+        ll_per_pos_l.append(get_loglikelihood_ma_all(y_chunk,tuning,ma_chunk))
+    ll_per_pos_l = jnp.concatenate(ll_per_pos_l,axis=0)
+    return ll_per_pos_l
 
 def get_naive_bayes_ma_chunk(y,tuning,ma,dt_l=1,n_time_per_chunk=10000):
     n_time_tot = y.shape[0]
