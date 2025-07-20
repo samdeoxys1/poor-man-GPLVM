@@ -168,7 +168,7 @@ class PoissonGPLVMJump1D(AbstractGPLVMJump1D):
     def sample_latent(self,T,key=jax.random.PRNGKey(0),movement_variance=1,p_move_to_jump=0.01,p_jump_to_move=0.01,
                       init_dynamics=None,init_latent=None):
         
-        latent_transition_kernel_l,log_latent_transition_kernel_l,dynamics_transition_kernel,log_dynamics_transition_kernel = self.create_transition_prob(movement_variance,p_move_to_jump,p_jump_to_move)
+        latent_transition_kernel_l,log_latent_transition_kernel_l,dynamics_transition_kernel,log_dynamics_transition_kernel = gpk.create_transition_prob(self.possible_latent_bin,self.possible_dynamics,movement_variance,p_move_to_jump,p_jump_to_move)
 
         if init_dynamics is None:
             init_dynamics = jax.random.choice(key,self.possible_dynamics)
