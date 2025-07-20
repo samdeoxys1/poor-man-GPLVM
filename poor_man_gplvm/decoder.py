@@ -95,10 +95,10 @@ def filter_one_step(carry,ll_curr,log_latent_transition_kernel_l,log_dynamics_tr
     
     '''
     log_posterior_prev, log_marginal_tillprev=carry
-    log_p_tuning_prev_nontuning_curr_prior_ =log_posterior_prev[:,None,:] + log_latent_transition_kernel_l[:,:,None] # adding a target dimemsion, n_prev_nontuning x n_curr_nontuning x n_tuning # p(x_{t-1},I_k|O_{1:t-1}), by marginalizing over I_k; x-tuning; I-nontuning
+    log_p_tuning_prev_nontuning_curr_prior_ =log_posterior_prev[:,None,:] + log_dynamics_transition_kernel[:,:,None] # adding a target dimemsion, n_prev_nontuning x n_curr_nontuning x n_tuning # p(x_{t-1},I_k|O_{1:t-1}), by marginalizing over I_k; x-tuning; I-nontuning
     log_p_tuning_prev_nontuning_curr_prior = logsumexp(log_p_tuning_prev_nontuning_curr_prior_,axis=0) # sum over source for nontuning
 
-    log_prior_curr_= log_p_tuning_prev_nontuning_curr_prior[:,:,None] + log_dynamics_transition_kernel # n_dynamics x n_latent x n_dynamics
+    log_prior_curr_= log_p_tuning_prev_nontuning_curr_prior[:,:,None] + log_latent_transition_kernel_l # n_dynamics x n_latent x n_dynamics
     log_prior_curr = logsumexp(log_prior_curr_,axis=1) # sum over source for tuning
 
     log_post_curr_ = log_prior_curr  + likelihood_scale * ll_curr[None,:] # n_dynamics x n_latent
