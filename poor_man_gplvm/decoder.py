@@ -14,11 +14,14 @@ import tqdm
 
 '''
 _chunk: for dealing with longer data; chunk the data and only scan / vectorize within the chunk, for loop across chunks
-ma: mask to make out neuron / (time); necessary for computing co-smoothing
+
 y: observed data, n_neuron; y_l: n_time x n_neuron
 tuning: n_latent x n_neuron
 log_latent_transition_kernel_l: n_dynamics x n_latent x n_latent
 log_dynamics_transition_kernel: n_dynamics x n_dynamics
+
+ma_neuron: mask to make out neuron / (time); necessary for computing co-smoothing
+ma_latent: mask out latent; necessary for downsampled_lml
 
 '''
 
@@ -33,14 +36,14 @@ def get_loglikelihood_ma(y,tuning,ma_neuron,ma_latent,dt=1.):
     ll_per_pos = (ll * ma_neuron[None,:] * ma_latent[:,None]).sum(axis=1)
     return ll_per_pos
 @jit
-def get_loglikelihood_ma_all(y_l, tuning, ma):
+def get_loglikelihood_ma_all(y_l, tuning, ma_neuron,ma_latent):
     
     # ll_per_pos_l = vmap(get_loglikelihood_ma,in_axes=(0,None,None))(y_l,tuning,ma)
     
     # spatio-temporal mask
     
-    ma = jnp.broadcast_to(ma,y_l.shape)
-    ll_per_pos_l = vmap(get_loglikelihood_ma,in_axes=(0,None,0))(y_l,tuning,ma)
+    ma_neuron = jnp.broadcast_to(ma_neuron,y_l.shape)
+    ll_per_pos_l = vmap(get_loglikelihood_ma,in_axes=(0,None,0,0))(y_l,tuning,ma_neuron,ma_latent)
 
     return ll_per_pos_l # n_time x n_pos
 
