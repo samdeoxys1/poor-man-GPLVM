@@ -180,9 +180,9 @@ def smooth_all_step(log_causal_posterior_all, log_causal_prior_all,log_latent_tr
 
     
     f = partial(smooth_one_step,log_latent_transition_mat_l=log_latent_transition_mat_l,log_dynamics_transition_mat=log_dynamics_transition_mat,prior_magnifier=prior_magnifier)
-    carry_final, log_acausal_posterior_all = scan(f, carry_init, xs=xs,reverse=True)
+    carry_final, (log_acausal_posterior_all,log_acausal_curr_next_joint_all) = scan(f, carry_init, xs=xs,reverse=True)
     if do_concat:
         log_acausal_posterior_all = jnp.concatenate([log_acausal_posterior_all,log_causal_posterior_all[-1][None,...]],axis=0)
     
 
-    return log_acausal_posterior_all
+    return log_acausal_posterior_all,log_acausal_curr_next_joint_all
