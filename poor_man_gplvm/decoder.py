@@ -186,5 +186,62 @@ def smooth_all_step(log_causal_posterior_all, log_causal_prior_all,log_latent_tr
     if do_concat:
         log_acausal_posterior_all = jnp.concatenate([log_acausal_posterior_all,log_causal_posterior_all[-1][None,...]],axis=0)
     
-
     return log_acausal_posterior_all,log_acausal_curr_next_joint_all
+
+def smooth_all_step_combined_ma_chunk(spk, pf,log_latent_transition_kernel_l,log_dynamics_transition_kernel,ma,prior_magnifier=1,
+                                n_time_per_chunk=10000,
+                                ):
+    '''
+    forward filter in chunk, use the last step as the init for the next chunk;
+    then backward smoother in chunk, in reverse order, use the first time of the last chunk as the init for the next chunk
+    '''
+    n_time_tot = spk.shape[0]
+    n_chunks = int( jnp.ceil(n_time_tot / n_time_per_chunk))
+
+    filter_carry_init=None
+    log_causal_posterior_all_allchunk=[]
+    log_causal_prior_all_allchunk = []
+    log_acausal_posterior_all_allchunk = []
+    log_acausal_curr_next_joint_all_allchunk = []
+
+    # spatio-temporal mask
+    ma = jnp.broadcast_to(ma,spk.shape)
+    slice_l = []
+    for n in range(n_chunks):
+        sl = slice((n) * n_time_per_chunk , (n+1) * n_time_per_chunk )
+        slice_l.append(sl)
+        spk_chunk = spk[sl]
+
+        # spatio-temporal mask
+        ma_chunk = ma[sl]
+        
+        log_causal_posterior_all,log_marginal_final,log_causal_prior_all=filter_all_step_combined_ma(spk_chunk, pf,log_latent_transition_kernel_l,log_dynamics_transition_kernel,ma_chunk,carry_init=filter_carry_init,prior_magnifier=prior_magnifier)
+        
+        filter_carry_init = (log_causal_posterior_all[-1],log_marginal_final)
+
+        log_causal_posterior_all_allchunk.append(log_causal_posterior_all)
+        log_causal_prior_all_allchunk.append(log_causal_prior_all)
+    log_causal_prior_all_ = jnp.concatenate(log_causal_prior_all_allchunk,axis=0)
+
+    # smooth_carry_init=log_causal_posterior_all[-1]
+    smooth_carry_init=None
+    for n in range(n_chunks-1,-1,-1):
+        sl = slice_l[n]
+        log_causal_prior_all=log_causal_prior_all_[sl.start+1:sl.stop+1] # causal prior and the acausal init have the same t+1 index, 1 more than the causal posterior
+
+        log_causal_posterior_all = log_causal_posterior_all_allchunk[n]
+        # log_causal_prior_all = log_causal_prior_all_allchunk[n]
+        
+        log_acausal_posterior_all,log_acausal_curr_next_joint_all = smooth_all_step(log_causal_posterior_all, log_causal_prior_all,log_latent_transition_kernel_l,log_dynamics_transition_kernel,carry_init=smooth_carry_init,prior_magnifier=prior_magnifier)
+        smooth_carry_init = log_acausal_posterior_all[0]
+
+        log_acausal_posterior_all_allchunk.append(log_acausal_posterior_all)
+        log_acausal_curr_next_joint_all_allchunk.append(log_acausal_curr_next_joint_all)
+    log_acausal_posterior_all_allchunk.reverse() # reverse the order of the chunks
+    log_acausal_curr_next_joint_all_allchunk.reverse() # reverse the order of the chunks
+
+    log_acausal_posterior_all = jnp.concatenate(log_acausal_posterior_all_allchunk,axis=0) 
+    log_acausal_curr_next_joint_all = jnp.concatenate(log_acausal_curr_next_joint_all_allchunk,axis=0)
+    log_causal_posterior_all = jnp.concatenate(log_causal_posterior_all_allchunk,axis=0)
+
+    return log_acausal_posterior_all,log_marginal_final,log_acausal_curr_next_joint_all,log_causal_posterior_all
