@@ -61,7 +61,7 @@ def get_loglikelihood_ma_all_changing_dt(y_l, tuning, ma_neuron,ma_latent, dt_l)
     
     # spatio-temporal mask
     ma_neuron = jnp.broadcast_to(ma_neuron,y_l.shape)
-    ll_per_pos_l = vmap(get_loglikelihood_ma,in_axes=(0,None,0,None))(y_l,tuning,ma_neuron,ma_latent,dt_l)
+    ll_per_pos_l = vmap(get_loglikelihood_ma,in_axes=(0,None,0,None,None))(y_l,tuning,ma_neuron,ma_latent,dt_l)
 
     return ll_per_pos_l # n_time x n_pos
 
