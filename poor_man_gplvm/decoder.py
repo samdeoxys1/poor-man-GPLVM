@@ -206,7 +206,7 @@ def smooth_all_step_combined_ma_chunk(y, tuning,log_latent_transition_kernel_l,l
 
     # spatio-temporal mask
     ma = jnp.broadcast_to(ma,y.shape)
-    print(ma.shape)
+    
     slice_l = []
     for n in range(n_chunks):
         sl = slice((n) * n_time_per_chunk , (n+1) * n_time_per_chunk )
@@ -215,6 +215,7 @@ def smooth_all_step_combined_ma_chunk(y, tuning,log_latent_transition_kernel_l,l
 
         # spatio-temporal mask
         ma_chunk = ma[sl]
+        print(ma_chunk.shape)
         
         log_causal_posterior_all,log_marginal_final,log_causal_prior_all=filter_all_step_combined_ma(y_chunk, tuning,log_latent_transition_kernel_l,log_dynamics_transition_kernel,ma_chunk,carry_init=filter_carry_init,likelihood_scale=likelihood_scale)
         
