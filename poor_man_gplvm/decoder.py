@@ -136,7 +136,7 @@ def filter_all_step_combined_ma(y, tuning, ma,log_latent_transition_kernel_l,log
     return log_posterior_all,log_marginal_final,log_prior_curr_all
 
 
-def smooth_one_step(carry,x,log_tuning_transition_mat_l,log_non_tuning_transition_mat,prior_magnifier=1):
+def smooth_one_step(carry,x,log_latent_transition_mat_l,log_dynamics_transition_mat,prior_magnifier=1):
     '''
     causal_prior here refers to the prior from filter, i.e. logp(x_k+1|o_1:k)
     prior_magnifier not implemented yet
@@ -146,8 +146,8 @@ def smooth_one_step(carry,x,log_tuning_transition_mat_l,log_non_tuning_transitio
     # log_causal_prior_next = log_tuning_state_transition_kernel_l + log_non_tuning_transition_kernel + 
 
     # broadcast things into: (nontuning_curr, nontuning_next, tuning_curr, tuning_next)
-    x_next_given_x_curr_I_next = log_tuning_transition_mat_l[None,:,:,:] # add the nontuning_curr dimension
-    I_next_given_I_curr = log_non_tuning_transition_mat[:,:,None,None] # add the two tuning dimensions
+    x_next_given_x_curr_I_next = log_latent_transition_mat_l[None,:,:,:] # add the nontuning_curr dimension
+    I_next_given_I_curr = log_dynamics_transition_mat[:,:,None,None] # add the two tuning dimensions
     post_prior_diff = log_acausal_posterior_next - log_causal_prior_next
     post_prior_diff = post_prior_diff[None,:,None,:] # add the two curr dimensions
     
