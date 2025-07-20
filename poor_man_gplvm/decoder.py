@@ -23,13 +23,14 @@ log_dynamics_transition_kernel: n_dynamics x n_dynamics
 '''
 
 @jit
-def get_loglikelihood_ma(y,tuning,ma,dt=1.):
+def get_loglikelihood_ma(y,tuning,ma_neuron,ma_latent,dt=1.):
     '''
-    ma: n_neuron,
+    ma_neuron: n_neuron,
+    ma_latent: n_latent,
     '''
     ll = jscipy.stats.poisson.logpmf(y,(tuning*dt)+1e-20) # n_pos x n_neuron
     
-    ll_per_pos = (ll * ma[None,:]).sum(axis=1)
+    ll_per_pos = (ll * ma_neuron[None,:] * ma_latent[:,None]).sum(axis=1)
     return ll_per_pos
 @jit
 def get_loglikelihood_ma_all(y_l, tuning, ma):
