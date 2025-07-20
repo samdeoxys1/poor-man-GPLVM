@@ -188,14 +188,14 @@ def smooth_all_step(log_causal_posterior_all, log_causal_prior_all,log_latent_tr
     
     return log_acausal_posterior_all,log_acausal_curr_next_joint_all
 
-def smooth_all_step_combined_ma_chunk(spk, pf,log_latent_transition_kernel_l,log_dynamics_transition_kernel,ma,prior_magnifier=1,
+def smooth_all_step_combined_ma_chunk(y, tuning,log_latent_transition_kernel_l,log_dynamics_transition_kernel,ma,prior_magnifier=1,
                                 n_time_per_chunk=10000,
                                 ):
     '''
     forward filter in chunk, use the last step as the init for the next chunk;
     then backward smoother in chunk, in reverse order, use the first time of the last chunk as the init for the next chunk
     '''
-    n_time_tot = spk.shape[0]
+    n_time_tot = y.shape[0]
     n_chunks = int( jnp.ceil(n_time_tot / n_time_per_chunk))
 
     filter_carry_init=None
@@ -205,17 +205,17 @@ def smooth_all_step_combined_ma_chunk(spk, pf,log_latent_transition_kernel_l,log
     log_acausal_curr_next_joint_all_allchunk = []
 
     # spatio-temporal mask
-    ma = jnp.broadcast_to(ma,spk.shape)
+    ma = jnp.broadcast_to(ma,y.shape)
     slice_l = []
     for n in range(n_chunks):
         sl = slice((n) * n_time_per_chunk , (n+1) * n_time_per_chunk )
         slice_l.append(sl)
-        spk_chunk = spk[sl]
+        y_chunk = y[sl]
 
         # spatio-temporal mask
         ma_chunk = ma[sl]
         
-        log_causal_posterior_all,log_marginal_final,log_causal_prior_all=filter_all_step_combined_ma(spk_chunk, pf,log_latent_transition_kernel_l,log_dynamics_transition_kernel,ma_chunk,carry_init=filter_carry_init,prior_magnifier=prior_magnifier)
+        log_causal_posterior_all,log_marginal_final,log_causal_prior_all=filter_all_step_combined_ma(y_chunk, tuning,log_latent_transition_kernel_l,log_dynamics_transition_kernel,ma_chunk,carry_init=filter_carry_init,prior_magnifier=prior_magnifier)
         
         filter_carry_init = (log_causal_posterior_all[-1],log_marginal_final)
 
