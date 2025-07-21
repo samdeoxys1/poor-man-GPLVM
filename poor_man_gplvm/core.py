@@ -75,12 +75,19 @@ class AbstractGPLVMJump1D(ABC):
         # initialize the params and tuning
         self.initialize_params(self.rng_init)
     
+    @abstractmethod
+    def get_tuning(self,params,hyperparam):
+        '''
+        hyperparam currently not used; for potential alternative parameterizations
+        '''
+        pass
+    
     def initialize_params(self,key):
         params_init_w = jax.random.normal(key,(self.n_basis,self.n_neuron)) * jnp.sqrt(self.w_init_variance) # prior_hyper here is variance
         # params_init_b = jax.random.normal(key,(self.n_neuron,)) * jnp.sqrt(self.b_init_variance) + self.b_init_mean
         # params_init = (params_init_w,params_init_b)
         params_init = params_init_w
-        tuning_init = ftwb.glm_get_tuning(params_init,self.tuning_basis)
+        tuning_init = self.get_tuning(params_init,hyperparam={})
         self.params = params_init
         self.tuning = tuning_init
         return params_init,tuning_init
@@ -151,6 +158,10 @@ class PoissonGPLVMJump1D(AbstractGPLVMJump1D):
     
     def loglikelihood(self,y,ypred,hyperparam):
         return jax.scipy.stats.poisson.logpmf(y,ypred+1e-40)
+
+    def get_tuning(self,params,hyperparam):
+        tuning = ftwb.get_tuning_softplus(params,self.tuning_basis)
+        return tuning
         
 
     def _decode_latent(self,y,log_latent_transition_kernel_l,log_dynamics_transition_kernel,likelihood_scale=1.):
@@ -183,6 +194,10 @@ class GaussianGPLVMJump1D(AbstractGPLVMJump1D):
         
     def loglikelihood(self,y,ypred,hyperparam):
         return jax.scipy.stats.norm.logpdf(y,ypred,hyperparam['noise_std'])
+    
+    def get_tuning(self,params,hyperparam):
+        tuning = ftwb.get_tuning_linear(params,self.tuning_basis)
+        return tuning
         
 
     def _decode_latent(self,y,log_latent_transition_kernel_l,log_dynamics_transition_kernel,likelihood_scale=1.):
