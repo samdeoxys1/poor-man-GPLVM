@@ -220,11 +220,8 @@ class AbstractGPLVMJump1D(ABC):
             params = m_res['params']
             tuning = self.get_tuning(params,hyperparam,tuning_basis)
             # E-step
-            print(log_latent_transition_kernel_l.shape,log_dynamics_transition_kernel.shape)
-            print(y.shape)
-            print(tuning.shape)
+            log_posterior_all,log_marginal_final,log_posterior_curr_next_joint_all,log_causal_posterior_all = self.decode_latent(y,tuning,hyperparam,log_latent_transition_kernel_l,log_dynamics_transition_kernel,ma_neuron,ma_latent,likelihood_scale=likelihood_scale,n_time_per_chunk=n_time_per_chunk)
 
-            log_posterior_all,log_marginal_final,log_prior_curr_all = self.decode_latent(y,tuning,hyperparam,log_latent_transition_kernel_l,log_dynamics_transition_kernel,ma_neuron,ma_latent,likelihood_scale=likelihood_scale,n_time_per_chunk=n_time_per_chunk)
             log_posterior_curr = logsumexp(log_posterior_all,axis=1) # sum over the dynamics dimension; get log posterior over latent
             log_marginal_l.append(log_marginal_final)
 
@@ -238,9 +235,9 @@ class AbstractGPLVMJump1D(ABC):
         # update attributes
         self.params = params
         self.tuning = tuning
-        self.log_posterior_curr = log_posterior_curr
+        
         self.log_marginal_final = log_marginal_final
-        self.log_prior_curr_all = log_prior_curr_all
+        
         self.log_latent_transition_kernel_l = log_latent_transition_kernel_l
         self.log_dynamics_transition_kernel = log_dynamics_transition_kernel
         self.tuning_basis = tuning_basis
@@ -254,6 +251,7 @@ class AbstractGPLVMJump1D(ABC):
                   'tuning':tuning,
                   'log_posterior_final':log_posterior_all,
                   'log_marginal':log_marginal_final,
+                  'log_posterior_curr_next_joint_all':log_posterior_curr_next_joint_all, # from this, transition can be derived
                   }
         return em_res
 
