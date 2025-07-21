@@ -173,7 +173,7 @@ class GaussianGPLVMJump1D(AbstractGPLVMJump1D):
     The latent governs firing rate; the dynamics governs the transition probabilities between the latent states;
     """
     def __init__(self,n_neuron,noise_std=0.5,**kwargs):
-        super(GaussianGPLVMJump1D,self).__init__(*args,**kwargs)
+        super(GaussianGPLVMJump1D,self).__init__(n_neuron,**kwargs)
         self.noise_std = noise_std
         
     def loglikelihood(self,y,ypred,hyperparam):
