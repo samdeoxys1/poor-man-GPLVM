@@ -11,7 +11,7 @@ import jax.random as jr
 from jax.scipy.special import logsumexp
 from poor_man_gplvm import fit_tuning_with_basis as ftwb
 from abc import ABC, abstractmethod
-
+from poor_man_gplvm import m_step
 
 '''
 hyperparams = {'tuning_lengthscale':,'movement_variance':,'prior_variance':}
@@ -160,7 +160,7 @@ class PoissonGPLVMJump1D(AbstractGPLVMJump1D):
         return jax.scipy.stats.poisson.logpmf(y,ypred+1e-40)
 
     def get_tuning(self,params,hyperparam):
-        tuning = ftwb.get_tuning_softplus(params,self.tuning_basis)
+        tuning = m_step.get_tuning_softplus(params,self.tuning_basis)
         return tuning
         
 
@@ -196,7 +196,7 @@ class GaussianGPLVMJump1D(AbstractGPLVMJump1D):
         return jax.scipy.stats.norm.logpdf(y,ypred,hyperparam['noise_std'])
     
     def get_tuning(self,params,hyperparam):
-        tuning = ftwb.get_tuning_linear(params,self.tuning_basis)
+        tuning = m_step.get_tuning_linear(params,self.tuning_basis)
         return tuning
         
 

@@ -21,23 +21,6 @@ def glm_get_tuning(params,basis):
     
     return tuning
 
-# new==
-@jit
-def get_tuning_linear(params,basis):
-    '''
-    params: n_feat (basis) x n_neuron
-    basis: n_tuning_state x n_basis
-    '''
-    return basis.dot(params)
-
-@jit
-def get_tuning_softplus(params,basis):
-    '''
-    params: n_feat (basis) x n_neuron
-    basis: n_tuning_state x n_basis
-    '''
-    return jax.nn.softplus(get_tuning_linear(params,basis))
-#==
 
 @jit
 def gaussian_logprior(params,var):
