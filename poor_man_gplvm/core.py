@@ -119,15 +119,15 @@ class AbstractGPLVMJump1D(ABC):
         return latent_l
 
     
-    def sample(self,T,hyperparam,key=jax.random.PRNGKey(0),
+    def sample(self,T,hyperparam={},key=jax.random.PRNGKey(0),
                       init_dynamics=None,init_latent=None,dt=1.,tuning=None):
         '''
         sample both latent and y
         '''
         key_l = jax.random.split(key,T)
-        movement_variance = hyperparam['movement_variance']
-        p_move_to_jump = hyperparam['p_move_to_jump']
-        p_jump_to_move = hyperparam['p_jump_to_move']
+        movement_variance = hyperparam.get('movement_variance',self.movement_variance)
+        p_move_to_jump = hyperparam.get('p_move_to_jump',self.p_move_to_jump)
+        p_jump_to_move = hyperparam.get('p_jump_to_move',self.p_jump_to_move)
         latent_l = self.sample_latent(T,key_l[0],movement_variance,p_move_to_jump,p_jump_to_move,init_dynamics,init_latent)
         y_l = self.sample_y(latent_l[:,1],hyperparam,tuning,dt,key_l[1]) # only using the latent and not the dynamics
         return latent_l,y_l
@@ -155,7 +155,7 @@ class PoissonGPLVMJump1D(AbstractGPLVMJump1D):
         pass
 
 
-    def sample_y(self,latent_l,hyperparam,tuning=None,dt=1.,key=jax.random.PRNGKey(10)):
+    def sample_y(self,latent_l,hyperparam={},tuning=None,dt=1.,key=jax.random.PRNGKey(10)):
         if tuning is None:
             tuning = self.tuning
         rate = tuning[latent_l,:]
@@ -184,11 +184,12 @@ class GaussianGPLVMJump1D(AbstractGPLVMJump1D):
         pass
 
 
-    def sample_y(self,latent_l,hyperparam,tuning=None,dt=1.,key=jax.random.PRNGKey(10)):
+    def sample_y(self,latent_l,hyperparam={},tuning=None,dt=1.,key=jax.random.PRNGKey(10)):
         if tuning is None:
             tuning = self.tuning
+        noise_std = hyperparam.get('noise_std',self.noise_std)
         rate = tuning[latent_l,:] * dt
-        noise_std = hyperparam['noise_std'] * jnp.sqrt(dt)
+        noise_std = noise_std * jnp.sqrt(dt)
         spk_sim=jax.random.normal(key,rate,noise_std)
         return spk_sim
     
