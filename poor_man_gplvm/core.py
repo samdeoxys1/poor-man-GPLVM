@@ -194,7 +194,7 @@ class AbstractGPLVMJump1D(ABC):
         iter_saved = []
         log_marginal_saved = []
 
-        log_latent_transition_kernel_l,log_dynamics_transition_kernel = gpk.create_transition_prob_1d(self.possible_latent_bin,self.possible_dynamics,movement_variance,p_move_to_jump,p_jump_to_move)
+        log_latent_transition_kernel_l,log_dynamics_transition_kernel,_,_ = gpk.create_transition_prob_1d(self.possible_latent_bin,self.possible_dynamics,movement_variance,p_move_to_jump,p_jump_to_move)
         if ma_neuron is None:
             ma_neuron = self.ma_neuron_default
         if ma_latent is None:
