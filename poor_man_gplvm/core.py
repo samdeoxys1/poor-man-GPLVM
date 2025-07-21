@@ -344,3 +344,12 @@ class GaussianGPLVMJump1D(AbstractGPLVMJump1D):
         params_new = fth.gaussian_m_step_analytic(tuning_basis,y_weighted,t_weighted,hyperparam['noise_std'])
         m_step_res = {'params':params_new}
         return m_step_res
+
+    def fit_em(self,y,hyperparam={},key=jax.random.PRNGKey(0),
+                    n_iter=20,
+                      posterior_init=None,ma_neuron=None,ma_latent=None,n_time_per_chunk=10000,dt=1.,likelihood_scale=1.,
+                      save_every=None,
+                      **kwargs):
+        hyperparam['noise_std'] = hyperparam.get('noise_std',self.noise_std)
+        em_res=super(GaussianGPLVMJump1D,self).fit_em(y,hyperparam,key,n_iter,posterior_init,ma_neuron,ma_latent,n_time_per_chunk,dt,likelihood_scale,save_every,**kwargs)
+        return em_res
