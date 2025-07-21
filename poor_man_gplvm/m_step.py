@@ -25,7 +25,7 @@ def get_tuning_softplus(params,basis):
     return jax.nn.softplus(get_tuning_linear(params,basis))
 #==
 
-def get_statistics(posterior_probs,y,):
+def get_statistics(log_posterior_probs,y,):
     '''
     get posterior weighted observation, and posterior weighted time, for each latent bin
     posterior_probs: n_time x n_latent 
@@ -34,6 +34,7 @@ def get_statistics(posterior_probs,y,):
     y_weighted: n_latent x n_neuron (A matrix)
     t_weighted: n_latent  (B vector)
     '''
+    posterior_probs = jnp.exp(log_posterior_probs)
     y_weighted = jnp.einsum('tl,tn->ln',posterior_probs,y)
     t_weighted = posterior_probs.sum(axis=0) # n_latent,
     return y_weighted, t_weighted

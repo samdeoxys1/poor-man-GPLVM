@@ -12,6 +12,8 @@ from jax.scipy.special import logsumexp
 from poor_man_gplvm import fit_tuning_with_basis as ftwb
 from abc import ABC, abstractmethod
 from poor_man_gplvm import m_step
+from poor_man_gplvm import decoder
+import tqdm
 
 '''
 hyperparams = {'tuning_lengthscale':,'movement_variance':,'prior_variance':}
@@ -76,7 +78,7 @@ class AbstractGPLVMJump1D(ABC):
         self.initialize_params(self.rng_init)
     
     @abstractmethod
-    def get_tuning(self,params,hyperparam):
+    def get_tuning(self,params,hyperparam,tuning_basis):
         '''
         hyperparam currently not used; for potential alternative parameterizations
         '''
@@ -92,7 +94,8 @@ class AbstractGPLVMJump1D(ABC):
         self.tuning = tuning_init
         return params_init,tuning_init
 
-    def _decode_latent(self,y,log_latent_transition_kernel_l,log_dynamics_transition_kernel,likelihood_scale=1.):
+    @abstractmethod
+    def decode_latent(self,y,tuning,hyperparam,log_latent_transition_kernel_l,log_dynamics_transition_kernel,ma_neuron,ma_latent=None,likelihood_scale=1.,n_time_per_chunk=10000):
         '''
         decode the latent and dynamics
         y: observed data, spike counts here; n_time x n_neuron
@@ -147,8 +150,101 @@ class AbstractGPLVMJump1D(ABC):
         latent_l = self.sample_latent(T,key_l[0],movement_variance,p_move_to_jump,p_jump_to_move,init_dynamics,init_latent)
         y_l = self.sample_y(latent_l[:,1],hyperparam,tuning,dt,key_l[1]) # only using the latent and not the dynamics
         return latent_l,y_l
-
     
+    def init_latent_posterior(self,T,key,random_scale=0.1):
+        '''
+        initialize the posterior of the latent
+        start with equal posterior but add some noise then renormalize
+        '''
+        posterior = jnp.ones((T,self.n_latent_bin)) / self.n_latent_bin
+        posterior = posterior + jax.random.normal(key,shape=posterior.shape) * random_scale
+        posterior = posterior / posterior.sum(axis=1,keepdims=True)
+        log_posterior = jnp.log(posterior)
+        log_posterior = jnp.where(log_posterior ==-jnp.inf,-1e40,log_posterior)
+        return log_posterior,posterior
+
+    def fit_em(self,y,hyperparam={},key=jax.random.PRNGKey(0),
+                    n_iter=20,
+                      posterior_init=None,ma_neuron=None,ma_latent=None,n_time_per_chunk=10000,dt=1.,likelihood_scale=1.,
+                      save_every=None,
+                      **kwargs):
+        '''
+        fit the model using EM
+        '''
+
+        # use existing or update ingredients for fitting
+        tuning_lengthscale = hyperparam.get('tuning_lengthscale',self.tuning_lengthscale)
+        movement_variance = hyperparam.get('movement_variance',self.movement_variance)
+        p_move_to_jump = hyperparam.get('p_move_to_jump',self.p_move_to_jump)
+        p_jump_to_move = hyperparam.get('p_jump_to_move',self.p_jump_to_move)
+
+        if save_every is None:
+            save_every = n_iter
+
+        log_posterior_all_saved = []
+        params_saved = []
+        tuning_saved = []
+        iter_saved = []
+        log_marginal_saved = []
+
+        log_latent_transition_kernel_l,log_dynamics_transition_kernel = gpk.create_transition_prob_1d(self.possible_latent_bin,self.possible_dynamics,movement_variance,p_move_to_jump,p_jump_to_move)
+        if ma_neuron is None:
+            ma_neuron = self.ma_neuron_default
+        if ma_latent is None:
+            ma_latent = self.ma_latent_default
+
+        # generate the basis if new tuning_lengthscale is provided
+        if 'tuning_lengthscale' in hyperparam:
+            tuning_basis = generate_basis(tuning_lengthscale,self.n_latent_bin,self.explained_variance_threshold_basis,include_bias=True)
+        else:
+            tuning_basis = self.tuning_basis
+        
+        if posterior_init is None:
+            log_posterior_init,posterior_init = self.init_latent_posterior(y.shape[0],key)
+            key,_=jax.random.split(key,2)
+        
+        log_posterior_curr = log_posterior_init
+        log_marginal_l = []
+        
+        for i in tqdm.trange(n_iter):
+            # M-step
+            m_res = self.m_step(y,log_posterior_curr,tuning_basis) # figure out what i need [[]] return tuning since that's what matters
+            params = m_res['params']
+            tuning = self.get_tuning(params,hyperparam,tuning_basis)
+            # E-step
+            log_posterior_all,log_marginal_final,log_prior_curr_all = self.decode_latent(y,tuning,hyperparam,log_latent_transition_kernel_l,log_dynamics_transition_kernel,ma_neuron,ma_latent,likelihood_scale=likelihood_scale,n_time_per_chunk=n_time_per_chunk)
+            log_posterior_curr = logsumexp(log_posterior_all,axis=1) # sum over the dynamics dimension; get log posterior over latent
+            log_marginal_l.append(log_marginal_final)
+
+            if i % save_every == 0:
+                log_posterior_all_saved.append(log_posterior_all)
+                params_saved.append(params)
+                tuning_saved.append(tuning)
+                log_marginal_saved.append(log_marginal_final)
+                iter_saved.append(i)
+        em_res = {'log_posterior_all_saved':log_posterior_all_saved,
+                  'log_posterior_init':log_posterior_init,
+                  'params_saved':params_saved,
+                  'tuning_saved':tuning_saved,
+                  'iter_saved':iter_saved,
+                  'params':params,
+                  'tuning':tuning,
+                  'log_posterior_final':log_posterior_all,
+                  'log_marginal':log_marginal_final,
+                  }
+        return em_res
+
+        
+        
+
+            
+
+
+
+
+
+
+        
 
 
 class PoissonGPLVMJump1D(AbstractGPLVMJump1D):
@@ -159,12 +255,12 @@ class PoissonGPLVMJump1D(AbstractGPLVMJump1D):
     def loglikelihood(self,y,ypred,hyperparam):
         return jax.scipy.stats.poisson.logpmf(y,ypred+1e-40)
 
-    def get_tuning(self,params,hyperparam):
-        tuning = m_step.get_tuning_softplus(params,self.tuning_basis)
+    def get_tuning(self,params,hyperparam,tuning_basis):
+        tuning = m_step.get_tuning_softplus(params,tuning_basis)
         return tuning
         
 
-    def _decode_latent(self,y,log_latent_transition_kernel_l,log_dynamics_transition_kernel,likelihood_scale=1.):
+    def decode_latent(self,y,tuning,hyperparam,log_latent_transition_kernel_l,log_dynamics_transition_kernel,ma_neuron,ma_latent=None,likelihood_scale=1.,n_time_per_chunk=10000):
         '''
         decode the latent and dynamics
         y: observed data, spike counts here; n_time x n_neuron
@@ -172,7 +268,8 @@ class PoissonGPLVMJump1D(AbstractGPLVMJump1D):
         log_latent_transition_kernel_l: n_dynamics x n_latent x n_latent
         log_dynamics_transition_kernel: n_dynamics x n_dynamics
         '''
-        pass
+        log_posterior_all,log_marginal_final,log_prior_curr_all = decoder.smooth_all_step_combined_ma_chunk(y,tuning,hyperparam,log_latent_transition_kernel_l,log_dynamics_transition_kernel,ma_neuron,ma_latent,likelihood_scale=likelihood_scale,n_time_per_chunk=n_time_per_chunk,observation_model='poisson')
+        return log_posterior_all,log_marginal_final,log_prior_curr_all
 
 
     def sample_y(self,latent_l,hyperparam={},tuning=None,dt=1.,key=jax.random.PRNGKey(10)):
@@ -195,12 +292,12 @@ class GaussianGPLVMJump1D(AbstractGPLVMJump1D):
     def loglikelihood(self,y,ypred,hyperparam):
         return jax.scipy.stats.norm.logpdf(y,ypred,hyperparam['noise_std'])
     
-    def get_tuning(self,params,hyperparam):
-        tuning = m_step.get_tuning_linear(params,self.tuning_basis)
+    def get_tuning(self,params,hyperparam,tuning_basis):
+        tuning = m_step.get_tuning_linear(params,tuning_basis)
         return tuning
         
 
-    def _decode_latent(self,y,log_latent_transition_kernel_l,log_dynamics_transition_kernel,likelihood_scale=1.):
+    def decode_latent(self,y,tuning,hyperparam,log_latent_transition_kernel_l,log_dynamics_transition_kernel,ma_neuron,ma_latent=None,likelihood_scale=1.,n_time_per_chunk=10000):
         '''
         decode the latent and dynamics
         y: observed data, spike counts here; n_time x n_neuron
@@ -208,7 +305,8 @@ class GaussianGPLVMJump1D(AbstractGPLVMJump1D):
         log_latent_transition_kernel_l: n_dynamics x n_latent x n_latent
         log_dynamics_transition_kernel: n_dynamics x n_dynamics
         '''
-        pass
+        log_posterior_all,log_marginal_final,log_prior_curr_all = decoder.smooth_all_step_combined_ma_chunk(y,tuning,hyperparam,log_latent_transition_kernel_l,log_dynamics_transition_kernel,ma_neuron,ma_latent,likelihood_scale=likelihood_scale,n_time_per_chunk=n_time_per_chunk,observation_model='gaussian')
+        return log_posterior_all,log_marginal_final,log_prior_curr_all
 
 
     def sample_y(self,latent_l,hyperparam={},tuning=None,dt=1.,key=jax.random.PRNGKey(10)):
