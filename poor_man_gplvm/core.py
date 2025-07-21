@@ -11,7 +11,7 @@ import jax.random as jr
 from jax.scipy.special import logsumexp
 from poor_man_gplvm import fit_tuning_with_basis as ftwb
 from abc import ABC, abstractmethod
-from poor_man_gplvm import m_step
+from poor_man_gplvm import fit_tuning_helper as fth
 from poor_man_gplvm import decoder
 import tqdm
 
@@ -229,6 +229,17 @@ class AbstractGPLVMJump1D(ABC):
                 tuning_saved.append(tuning)
                 log_marginal_saved.append(log_marginal_final)
                 iter_saved.append(i)
+        
+        # update attributes
+        self.params = params
+        self.tuning = tuning
+        self.log_posterior_curr = log_posterior_curr
+        self.log_marginal_final = log_marginal_final
+        self.log_prior_curr_all = log_prior_curr_all
+        self.log_latent_transition_kernel_l = log_latent_transition_kernel_l
+        self.log_dynamics_transition_kernel = log_dynamics_transition_kernel
+        self.tuning_basis = tuning_basis
+
         em_res = {'log_posterior_all_saved':log_posterior_all_saved,
                   'log_posterior_init':log_posterior_init,
                   'params_saved':params_saved,
@@ -263,7 +274,7 @@ class PoissonGPLVMJump1D(AbstractGPLVMJump1D):
         return jax.scipy.stats.poisson.logpmf(y,ypred+1e-40)
 
     def get_tuning(self,params,hyperparam,tuning_basis):
-        tuning = m_step.get_tuning_softplus(params,tuning_basis)
+        tuning = fth.get_tuning_softplus(params,tuning_basis)
         return tuning
         
 
@@ -300,7 +311,7 @@ class GaussianGPLVMJump1D(AbstractGPLVMJump1D):
         return jax.scipy.stats.norm.logpdf(y,ypred,hyperparam['noise_std'])
     
     def get_tuning(self,params,hyperparam,tuning_basis):
-        tuning = m_step.get_tuning_linear(params,tuning_basis)
+        tuning = fth.get_tuning_linear(params,tuning_basis)
         return tuning
         
 
@@ -325,3 +336,11 @@ class GaussianGPLVMJump1D(AbstractGPLVMJump1D):
         spk_sim=jax.random.normal(key,shape=rate.shape) * noise_std + rate
         return spk_sim
     
+    def m_step(self,y,log_posterior_curr,tuning_basis,hyperparam):
+        '''
+        m-step
+        '''
+        y_weighted,t_weighted = fth.get_statistics(log_posterior_curr,y)
+        params_new = fth.gaussian_m_step_analytic(tuning_basis,y_weighted,t_weighted,hyperparam['noise_std'])
+        m_step_res = {'params':params_new}
+        return m_step_res
