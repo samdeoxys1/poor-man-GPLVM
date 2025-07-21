@@ -45,8 +45,8 @@ def get_loglikelihood_ma_poisson(y,tuning,hyperparam,ma_neuron,ma_latent,dt=1.):
 def get_loglikelihood_ma_gaussian(y,tuning,hyperparam,ma_neuron,ma_latent,dt=1.):
     '''
     '''
-    noise_stddev = hyperparam['noise_stddev']
-    ll = jscipy.stats.norm.logpdf(y,(tuning*dt),noise_stddev)
+    noise_std = hyperparam['noise_std']
+    ll = jscipy.stats.norm.logpdf(y,(tuning*dt),noise_std)
     ll_per_pos = (ll * ma_neuron[None,:]).sum(axis=1)  # n_latent
     ll_per_pos = jnp.where(ma_latent, ll_per_pos, -1e20)
     return ll_per_pos
