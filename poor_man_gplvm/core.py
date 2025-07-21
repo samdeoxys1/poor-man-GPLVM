@@ -157,7 +157,7 @@ class AbstractGPLVMJump1D(ABC):
         start with equal posterior but add some noise then renormalize
         '''
         posterior = jnp.ones((T,self.n_latent_bin)) / self.n_latent_bin
-        posterior = posterior + jax.random.normal(key,shape=posterior.shape) * random_scale
+        posterior = posterior + jax.random.uniform(key,shape=posterior.shape) * random_scale
         posterior = posterior / posterior.sum(axis=1,keepdims=True)
         log_posterior = jnp.log(posterior)
         log_posterior = jnp.where(log_posterior ==-jnp.inf,-1e40,log_posterior)
