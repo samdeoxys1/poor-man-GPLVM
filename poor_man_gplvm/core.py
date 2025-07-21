@@ -20,7 +20,7 @@ at each EM iteration, create the transition matrix based on the hyperparams;
 fix lenscale, so eigenvalue and eigenvectors are fixed; but allow a latent mask in decoder such that i can do downsampled test lml for model selection;
 '''
 
-def generate_basis(lengthscale,n_latent_bin,explained_variance_threshold_basis = 0.999 ):
+def generate_basis(lengthscale,n_latent_bin,explained_variance_threshold_basis = 0.999,include_bias=True ):
     possible_latent_bin = jnp.linspace(0,1,n_latent_bin)
     tuning_kernel,log_tuning_kernel = vmap(vmap(lambda x,y: gpk.rbf_kernel(x,y,lengthscale,1.),in_axes=(0,None),out_axes=0),out_axes=1,in_axes=(None,0))(possible_latent_bin,possible_latent_bin)
 
@@ -29,6 +29,8 @@ def generate_basis(lengthscale,n_latent_bin,explained_variance_threshold_basis =
     n_basis = (jnp.cumsum(sing_val / sing_val.sum()) < explained_variance_threshold_basis).sum() + 1 # first dimension that cross the thresh, n below + 1
     sqrt_eigval=jnp.sqrt(jnp.sqrt(sing_val))
     tuning_basis = tuning_basis[:,:n_basis] * sqrt_eigval[:n_basis][None,:] 
+    if include_bias:
+        tuning_basis = jnp.concatenate([jnp.ones((n_latent_bin,1)),tuning_basis],axis=1)
     return tuning_basis
 
 
@@ -43,8 +45,6 @@ class AbstractGPLVMJump1D(ABC):
                  rng_init_int = 123,
                  w_init_variance=1.,
                  w_init_mean=0.,
-                 b_init_variance=1.,
-                 b_init_mean=0.,
                  p_move_to_jump=0.01,
                  p_jump_to_move=0.01,
                  ):
@@ -61,11 +61,11 @@ class AbstractGPLVMJump1D(ABC):
         self.possible_dynamics = jnp.arange(2)
         self.w_init_variance = w_init_variance
         self.w_init_mean = w_init_mean
-        self.b_init_variance = b_init_variance
-        self.b_init_mean = b_init_mean
+        # self.b_init_variance = b_init_variance
+        # self.b_init_mean = b_init_mean
 
         # generate the basis
-        self.tuning_basis = generate_basis(self.tuning_lengthscale,self.n_latent_bin,self.explained_variance_threshold_basis)
+        self.tuning_basis = generate_basis(self.tuning_lengthscale,self.n_latent_bin,self.explained_variance_threshold_basis,include_bias=True)
         self.n_basis = self.tuning_basis.shape[1]
        
         # default masks
@@ -77,8 +77,9 @@ class AbstractGPLVMJump1D(ABC):
     
     def initialize_params(self,key):
         params_init_w = jax.random.normal(key,(self.n_basis,self.n_neuron)) * jnp.sqrt(self.w_init_variance) # prior_hyper here is variance
-        params_init_b = jax.random.normal(key,(self.n_neuron,)) * jnp.sqrt(self.b_init_variance) + self.b_init_mean
-        params_init = (params_init_w,params_init_b)
+        # params_init_b = jax.random.normal(key,(self.n_neuron,)) * jnp.sqrt(self.b_init_variance) + self.b_init_mean
+        # params_init = (params_init_w,params_init_b)
+        params_init = params_init_w
         tuning_init = ftwb.glm_get_tuning(params_init,self.tuning_basis)
         self.params = params_init
         self.tuning = tuning_init
