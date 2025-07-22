@@ -242,6 +242,12 @@ class AbstractGPLVMJump1D(ABC):
         self.log_dynamics_transition_kernel = log_dynamics_transition_kernel
         self.tuning_basis = tuning_basis
 
+        posterior = np.exp(log_posterior_all) # n_time x n_dynamics x n_latent
+        posterior_latent_marg = posterior.sum(axis=0)
+        posterior_dynamics_marg = posterior.sum(axis=1)
+        
+        
+
         em_res = {'log_posterior_all_saved':log_posterior_all_saved,
                   'log_posterior_init':log_posterior_init,
                   'params_saved':params_saved,
@@ -253,6 +259,9 @@ class AbstractGPLVMJump1D(ABC):
                   'log_marginal':log_marginal_final,
                   'log_marginal_l':log_marginal_l,
                   'log_marginal_saved':log_marginal_saved,
+                  'posterior':posterior,
+                  'posterior_latent_marg':posterior_latent_marg,
+                  'posterior_dynamics_marg':posterior_dynamics_marg,
                 #   'log_posterior_curr_next_joint_all':log_posterior_curr_next_joint_all, # from this, transition can be derived
                   }
         return em_res
