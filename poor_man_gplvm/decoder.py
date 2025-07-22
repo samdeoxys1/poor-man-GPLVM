@@ -250,18 +250,20 @@ def smooth_all_step_combined_ma_chunk(y, tuning,hyperparam,log_latent_transition
     log_acausal_curr_next_joint_all_allchunk = []
 
     # spatio-temporal mask
-    ma_neuron = jnp.broadcast_to(ma_neuron,y.shape)
+    # ma_neuron = jnp.broadcast_to(ma_neuron,y.shape)
     if ma_latent is None:
         ma_latent = jnp.ones(tuning.shape[0])
     
     slice_l = []
     for n in range(n_chunks):
+        
         sl = slice((n) * n_time_per_chunk , (n+1) * n_time_per_chunk )
         slice_l.append(sl)
         y_chunk = y[sl]
+        ma_neuron_chunk = jnp.broadcast_to(ma_neuron,y_chunk.shape)
 
         # spatio-temporal mask
-        ma_neuron_chunk = ma_neuron[sl]
+        # ma_neuron_chunk = ma_neuron[sl]
         
         
         log_causal_posterior_all,log_marginal_final,log_causal_prior_all=filter_all_step_combined_ma(y_chunk, tuning,hyperparam,log_latent_transition_kernel_l,log_dynamics_transition_kernel,ma_neuron_chunk,ma_latent,carry_init=filter_carry_init,likelihood_scale=likelihood_scale,observation_model=observation_model)
