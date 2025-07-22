@@ -243,8 +243,8 @@ class AbstractGPLVMJump1D(ABC):
         self.tuning_basis = tuning_basis
 
         posterior = np.exp(log_posterior_all) # n_time x n_dynamics x n_latent
-        posterior_latent_marg = posterior.sum(axis=0)
-        posterior_dynamics_marg = posterior.sum(axis=1)
+        posterior_latent_marg = posterior.sum(axis=1)
+        posterior_dynamics_marg = posterior.sum(axis=2)
         
         
 
