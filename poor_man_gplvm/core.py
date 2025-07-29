@@ -419,6 +419,7 @@ class GaussianGPLVMJump1D(AbstractGPLVMJump1D):
         m-step
         '''
         y_weighted,t_weighted = fth.get_statistics(log_posterior_curr,y)
+        print(y_weighted.shape,t_weighted.shape)
         params_new = fth.gaussian_m_step_analytic(tuning_basis,y_weighted,t_weighted,hyperparam['noise_std'])
         m_step_res = {'params':params_new}
         return m_step_res
