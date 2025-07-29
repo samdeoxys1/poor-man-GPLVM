@@ -5,7 +5,7 @@ Helper functions for the M-step in the EM algorithm
 import jax
 import jax.numpy as jnp
 from jax import jit, vmap
-
+import jax.scipy as jscipy
 
 # new==
 @jit
