@@ -103,7 +103,7 @@ def make_adam_runner(fun, step_size, maxiter=1000, tol=1e-6):
         error_history = error_history.at[0].set(error)
 
         # carry: (iter, params, opt_state, error, loss, loss_prev, loss_history, error_history)
-        carry = (0, params, opt_state, error, loss, loss, loss_history, error_history)  # loss_prev = loss initially
+        carry = (0, params, opt_state, error, loss, 10*loss, loss_history, error_history)  # loss_prev = a big number
 
         def cond_fun(carry):
             i, params, opt_state, error, loss, loss_prev, loss_history, error_history = carry
