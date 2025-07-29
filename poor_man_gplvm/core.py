@@ -301,10 +301,10 @@ class PoissonGPLVMJump1D(AbstractGPLVMJump1D):
     The latent governs firing rate; the dynamics governs the transition probabilities between the latent states;
     """
     
-    def __init__(self, n_neuron, param_prior_std=1.0,  **kwargs):
-        super().__init__(n_neuron, **kwargs)
-        self.param_prior_std = param_prior_std
-        # Store default M-step optimization configuration
+    # def __init__(self, n_neuron, param_prior_std=1.0,  **kwargs):
+    #     super().__init__(n_neuron, **kwargs)
+    #     self.param_prior_std = param_prior_std
+    #     # Store default M-step optimization configuration
         
     
     def __getstate__(self):
