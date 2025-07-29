@@ -93,6 +93,7 @@ def make_adam_runner(fun, step_size, maxiter=1000, tol=1e-6):
         # compute initial error (e.g. gradient norm)
         loss, grads = jax.value_and_grad(fun)(params, *args)
         error = tree_l2_norm(grads)  # or any error metric
+        error_init = error
 
         # Pre-allocate history arrays (JIT-compatible)
         loss_history = jnp.zeros(maxiter)
@@ -107,7 +108,8 @@ def make_adam_runner(fun, step_size, maxiter=1000, tol=1e-6):
 
         def cond_fun(carry):
             i, params, opt_state, error, loss, loss_history, error_history = carry
-            return (i < maxiter - 1) & (error > tol)  # -1 because we start at 0
+            cond_error = error <= tol * jnp.maximum(error_init,1)
+            return (i < maxiter - 1) & (cond_error)  # -1 because we start at 0
 
         def body_fun(carry):
             i, params, opt_state, error, loss, loss_history, error_history = carry
