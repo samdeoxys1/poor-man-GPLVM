@@ -109,7 +109,7 @@ def make_adam_runner(fun, step_size, maxiter=1000, tol=1e-6):
             i, params, opt_state, error, loss, loss_prev, loss_history, error_history = carry
             # Continue if: haven't hit maxiter AND loss is still changing significantly
             relative_loss_change = jnp.abs(loss - loss_prev) / jnp.maximum(jnp.abs(loss_prev), 1e-8)
-            return (i < maxiter - 1) & (relative_loss_change <= tol)
+            return (i < maxiter - 1) & (relative_loss_change > tol)
 
         def body_fun(carry):
             i, params, opt_state, error, loss, loss_prev, loss_history, error_history = carry
