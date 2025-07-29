@@ -217,11 +217,16 @@ class AbstractGPLVMJump1D(ABC):
         
         log_posterior_curr = log_posterior_init
         log_marginal_l = []
-        
+        m_step_res_l = {}
         params = self.params
         for i in tqdm.trange(n_iter):
             # M-step
             m_res = self.m_step(params,y,log_posterior_curr,tuning_basis,hyperparam) # figure out what i need [[]] return tuning since that's what matters
+            if i==0:
+                m_step_res_l = {k:[] for k in m_res.keys()}
+            for k in m_res.keys():
+                if k!='params':
+                    m_step_res_l[k].append(m_res[k])
             params = m_res['params']
             tuning = self.get_tuning(params,hyperparam,tuning_basis)
             # E-step
@@ -267,6 +272,7 @@ class AbstractGPLVMJump1D(ABC):
                   'posterior':posterior,
                   'posterior_latent_marg':posterior_latent_marg,
                   'posterior_dynamics_marg':posterior_dynamics_marg,
+                  'm_step_res_l':m_step_res_l,
                 #   'log_posterior_curr_next_joint_all':log_posterior_curr_next_joint_all, # from this, transition can be derived
                   }
         return em_res
