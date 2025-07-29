@@ -189,7 +189,8 @@ class AbstractGPLVMJump1D(ABC):
                       save_every=None,posterior_init_kwargs={'random_scale':0.1},
                       **kwargs):
         '''
-        fit the model using EM
+        fit the model using 
+        after fitting EM with new hyperparam, also update the class attributes, so that post hoc analysis is simpler
         '''
 
         # use existing or update ingredients for fitting
@@ -197,6 +198,11 @@ class AbstractGPLVMJump1D(ABC):
         movement_variance = hyperparam.get('movement_variance',self.movement_variance)
         p_move_to_jump = hyperparam.get('p_move_to_jump',self.p_move_to_jump)
         p_jump_to_move = hyperparam.get('p_jump_to_move',self.p_jump_to_move)
+
+        self.tuning_lengthscale = tuning_lengthscale
+        self.movement_variance = movement_variance
+        self.p_move_to_jump = p_move_to_jump
+        self.p_jump_to_move = p_jump_to_move
 
         if save_every is None:
             save_every = n_iter
