@@ -103,13 +103,19 @@ def make_adam_runner(fun, step_size, maxiter=1000, tol=1e-6):
         error_history = error_history.at[0].set(error)
 
         # carry: (iter, params, opt_state, error, loss, loss_prev, loss_history, error_history)
-        carry = (0, params, opt_state, error, loss, 10*loss, loss_history, error_history)  # loss_prev = a big number
+        carry = (0, params, opt_state, error, loss, loss, loss_history, error_history)  # loss_prev = loss initially
 
         def cond_fun(carry):
             i, params, opt_state, error, loss, loss_prev, loss_history, error_history = carry
-            # Continue if: haven't hit maxiter AND loss is still changing significantly
+            # Continue if: haven't hit maxiter AND (still in warmup OR loss is still changing significantly)
+            min_iters = 5  # Run at least 5 iterations before checking convergence
             relative_loss_change = jnp.abs(loss - loss_prev) / jnp.maximum(jnp.abs(loss), 1e-8)
-            return (i>=5)&(i < maxiter - 1) & (relative_loss_change > tol)
+            
+            in_warmup = i < min_iters
+            not_converged = relative_loss_change > tol
+            not_maxed_out = i < (maxiter - 1)
+            
+            return not_maxed_out & (in_warmup | not_converged)
 
         def body_fun(carry):
             i, params, opt_state, error, loss, loss_prev, loss_history, error_history = carry
@@ -123,6 +129,7 @@ def make_adam_runner(fun, step_size, maxiter=1000, tol=1e-6):
             new_loss_history = loss_history.at[new_i].set(new_loss)
             new_error_history = error_history.at[new_i].set(new_error)
             
+            # Pass current loss as previous loss for next iteration
             return (new_i, new_params, new_opt_state, new_error, new_loss, loss, new_loss_history, new_error_history)
 
         # run the loop
