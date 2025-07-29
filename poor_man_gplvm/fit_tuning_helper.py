@@ -69,8 +69,12 @@ def poisson_m_step_objective(param,hyperparam,basis_mat,y_weighted,t_weighted):
     negative log joint
     '''
     param_prior_std = hyperparam['param_prior_std']
-    yhat = get_tuning_softplus(param,basis_mat) # n_latent x n_neuron
-    log_likelihood = jax.scipy.stats.poisson.logpmf(y_weighted,yhat * t_weighted[:,None]).sum()
+    pf_hat = get_tuning_softplus(param,basis_mat) # n_latent x n_neuron
+    # log_likelihood = jax.scipy.stats.poisson.logpmf(y_weighted,yhat * t_weighted[:,None]).sum()
+
+    norm_term = pf_hat * t_weighted[:,None] # n_latent x n_neuron
+    fit_term = vmap(jscipy.special.xlogy,in_axes=(1,1))(y_weighted,pf_hat+1e-20) # n_latent x n_neuron
+    log_likelihood = jnp.sum(fit_term - norm_term) # crucial, this is different from poisson logpmf(s_b_one, pf_one*t_b)!!!!
     log_prior = jax.scipy.stats.norm.logpdf(param,0,param_prior_std).sum()
     return -log_likelihood - log_prior
 
