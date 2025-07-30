@@ -7,6 +7,7 @@ from typing import Dict, List, Any
 from poor_man_gplvm import PoissonGPLVMJump1D,GaussianGPLVMJump1D
 import jax.random as jr 
 import numpy as np
+import jax.numpy as jnp
 
 model_class_dict = {'poisson':PoissonGPLVMJump1D,'gaussian':GaussianGPLVMJump1D}
 
@@ -48,7 +49,7 @@ def fit_model_one_config(config,y_train,key=jr.PRNGKey(0),fit_kwargs=default_fit
         model_fit_l.append(model_fit)
     return model_fit_l
 
-def evaluate_model_one_config(model_fit_l,y_test,key=jr.PRNGKey(1)):
+def evaluate_model_one_config(model_fit_l,y_test,key=jr.PRNGKey(1),latent_downsample_frac=0.2,downsample_n_repeat=10):
     '''
     evaluate the fitted model on the test data
 
@@ -61,22 +62,33 @@ def evaluate_model_one_config(model_fit_l,y_test,key=jr.PRNGKey(1)):
     '''
     model_eval_result = {}
 
+    # metric: log_marginal_test
     model_eval_result['log_marginal_test'] = {'value_per_fit':[],'best_value':None,'best_index':None}
     for model_fit in model_fit_l:
         log_posterior_all,log_marginal_final,log_causal_posterior_all = model_fit.decode_latent(y_test)
         model_eval_result['log_marginal_test']['value_per_fit'].append(log_marginal_final)
     model_eval_result['log_marginal_test']['value_per_fit'] = np.array(model_eval_result['log_marginal_test']['value_per_fit'])
     
+    # metric: downsampled_lml
+    model_eval_result['downsampled_lml'] = {'value_per_fit':[],'best_value':None,'best_index':None}
+    for model_fit in model_fit_l:
+        ds_lml_result = get_downsampled_lml(model_fit,y_test,downsample_frac=latent_downsample_frac,n_repeat=downsample_n_repeat,key=key)
+        model_eval_result['downsampled_lml']['value_per_fit'].append(ds_lml_result['value'])
+    model_eval_result['downsampled_lml']['value_per_fit'] = np.array(model_eval_result['downsampled_lml']['value_per_fit'])
+    
     # for now testing; metric_overall is the same as log_marginal_test
     model_eval_result['metric_overall'] = {'value_per_fit':[],'best_value':None,'best_index':None}
-    model_eval_result['metric_overall']['value_per_fit'] = model_eval_result['log_marginal_test']['value_per_fit']
+    # model_eval_result['metric_overall']['value_per_fit'] = model_eval_result['log_marginal_test']['value_per_fit']
+    model_eval_result['metric_overall']['value_per_fit'] = model_eval_result['downsampled_lml']['value_per_fit']
+
+    
 
     for k in model_eval_result.keys():
         model_eval_result[k]['best_value'] = np.max(model_eval_result[k]['value_per_fit'])
         model_eval_result[k]['best_index'] = np.argmax(model_eval_result[k]['value_per_fit'])
     return model_eval_result
 
-def model_selection_one_split(y,hyperparam_dict,train_index=None,test_index=None,test_frac=0.2,key = jr.PRNGKey(0),model_to_return_type='best_overall',fit_kwargs=default_fit_kwargs,model_class_str='poisson',n_repeat = 1):
+def model_selection_one_split(y,hyperparam_dict,train_index=None,test_index=None,test_frac=0.2,key = jr.PRNGKey(0),model_to_return_type='best_overall',fit_kwargs=default_fit_kwargs,model_class_str='poisson',n_repeat = 1,latent_downsample_frac=0.2,downsample_n_repeat=10):
     '''
     for one split of data, fit and evaluate the models given by all configs
     model_to_return_type: 
@@ -115,7 +127,7 @@ def model_selection_one_split(y,hyperparam_dict,train_index=None,test_index=None
         key,_ = jr.split(key)
         key_fit,key_eval = jr.split(key)
         model_fit_l = fit_model_one_config(param_dict,y_train,key=key_fit,fit_kwargs=fit_kwargs,model_class_str=model_class_str,n_repeat=n_repeat)
-        model_eval_result = evaluate_model_one_config(model_fit_l,y_test,key=key_eval)
+        model_eval_result = evaluate_model_one_config(model_fit_l,y_test,key=key_eval,latent_downsample_frac=latent_downsample_frac,downsample_n_repeat=downsample_n_repeat)
         # append the best metrics to the result
         if model_eval_result_all_configs == {}:
             for k in model_eval_result.keys():
@@ -148,3 +160,27 @@ def model_selection_one_split(y,hyperparam_dict,train_index=None,test_index=None
     
 
     return model_selection_res
+
+# additional metrics
+# metric result is a dict with value and additional keys
+def get_downsampled_lml(model_fit,y_test,downsample_frac=0.2,n_repeat=10,key=jr.PRNGKey(4),**kwargs):
+    '''
+    downsampled log marginal likelihood; downsample the latent space to penalize model complexity
+    kwargs see core.AbstractGPLVM.decode_latent
+    '''
+    key_l = jr.split(key,n_repeat)
+    lml_l = []
+    n_latent_to_select = int(model_fit.n_latent_bin * downsample_frac)
+    for key in key_l:
+        # generate latent mask with n_latent_bin length and only n_latent_to_select are 1
+        latent_mask = jnp.zeros(model_fit.n_latent_bin)
+        latent_mask = latent_mask.at[jr.choice(key,model_fit.n_latent_bin,shape=(n_latent_to_select,),replace=False)].set(1)
+        log_posterior_all,log_marginal_final,log_causal_posterior_all = model_fit.decode_latent(y_test,ma_latent=latent_mask,**kwargs)
+        lml_l.append(log_marginal_final)
+    ds_lml_mean = np.mean(lml_l)
+    ds_lml_std = np.std(lml_l)
+    ds_lml_result = {'value':ds_lml_mean,'std':ds_lml_std}
+    return ds_lml_result
+
+
+
