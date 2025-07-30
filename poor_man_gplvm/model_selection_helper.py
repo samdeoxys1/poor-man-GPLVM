@@ -130,7 +130,7 @@ def model_selection_one_split(y,hyperparam_dict,train_index=None,test_index=None
         test_index = slice(int(T*(1-test_frac)),T)
     y_train = y[train_index]
     y_test = y[test_index]
-    param_grid_l,param_grid_df = generate_hyperparam_grid(hyperparam_dict)
+    hyperparam_grid_l,hyperparam_grid_df = generate_hyperparam_grid(hyperparam_dict)
     model_eval_result_all_configs = {}
 
     best_model = None
@@ -138,8 +138,8 @@ def model_selection_one_split(y,hyperparam_dict,train_index=None,test_index=None
     model_to_return_l = []
     metric_overall_best = -np.inf
     
-    for ii,param_dict in enumerate(param_grid_l): 
-        print('== Config {} of {} =='.format(ii+1,len(param_grid_l)))
+    for ii,param_dict in enumerate(hyperparam_grid_l): 
+        print('== Config {} of {} =='.format(ii+1,len(hyperparam_grid_l)))
         key,_ = jr.split(key)
         key_fit,key_eval = jr.split(key)
         model_fit_l = fit_model_one_config(param_dict,y_train,key=key_fit,fit_kwargs=fit_kwargs,model_class_str=model_class_str,n_repeat=n_repeat)
@@ -172,7 +172,7 @@ def model_selection_one_split(y,hyperparam_dict,train_index=None,test_index=None
     elif model_to_return_type == 'best_config':
         model_to_return_l = [best_model_l]
     model_eval_result_all_configs = pd.DataFrame(model_eval_result_all_configs)
-    model_selection_res = {'model_to_return_l':model_to_return_l,'best_config':best_config,'best_model':best_model,'best_model_l':best_model_l,'model_eval_result_all_configs':model_eval_result_all_configs}
+    model_selection_res = {'model_to_return_l':model_to_return_l,'best_config':best_config,'best_model':best_model,'best_model_l':best_model_l,'model_eval_result_all_configs':model_eval_result_all_configs,'hyperparam_grid_df':hyperparam_grid_df}
     
 
     return model_selection_res
