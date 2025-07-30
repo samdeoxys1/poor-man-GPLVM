@@ -39,6 +39,37 @@ def rbf_kernel(X, Y=None, length_scale=1.0):
     return K
 
 
+# post fit neuron sorting + normalization; used in post fit visualization
+def post_fit_sort_neuron(fit_res,spk=None,do_norm='max',method='tuning_peak'):
+    '''
+    fit result: can include tuning or posterior, depending on the sorting method
+    spk: binned spike: n_time x n_neuron, if not provided, then only return the argsort; if provided, return the sorted and optionally normalized spk
+    '''
+    if method == 'tuning_peak':
+        assert 'tuning' in fit_res, "Tuning is not in the fit result"
+        tuning = fit_res['tuning']
+        argsort=np.argsort(np.argmax(tuning[:,],axis=0))
+
+    else:
+        raise ValueError(f"Invalid method: {method}")
+    if spk is not None:
+        if do_norm == 'max':
+            spk_to_plot = spk / spk.max(axis=0,keepdims=True)
+        elif do_norm == 'zscore':
+            spk_to_plot = (spk - spk.mean(axis=0,keepdims=True)) / spk.std(axis=0,keepdims=True)
+        elif do_norm==None:
+            spk_to_plot = spk
+        else:
+            raise ValueError(f"Invalid normalization method: {do_norm}")
+        spk_to_plot = spk_to_plot[:,argsort]
+    to_return = {}
+    to_return['spk_to_plot'] = spk_to_plot
+    to_return['argsort'] = argsort
+    return to_return
+
+
+
+# tested so far not good; not used
 def pca_init(Y, latent_dim):
     """Initialize latent points using PCA.
     
@@ -67,3 +98,4 @@ def pca_init(Y, latent_dim):
     X = U[:, :latent_dim] * S[:latent_dim]
     
     return X 
+
