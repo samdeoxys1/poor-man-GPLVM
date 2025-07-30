@@ -67,6 +67,10 @@ def evaluate_model_one_config(model_fit_l,y_test,key=jr.PRNGKey(1)):
         model_eval_result['log_marginal_test']['value_per_fit'].append(log_marginal_final)
     model_eval_result['log_marginal_test']['value_per_fit'] = np.array(model_eval_result['log_marginal_test']['value_per_fit'])
     
+    # for now testing; metric_overall is the same as log_marginal_test
+    model_eval_result['metric_overall'] = {'value_per_fit':[],'best_value':None,'best_index':None}
+    model_eval_result['metric_overall']['value_per_fit'] = model_eval_result['log_marginal_test']['value_per_fit']
+
     for k in model_eval_result.keys():
         model_eval_result[k]['best_value'] = np.max(model_eval_result[k]['value_per_fit'])
         model_eval_result[k]['best_index'] = np.argmax(model_eval_result[k]['value_per_fit'])
@@ -75,7 +79,19 @@ def evaluate_model_one_config(model_fit_l,y_test,key=jr.PRNGKey(1)):
 def model_selection_one_split(y,hyperparam_dict,train_index=None,test_index=None,test_frac=0.2,key = jr.PRNGKey(0),model_to_return_type='best_overall',**kwargs):
     '''
     for one split of data, fit and evaluate the models given by all configs
-    model_to_return_type: 'best_overall' or 'best_per_config' or 'all
+    model_to_return_type: 
+        - 'best_overall' : return the best model overall
+        - 'best_per_config' : return the best model for each config
+        - 'all' : return all models
+        - 'best_config' : return all models for the best config
+    
+    return:
+    model_selection_res = Dict
+    - model_to_return_l: depending on model_to_return_type
+    - best_config: the best config
+    - best_model: the best model
+    - best_model_l: best config, all models
+    - model_eval_result_all_configs: the evaluation result for all configs
     '''
     
     T,n_neuron = y.shape
@@ -87,16 +103,46 @@ def model_selection_one_split(y,hyperparam_dict,train_index=None,test_index=None
     y_train = y[train_index]
     y_test = y[test_index]
     param_grid_l,param_grid_df = generate_hyperparam_grid(hyperparam_dict)
-    
+    model_eval_result_all_configs = {}
+
+    best_model = None
+    best_model_l = None
+    model_to_return_l = []
+    metric_overall_best = -np.inf
     for param_dict in param_grid_l: 
         key,_ = jr.split(key)
         key_fit,key_eval = jr.split(key)
         model_fit_l = fit_model_one_config(param_dict,y_train,key=key_fit,**kwargs)
         model_eval_result = evaluate_model_one_config(model_fit_l,y_test,key=key_eval)
         # append the best metrics to the result
-
-        # decide which model to return based on model_to_return_type
+        if model_eval_result_all_configs == {}:
+            for k in model_eval_result.keys():
+                model_eval_result_all_configs[k+'_best_value'] = []
+                model_eval_result_all_configs[k+'_best_index'] = []
+        for k in model_eval_result.keys():
+            model_eval_result_all_configs[k+'_best_value'].append(model_eval_result[k]['best_value'])
+            model_eval_result_all_configs[k+'_best_index'].append(model_eval_result[k]['best_index'])
+        metric_overall_best_value_current = model_eval_result['metric_overall']['best_value']
+        
+        # if metric_overall is the best, update models and config
+        if metric_overall_best_value_current > metric_overall_best:
+            metric_overall_best = metric_overall_best_value_current
+            best_model = model_fit_l[model_eval_result['metric_overall']['best_index']]
+            best_model_l = model_fit_l
+            best_config = param_dict
+        
+        # append models for return
+        if model_to_return_type == 'best_per_config':
+            model_to_return_l.append(model_fit_l[model_eval_result['metric_overall']['best_index']])
+        elif model_to_return_type == 'all':
+            model_to_return_l.append(model_fit_l)
     
-    # final comparison of the best model and config
+    if model_to_return_type == 'best_overall':
+        model_to_return_l = [best_model]
+    elif model_to_return_type == 'best_config':
+        model_to_return_l = [best_model_l]
+    
+    model_selection_res = {'model_to_return_l':model_to_return_l,'best_config':best_config,'best_model':best_model,'best_model_l':best_model_l,'model_eval_result_all_configs':model_eval_result_all_configs}
+    
 
-    return model_eval_result
+    return model_selection_res
