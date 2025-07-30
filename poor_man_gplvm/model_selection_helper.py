@@ -49,7 +49,7 @@ def fit_model_one_config(config,y_train,key=jr.PRNGKey(0),fit_kwargs=default_fit
         model_fit_l.append(model_fit)
     return model_fit_l
 
-def evaluate_model_one_config(model_fit_l,y_test,key=jr.PRNGKey(1),latent_downsample_frac=0.2,downsample_n_repeat=10):
+def evaluate_model_one_config(model_fit_l,y_test,key=jr.PRNGKey(1),latent_downsample_frac=[0.2],downsample_n_repeat=10):
     '''
     evaluate the fitted model on the test data
 
@@ -70,16 +70,17 @@ def evaluate_model_one_config(model_fit_l,y_test,key=jr.PRNGKey(1),latent_downsa
     model_eval_result['log_marginal_test']['value_per_fit'] = np.array(model_eval_result['log_marginal_test']['value_per_fit'])
     
     # metric: downsampled_lml
-    model_eval_result['downsampled_lml'] = {'value_per_fit':[],'best_value':None,'best_index':None}
-    for model_fit in model_fit_l:
-        ds_lml_result = get_downsampled_lml(model_fit,y_test,downsample_frac=latent_downsample_frac,n_repeat=downsample_n_repeat,key=key)
-        model_eval_result['downsampled_lml']['value_per_fit'].append(ds_lml_result['value'])
-    model_eval_result['downsampled_lml']['value_per_fit'] = np.array(model_eval_result['downsampled_lml']['value_per_fit'])
+    for downsample_frac in latent_downsample_frac:
+        model_eval_result['downsampled_lml_'+str(downsample_frac)] = {'value_per_fit':[],'best_value':None,'best_index':None}
+        for model_fit in model_fit_l:
+            ds_lml_result = get_downsampled_lml(model_fit,y_test,downsample_frac=downsample_frac,n_repeat=downsample_n_repeat,key=key)
+            model_eval_result['downsampled_lml_'+str(downsample_frac)]['value_per_fit'].append(ds_lml_result['value'])
+        model_eval_result['downsampled_lml_'+str(downsample_frac)]['value_per_fit'] = np.array(model_eval_result['downsampled_lml_'+str(downsample_frac)]['value_per_fit'])
     
     # for now testing; metric_overall is the same as log_marginal_test
     model_eval_result['metric_overall'] = {'value_per_fit':[],'best_value':None,'best_index':None}
-    # model_eval_result['metric_overall']['value_per_fit'] = model_eval_result['log_marginal_test']['value_per_fit']
-    model_eval_result['metric_overall']['value_per_fit'] = model_eval_result['downsampled_lml']['value_per_fit']
+    model_eval_result['metric_overall']['value_per_fit'] = model_eval_result['log_marginal_test']['value_per_fit']
+    # model_eval_result['metric_overall']['value_per_fit'] = model_eval_result['downsampled_lml']['value_per_fit']
 
     
 
@@ -88,14 +89,25 @@ def evaluate_model_one_config(model_fit_l,y_test,key=jr.PRNGKey(1),latent_downsa
         model_eval_result[k]['best_index'] = np.argmax(model_eval_result[k]['value_per_fit'])
     return model_eval_result
 
-def model_selection_one_split(y,hyperparam_dict,train_index=None,test_index=None,test_frac=0.2,key = jr.PRNGKey(0),model_to_return_type='best_overall',fit_kwargs=default_fit_kwargs,model_class_str='poisson',n_repeat = 1,latent_downsample_frac=0.2,downsample_n_repeat=10):
+def model_selection_one_split(y,hyperparam_dict,train_index=None,test_index=None,test_frac=0.2,key = jr.PRNGKey(0),model_to_return_type='best_overall',fit_kwargs=default_fit_kwargs,model_class_str='poisson',n_repeat = 1,latent_downsample_frac=[0.2],downsample_n_repeat=10):
     '''
     for one split of data, fit and evaluate the models given by all configs
+    hyperparam_dict: dict of hyperparam ranges
+    train_index: index of the train data
+    test_index: index of the test data
+    test_frac: fraction of the data to be used as test data
+    key: random key
     model_to_return_type: 
         - 'best_overall' : return the best model overall
         - 'best_per_config' : return the best model for each config
         - 'all' : return all models
         - 'best_config' : return all models for the best config
+    
+    fit_kwargs: dict of kwargs for the fit_em function, see core.AbstractGPLVM.fit_em
+    model_class_str: 'poisson' or 'gaussian'
+    n_repeat: number of times to repeat the fitting
+    latent_downsample_frac: list of downsample fractions for the latent space
+    downsample_n_repeat: number of times to repeat the downsampling
     
     return:
     model_selection_res = Dict
