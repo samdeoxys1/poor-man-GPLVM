@@ -503,6 +503,6 @@ def init_with_pca(y,n_latent_bin,n_pca_components=None,noise_scale=0,key=jr.PRNG
     
     if noise_scale > 0:
         pca_latent = pca_latent + jr.normal(key,shape=pca_latent.shape) * noise_scale
-    pca_latent_norm =pca_latent / jnp.linalg.norm(pca_latent,axis=1) # make sure elements are not too extreme; divide by norm at each time
-    log_p_latent = pca_latent_norm - logsumexp(pca_latent_norm,axis=1)
+    pca_latent_norm =pca_latent / jnp.linalg.norm(pca_latent,axis=1,keepdims=True) # make sure elements are not too extreme; divide by norm at each time
+    log_p_latent = pca_latent_norm - logsumexp(pca_latent_norm,axis=1,keepdims=True)
     return log_p_latent
