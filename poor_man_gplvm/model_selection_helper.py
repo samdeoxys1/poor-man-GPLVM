@@ -11,7 +11,7 @@ import jax.numpy as jnp
 
 model_class_dict = {'poisson':PoissonGPLVMJump1D,'gaussian':GaussianGPLVMJump1D}
 
-default_fit_kwargs = {'n_iter':20,'n_time_per_chunk':10000,'dt':1.,'likelihood_scale':1.,'save_every':None,'posterior_init_kwargs':{'random_scale':0.1}}
+default_fit_kwargs = {'n_iter':20,'log_posterior_init':None,'n_time_per_chunk':10000,'dt':1.,'likelihood_scale':1.,'save_every':None,'posterior_init_kwargs':{'random_scale':0.1}}
 
 def generate_hyperparam_grid(hyperparam_ranges: Dict[str, List]) -> List[Dict[str, Any]]:
     """
