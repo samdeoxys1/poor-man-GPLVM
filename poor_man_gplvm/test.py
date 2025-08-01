@@ -4,7 +4,7 @@ tentative and subject to change
 '''
 import numpy as np
 import pynapple as nap
-
+import jax.numpy as jnp
 
 def circular_shuffle_data(spk_tsdf,n_shuffle=100,ep=None):
     '''
