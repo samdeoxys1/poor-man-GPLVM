@@ -147,16 +147,14 @@ class AbstractGPLVMJump1D(ABC):
         if tuning is None:
             tuning = self.tuning
         
-        log_posterior_all,log_marginal_l,log_marginal_final = decoder.get_naive_bayes_ma_chunk(y,tuning,hyperparam,ma_neuron,ma_latent,dt_l=dt_l,n_time_per_chunk=n_time_per_chunk,observation_model=observation_model)
-        posterior_all = np.exp(log_posterior_all)
-        posterior_latent_marg = posterior_all.sum(axis=1)
-        posterior_dynamics_marg = posterior_all.sum(axis=2)
-        decoding_res = {'log_posterior_all':np.array(log_posterior_all),
+        log_posterior_latent,log_marginal_l,log_marginal_total = decoder.get_naive_bayes_ma_chunk(y,tuning,hyperparam,ma_neuron,ma_latent,dt_l=dt_l,n_time_per_chunk=n_time_per_chunk,observation_model=observation_model)
+        posterior_latent = np.exp(log_posterior_latent)
+        
+        decoding_res = {'log_posterior_latent':np.array(log_posterior_latent),
                         'log_marginal_l':np.array(log_marginal_l),
-                        'log_marginal_final':log_marginal_final.item(),
-                        'posterior_all':posterior_all,
-                        'posterior_latent_marg':posterior_latent_marg,
-                        'posterior_dynamics_marg':posterior_dynamics_marg}
+                        'log_marginal_total':log_marginal_total.item(),
+                        'posterior_latent':posterior_latent,
+                        }
         return decoding_res
 
     def sample_latent(self,T,key=jax.random.PRNGKey(0),movement_variance=1,p_move_to_jump=0.01,p_jump_to_move=0.01,

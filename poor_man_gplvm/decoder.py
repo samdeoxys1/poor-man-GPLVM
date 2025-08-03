@@ -149,8 +149,8 @@ def get_naive_bayes_ma_chunk(y,tuning,hyperparam,ma_neuron,ma_latent,dt_l=1,n_ti
         log_marginal_l.append(log_marginal)
     log_post_l = jnp.concatenate(log_post_l,axis=0)
     log_marginal_l = jnp.concatenate(log_marginal_l_l,axis=0)
-    log_marginal_final = jnp.sum(jnp.array(log_marginal_l))
-    return log_post_l, log_marginal_l,log_marginal_final
+    log_marginal_total = jnp.sum(jnp.array(log_marginal_l))
+    return log_post_l, log_marginal_l,log_marginal_total
 
 @jit
 def filter_one_step(carry,ll_curr,log_latent_transition_kernel_l,log_dynamics_transition_kernel,likelihood_scale=1):
