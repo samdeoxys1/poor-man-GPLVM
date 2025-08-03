@@ -92,7 +92,7 @@ def get_naive_bayes_ma(y_l,tuning,hyperparam,ma_neuron,ma_latent,dt_l=1,observat
     log_marginal_l = jscipy.special.logsumexp(ll_per_pos_l,axis=-1,keepdims=True)
     log_post = ll_per_pos_l - log_marginal_l
     log_marginal = jnp.sum(log_marginal_l)
-    return log_post, log_marginal_l,log_marginal
+    return log_post, jnp.squeeze(log_marginal_l),log_marginal
 
 ### test result -- still need chunking even if likelihood is already computed
 # def get_loglikelihood_ma_chunk(y_l,tuning,ma,n_time_per_chunk=10000):
@@ -112,6 +112,20 @@ def get_naive_bayes_ma(y_l,tuning,hyperparam,ma_neuron,ma_latent,dt_l=1,observat
 #     return ll_per_pos_l
 
 def get_naive_bayes_ma_chunk(y,tuning,hyperparam,ma_neuron,ma_latent,dt_l=1,n_time_per_chunk=10000,observation_model='poisson'):
+    '''
+    y: n_time x n_neuron
+    tuning: n_latent x n_neuron
+    ma_neuron: n_neuron
+    ma_latent: n_latent
+    dt_l: n_time
+    n_time_per_chunk: int
+    observation_model: 'poisson' or 'gaussian'
+
+    return:
+    log_post_l: n_time x n_latent
+    log_marginal_l: n_time
+    log_marginal_final: scalar
+    '''
     n_time_tot = y.shape[0]
     n_chunks = int( jnp.ceil(n_time_tot / n_time_per_chunk))
     dt_l= jnp.broadcast_to(dt_l,y.shape[0])
@@ -121,6 +135,7 @@ def get_naive_bayes_ma_chunk(y,tuning,hyperparam,ma_neuron,ma_latent,dt_l=1,n_ti
     
     slice_l = []
     log_post_l = []
+    log_marginal_l_l = []
     log_marginal_l = []
     for n in range(n_chunks):
         sl = slice((n) * n_time_per_chunk , (n+1) * n_time_per_chunk )
@@ -130,8 +145,10 @@ def get_naive_bayes_ma_chunk(y,tuning,hyperparam,ma_neuron,ma_latent,dt_l=1,n_ti
         dt_l_chunk = dt_l[sl]
         log_post,log_marginal_l_chunk,log_marginal = get_naive_bayes_ma(y_chunk,tuning,hyperparam,ma_neuron_chunk,ma_latent,dt_l_chunk,observation_model=observation_model)
         log_post_l.append(log_post)
-        log_marginal_l.append(log_marginal_l_chunk)
+        log_marginal_l_l.append(log_marginal_l_chunk)
+        log_marginal_l.append(log_marginal)
     log_post_l = jnp.concatenate(log_post_l,axis=0)
+    log_marginal_l = jnp.concatenate(log_marginal_l_l,axis=0)
     log_marginal_final = jnp.sum(jnp.array(log_marginal_l))
     return log_post_l, log_marginal_l,log_marginal_final
 
