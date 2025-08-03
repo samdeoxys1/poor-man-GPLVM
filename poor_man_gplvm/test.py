@@ -27,14 +27,15 @@ def circular_shuffle_data(spk_tsdf,n_shuffle=100,ep=None):
 def shuffle_and_decode(model,spk_tsdf,n_time_per_chunk=10000,dt_l=1,n_shuffle=100,ep=None,decoder_type='naive_bayes'):
     '''
     shuffle the data and decode the latent
+    decoder_type: 'naive_bayes' or 'dynamics'; dynamics is the one used for EM, the bayesian smoother, with different dynamics on latent; 
     '''
     y_shuffled_l = circular_shuffle_data(spk_tsdf,n_shuffle=n_shuffle,ep=ep)
     decoding_res_l = []
     for y_shuffled in tqdm.tqdm(y_shuffled_l,total=n_shuffle):
         if decoder_type == 'naive_bayes':
             decoding_res = model.decode_latent_naive_bayes(y_shuffled,n_time_per_chunk=n_time_per_chunk,dt_l=dt_l)
-        elif decoder_type == 'temporal_smoothing':
-            decoding_res = model.decode_latent_temporal_smoothing(y_shuffled,n_time_per_chunk=n_time_per_chunk)
+        elif decoder_type == 'dynamics':
+            decoding_res = model.decode_latent(y_shuffled,n_time_per_chunk=n_time_per_chunk)
         else:
             raise ValueError(f"decoder_type {decoder_type} not supported")
         decoding_res_l.append(decoding_res)
