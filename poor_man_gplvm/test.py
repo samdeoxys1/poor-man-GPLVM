@@ -22,6 +22,9 @@ def circular_shuffle_data(spk_tsdf,n_shuffle=100,ep=None):
             spk_tsdf_shuffled[:,j] = np.roll(spk_tsdf[:,j],np.random.randint(0,n_time))
         yield jnp.array(spk_tsdf_shuffled)
 
+
+
+
 def compute_entropy(logp_l,axis=(-1,-2)):
     '''
     logp_l: n_time x n_latent or n_time x ... , by default vmap over n_time, do entropy over the rest dimensions
