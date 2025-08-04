@@ -351,7 +351,7 @@ def compute_transition_posterior_prob(log_accumulated_joint_total):
     log_transition_latent = log_joint_latent - jscipy.special.logsumexp(log_joint_latent,axis=(1),keepdims=True) # normalized conditional latent; n_latent x n_latent
     log_transition_dynamics = log_joint_dynamics - jscipy.special.logsumexp(log_joint_dynamics,axis=(1),keepdims=True) # normalized conditional dynamics
 
-    log_transition_joint = log_joint - jscipy.special.logsumexp(log_joint_latent,axis=(1,3),keepdims=True) # normalized joint latent
+    log_transition_joint = log_joint - jscipy.special.logsumexp(log_joint,axis=(1,3),keepdims=True) # normalized joint latent
 
     # all the exp
     p_joint = jnp.exp(log_joint)
