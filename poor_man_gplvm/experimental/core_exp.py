@@ -24,14 +24,12 @@ from poor_man_gplvm.experimental import decoder_exp as dec_exp
 
 class PoissonGPLVMGain1D_gain(PoissonGPLVMJump1D):
     
-    def __init__(self, n_neuron, gain_init_mean=1., gain_init_variance=0.1, **kwargs):
+    def __init__(self, n_neuron,  **kwargs):
         super().__init__(n_neuron, **kwargs)
-        self.gain_init_mean = gain_init_mean
-        self.gain_init_variance = gain_init_variance
+        
         
     def initialize_params(self, key):
         super().initialize_params(key)
-        self.gain_init = 1.
         # Initialize gain as class attribute (will be set properly during fit_em)
         self.gain = None
         
