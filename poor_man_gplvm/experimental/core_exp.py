@@ -15,6 +15,8 @@ from poor_man_gplvm import gp_kernel as gpk
 from poor_man_gplvm.experimental import fit_tuning_helper_exp as fth_exp
 from poor_man_gplvm.experimental import decoder_exp as dec_exp
 
+from poor_man_gplvm.decoder import filter_all_step
+
 # gain model
 # at each time learn a gain variable that controls the population
 # the firing rate is now given by g_t lambda_tn
