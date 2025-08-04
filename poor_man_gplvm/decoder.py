@@ -97,22 +97,7 @@ def get_naive_bayes_ma(y_l,tuning,hyperparam,ma_neuron,ma_latent,dt_l=1,observat
     log_marginal_l = log_marginal_l[:,0] # squeeze would break the case where n_time=1
     return log_post, log_marginal_l,log_marginal
 
-### test result -- still need chunking even if likelihood is already computed
-# def get_loglikelihood_ma_chunk(y_l,tuning,ma,n_time_per_chunk=10000):
-#     '''
-#     testing the memory bottleneck, whether it's in the scan in smoothing, or just in likelihood computation
-#     '''
-#     n_time_tot = y_l.shape[0]
-#     n_chunks = int( jnp.ceil(n_time_tot / n_time_per_chunk))
-#     ll_per_pos_l = []
-#     ma = jnp.broadcast_to(ma,y_l.shape)
-#     for n in tqdm.trange(n_chunks):
-#         sl = slice((n) * n_time_per_chunk , (n+1) * n_time_per_chunk )
-#         y_chunk = y_l[sl]
-#         ma_chunk = ma[sl]
-#         ll_per_pos_l.append(get_loglikelihood_ma_all(y_chunk,tuning,ma_chunk))
-#     ll_per_pos_l = jnp.concatenate(ll_per_pos_l,axis=0)
-#     return ll_per_pos_l
+
 
 def get_naive_bayes_ma_chunk(y,tuning,hyperparam,ma_neuron,ma_latent,dt_l=1,n_time_per_chunk=10000,observation_model='poisson'):
     '''
@@ -232,12 +217,7 @@ def smooth_one_step(carry,x,log_latent_transition_kernel_l,log_dynamics_transiti
 
     return carry_new, to_return
 
-    # # old way
-    # inside_integral = x_next_given_x_curr_I_next + I_next_given_I_curr + post_prior_diff
-    # inside_integral = jscipy.special.logsumexp(inside_integral, axis = (1,3)) # logsumexp over the two "next" dimensions
 
-    # log_acausal_posterior_curr = log_causal_posterior_curr + inside_integral
-    # return log_acausal_posterior_curr,log_acausal_posterior_curr
 
 @jit
 def smooth_all_step(log_causal_posterior_all, log_causal_prior_all,log_latent_transition_kernel_l,log_dynamics_transition_kernel,carry_init=None,):
