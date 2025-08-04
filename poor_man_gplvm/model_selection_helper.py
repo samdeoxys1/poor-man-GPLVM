@@ -64,10 +64,13 @@ def evaluate_model_one_config(model_fit_l,y_test,key=jr.PRNGKey(1),latent_downsa
 
     # metric: log_marginal_test
     model_eval_result['log_marginal_test'] = {'value_per_fit':[],'best_value':None,'best_index':None}
+    model_eval_result['log_one_step_predictive_marginal_test'] = {'value_per_fit':[],'best_value':None,'best_index':None}
     for model_fit in model_fit_l:
         decoding_res = model_fit.decode_latent(y_test)
         model_eval_result['log_marginal_test']['value_per_fit'].append(decoding_res['log_marginal_final'])
+        model_eval_result['log_one_step_predictive_marginal_test']['value_per_fit'].append(decoding_res['log_one_step_predictive_marginals_all'].sum())
     model_eval_result['log_marginal_test']['value_per_fit'] = np.array(model_eval_result['log_marginal_test']['value_per_fit'])
+    model_eval_result['log_one_step_predictive_marginal_test']['value_per_fit'] = np.array(model_eval_result['log_one_step_predictive_marginal_test']['value_per_fit'])
     
     # metric: downsampled_lml
     for downsample_frac in latent_downsample_frac:
