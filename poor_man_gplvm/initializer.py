@@ -1,6 +1,10 @@
 import sklearn
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import MinMaxScaler
+import jax.numpy as jnp
+import jax.random as jr
+from jax.scipy.special import logsumexp
+
 def init_with_pca(y,n_latent_bin,n_pca_components=None,noise_scale=0,key=jr.PRNGKey(0),**kwargs):
     '''
     initialize the latent with PCA
