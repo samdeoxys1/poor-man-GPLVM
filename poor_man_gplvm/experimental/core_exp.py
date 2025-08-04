@@ -15,7 +15,7 @@ from poor_man_gplvm import gp_kernel as gpk
 from poor_man_gplvm.experimental import fit_tuning_helper_exp as fth_exp
 from poor_man_gplvm.experimental import decoder_exp as dec_exp
 from jax.scipy.special import logsumexp
-
+import tqdm
 
 # gain model
 # at each time learn a gain variable that controls the population
@@ -215,7 +215,7 @@ class PoissonGPLVMGain1D_gain(PoissonGPLVMJump1D):
             'log_posterior': []
         }
         
-        for i in range(n_iter):
+        for i in tqdm.trange(n_iter):
             
             # M-step: update both tuning and gain
             m_step_res = self.m_step(param_curr, y, log_posterior_curr, self.tuning_basis, 
