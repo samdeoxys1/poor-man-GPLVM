@@ -246,7 +246,7 @@ class PoissonGPLVMGain1D_gain(PoissonGPLVMJump1D):
                 y, tuning, hyperparam, 
                 self.log_latent_transition_kernel_l, self.log_dynamics_transition_kernel,
                 ma_neuron, ma_latent, likelihood_scale, n_time_per_chunk, gain_curr)
-            log_posterior_all, log_marginal_final, log_causal_posterior_all, log_accumulated_joint_total, ll_all = decode_res
+            log_posterior_all, log_marginal_final, log_causal_posterior_all, log_accumulated_joint_total, log_likelihood_all = decode_res
             log_posterior_curr = logsumexp(log_posterior_all,axis=1) # sum over the dynamics dimension; get log posterior over latent
             
             log_marginal_l.append(log_marginal_final)

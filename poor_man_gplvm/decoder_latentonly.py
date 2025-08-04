@@ -55,10 +55,10 @@ def filter_one_step_latent(carry, ll_curr, log_latent_transition_kernel, likelih
     carry_next = (log_post_curr, log_marginal_tillcurr)
     return carry_next, (log_post_curr, log_prior_curr, log_marginal_ratio_curr)
 
-def filter_all_step_latent(ll_all, log_latent_transition_kernel, carry_init=None, likelihood_scale=1):
+def filter_all_step_latent(log_likelihood_all, log_latent_transition_kernel, carry_init=None, likelihood_scale=1):
     '''
     Run causal filter for latent-only model
-    ll_all: n_time x n_latent
+    log_likelihood_all: n_time x n_latent
     log_latent_transition_kernel: n_latent x n_latent
     '''
     n_latent = log_latent_transition_kernel.shape[0]
@@ -73,7 +73,7 @@ def filter_all_step_latent(ll_all, log_latent_transition_kernel, carry_init=None
         likelihood_scale=likelihood_scale
     )
     carry_final, (log_posterior_all, log_prior_all, log_one_step_predictive_marginals) = scan(
-        f, carry_init, xs=ll_all
+        f, carry_init, xs=log_likelihood_all
     )
     log_marginal_final = carry_final[1]
     
@@ -86,12 +86,12 @@ def filter_all_step_combined_ma_latent(y, tuning, hyperparam, log_latent_transit
     '''
     Combined filter step with likelihood computation for latent-only model
     '''
-    ll_all = get_loglikelihood_ma_all(y, tuning, hyperparam, ma_neuron, ma_latent, 
+    log_likelihood_all = get_loglikelihood_ma_all(y, tuning, hyperparam, ma_neuron, ma_latent, 
                                     observation_model=observation_model)
     log_posterior_all, log_marginal_final, log_prior_all, log_one_step_predictive_marginals = filter_all_step_latent(
-        ll_all, log_latent_transition_kernel, carry_init=carry_init, likelihood_scale=likelihood_scale
+        log_likelihood_all, log_latent_transition_kernel, carry_init=carry_init, likelihood_scale=likelihood_scale
     )
-    return log_posterior_all, log_marginal_final, log_prior_all, log_one_step_predictive_marginals, ll_all
+    return log_posterior_all, log_marginal_final, log_prior_all, log_one_step_predictive_marginals, log_likelihood_all
 
 @jit  
 def smooth_one_step_latent(carry, x, log_latent_transition_kernel):
@@ -170,7 +170,7 @@ def smooth_all_step_combined_ma_chunk_latent(y, tuning, hyperparam, log_latent_t
     log_causal_posterior_all_allchunk = []
     log_causal_prior_all_allchunk = []
     log_one_step_predictive_marginals_allchunk = []
-    ll_all_allchunk = []
+    log_likelihood_all_allchunk = []
     slice_l = []
     
     for n in range(n_chunks):
@@ -179,7 +179,7 @@ def smooth_all_step_combined_ma_chunk_latent(y, tuning, hyperparam, log_latent_t
         y_chunk = y[sl]
         ma_neuron_chunk = jnp.broadcast_to(ma_neuron, y_chunk.shape)
         
-        log_causal_posterior_all, log_marginal_final, log_causal_prior_all, log_one_step_predictive_marginals, ll_all = filter_all_step_combined_ma_latent(
+        log_causal_posterior_all, log_marginal_final, log_causal_prior_all, log_one_step_predictive_marginals, log_likelihood_all = filter_all_step_combined_ma_latent(
             y_chunk, tuning, hyperparam, log_latent_transition_kernel,
             ma_neuron_chunk, ma_latent, carry_init=filter_carry_init,
             likelihood_scale=likelihood_scale, observation_model=observation_model
@@ -189,11 +189,11 @@ def smooth_all_step_combined_ma_chunk_latent(y, tuning, hyperparam, log_latent_t
         log_causal_posterior_all_allchunk.append(log_causal_posterior_all)
         log_causal_prior_all_allchunk.append(log_causal_prior_all)
         log_one_step_predictive_marginals_allchunk.append(log_one_step_predictive_marginals)
-        ll_all_allchunk.append(ll_all)
+        log_likelihood_all_allchunk.append(log_likelihood_all)
     
     log_causal_prior_all_ = jnp.concatenate(log_causal_prior_all_allchunk, axis=0)
     log_one_step_predictive_marginals_allchunk = jnp.concatenate(log_one_step_predictive_marginals_allchunk, axis=0)
-    ll_all_concat = jnp.concatenate(ll_all_allchunk, axis=0)
+    log_likelihood_all_concat = jnp.concatenate(log_likelihood_all_allchunk, axis=0)
     
     # Backward pass (smoother) - reverse chunk order
     smooth_carry_init = None
@@ -216,7 +216,7 @@ def smooth_all_step_combined_ma_chunk_latent(y, tuning, hyperparam, log_latent_t
     log_causal_posterior_all = jnp.concatenate(log_causal_posterior_all_allchunk, axis=0)
     
     return (log_acausal_posterior_all, log_marginal_final, log_causal_posterior_all, 
-            log_one_step_predictive_marginals_allchunk, log_accumulated_joint_chunk, ll_all_concat)
+            log_one_step_predictive_marginals_allchunk, log_accumulated_joint_chunk, log_likelihood_all_concat)
 
 @jit
 def compute_transition_posterior_prob_latent(log_accumulated_joint_total):
