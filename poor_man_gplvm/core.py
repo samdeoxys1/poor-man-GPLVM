@@ -16,7 +16,7 @@ from poor_man_gplvm import decoder
 import tqdm
 
 from poor_man_gplvm.initializer import init_with_pca
-import poor_man_gplvm.decoder_latent as decoder_latent
+import poor_man_gplvm.decoder_latentonly as decoder_latent
 
 '''
 hyperparams = {'tuning_lengthscale':,'movement_variance':,'prior_variance':}
