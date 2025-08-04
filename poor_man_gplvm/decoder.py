@@ -248,7 +248,7 @@ def smooth_all_step(log_causal_posterior_all, log_causal_prior_all,log_latent_tr
         do_concat=True
         n_latent = log_latent_transition_kernel_l[0].shape[0]
         n_dynamics = log_dynamics_transition_kernel.shape[0]
-        carry_init = (log_causal_posterior_all[-1], jnp.ones((n_dynamics,n_dynamics,n_latent,n_latent)) * 1e-40)  # Initialize with None for log accumulated joint
+        carry_init = (log_causal_posterior_all[-1], jnp.ones((n_dynamics,n_dynamics,n_latent,n_latent)) * (-1e40))  # Initialize with None for log accumulated joint
         xs = (log_causal_posterior_all[:-1],log_causal_prior_all)  # causal prior and the acausal init have the same t+1 index, 1 more than the causal posterior; handled when fed in
     else:
         do_concat=False
