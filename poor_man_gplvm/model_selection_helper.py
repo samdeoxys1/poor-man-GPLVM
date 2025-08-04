@@ -4,12 +4,12 @@ Helper functions for model selection
 import itertools
 import pandas as pd
 from typing import Dict, List, Any
-from poor_man_gplvm import PoissonGPLVMJump1D,GaussianGPLVMJump1D
+from poor_man_gplvm import PoissonGPLVMJump1D,GaussianGPLVMJump1D,PoissonGPLVM1D,GaussianGPLVM1D
 import jax.random as jr 
 import numpy as np
 import jax.numpy as jnp
 
-model_class_dict = {'poisson':PoissonGPLVMJump1D,'gaussian':GaussianGPLVMJump1D}
+model_class_dict = {'poisson':PoissonGPLVMJump1D,'gaussian':GaussianGPLVMJump1D,'poisson_latentonly':PoissonGPLVM1D,'gaussian_latentonly':GaussianGPLVM1D}
 
 default_fit_kwargs = {'n_iter':20,'log_posterior_init':None,'n_time_per_chunk':10000,'dt':1.,'likelihood_scale':1.,'save_every':None,'posterior_init_kwargs':{'random_scale':0.1}}
 
@@ -35,6 +35,8 @@ def fit_model_one_config(config,y_train,key=jr.PRNGKey(0),fit_kwargs=default_fit
     create and fit the model with the given config
     fit_kwargs: dict of kwargs for the fit_em function
     n_repeat: number of times to repeat the fitting
+
+    model_class_str: 'poisson' or 'gaussian' or 'poisson_latentonly' or 'gaussian_latentonly'
 
     return a list of model fits
     '''
@@ -111,7 +113,7 @@ def model_selection_one_split(y,hyperparam_dict,train_index=None,test_index=None
         - 'best_config' : return all models for the best config
     
     fit_kwargs: dict of kwargs for the fit_em function, see core.AbstractGPLVM.fit_em
-    model_class_str: 'poisson' or 'gaussian'
+    model_class_str: 'poisson' or 'gaussian' or 'poisson_latentonly' or 'gaussian_latentonly'
     n_repeat: number of times to repeat the fitting
     latent_downsample_frac: list of downsample fractions for the latent space
     downsample_n_repeat: number of times to repeat the downsampling
