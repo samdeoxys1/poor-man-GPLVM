@@ -12,6 +12,7 @@ from functools import partial
 from jax.lax import scan
 import tqdm
 
+from poor_man_gplvm.decoder import filter_all_step
 '''
 _chunk: for dealing with longer data; chunk the data and only scan / vectorize within the chunk, for loop across chunks
 
