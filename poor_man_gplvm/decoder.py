@@ -94,7 +94,8 @@ def get_naive_bayes_ma(y_l,tuning,hyperparam,ma_neuron,ma_latent,dt_l=1,observat
     log_marginal_l = jscipy.special.logsumexp(ll_per_pos_l,axis=-1,keepdims=True)
     log_post = ll_per_pos_l - log_marginal_l
     log_marginal = jnp.sum(log_marginal_l)
-    return log_post, jnp.squeeze(log_marginal_l),log_marginal
+    log_marginal_l = log_marginal_l[:,0] # squeeze would break the case where n_time=1
+    return log_post, log_marginal_l,log_marginal
 
 ### test result -- still need chunking even if likelihood is already computed
 # def get_loglikelihood_ma_chunk(y_l,tuning,ma,n_time_per_chunk=10000):

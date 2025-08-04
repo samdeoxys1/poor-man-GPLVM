@@ -77,3 +77,27 @@ def create_transition_prob_1d(possible_latent_bin,possible_dynamics,movement_var
     dynamics_transition_kernel,log_dynamics_transition_kernel = vmap(vmap(lambda x,y:dynamics_transition_kernel_func(x,y,dynamics_transition_matrix),in_axes=(0,None),out_axes=0),in_axes=(None,0),out_axes=1)(possible_dynamics,possible_dynamics) 
 
     return latent_transition_kernel_l,log_latent_transition_kernel_l,dynamics_transition_kernel,log_dynamics_transition_kernel
+
+@jit
+def create_transition_prob_latent_1d(possible_latent_bin, movement_variance=1.):
+    '''
+    create the transition probability matrix for 1d latent only (no dynamics);
+    this is simplified version of create_transition_prob_1d for latent-only models
+    
+    Returns:
+    latent_transition_kernel: n_latent x n_latent
+    log_latent_transition_kernel: n_latent x n_latent  
+    '''
+    # Use RBF kernel for smooth transitions
+    latent_transition_kernel, log_latent_transition_kernel = vmap(
+        vmap(lambda x,y: rbf_kernel(x, y, movement_variance, 1.), 
+             in_axes=(0,None), out_axes=0),
+        out_axes=1, in_axes=(None,0)
+    )(possible_latent_bin, possible_latent_bin)
+    
+    # Normalize to make it a proper transition matrix
+    normalizer = latent_transition_kernel.sum(axis=1, keepdims=True)
+    latent_transition_kernel = latent_transition_kernel / normalizer
+    log_latent_transition_kernel = log_latent_transition_kernel - jnp.log(normalizer)
+    
+    return latent_transition_kernel, log_latent_transition_kernel
