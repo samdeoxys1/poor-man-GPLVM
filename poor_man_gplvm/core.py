@@ -144,7 +144,7 @@ class AbstractGPLVMJump1D(ABC):
                 # Compute transition probabilities from accumulated joint
         # log_accumulated_joint_total: (n_dynamics_curr, n_dynamics_next, n_latent_curr, n_latent_next)
         if log_accumulated_joint_total is not None:
-            transition_posterior_prob_res = decoder.compute_transition_posterior_prob(log_accumulated_joint_total,y)
+            transition_posterior_prob_res = decoder.compute_transition_posterior_prob(log_accumulated_joint_total)
             decoding_res.update(transition_posterior_prob_res)
 
         return decoding_res
