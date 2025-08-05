@@ -42,19 +42,40 @@ def init_with_label_1D(label_tsd,n_latent_bin=100,t_l=None,key=jr.PRNGKey(0),noi
     given label, tsd, bin the label, assign the corresponding latent probability to be 1, the rest to be 0, then add some noise
     label_tsd: pynapple Tsd, value of the label
     n_latent_bin: number of latent bins
-    t_l: time stamps for the binned spikes (and thus the latents); if None then assume label_tsd is already aligned to the binned spikes
+    t_l: time stamps for the binned spikes (and thus the latents); if None then assume label_tsd is already aligned to the binned spikes; if not, always equal or larger time support than label_tsd; 
+        if t_l has larger time support, then initialize everything with uniform + random noise first, then initialize with label_tsd where that is supported
+        assuming label_tsd is contiguous!!!
     key: random key
     noise_scale: scale of noise to add to the latent initialization
     '''
+    label_binned,bins = pd.cut(label_tsd,bins=n_latent_bin,retbins=True,labels=False)
+
     if t_l is not None:
+        T = len(t_l)
         if isinstance(t_l,np.ndarray):
             t_l = nap.Ts(t_l)
         label_tsd=t_l.value_from(label_tsd)
-    label_binned,bins = pd.cut(label_tsd,bins=n_latent_bin,retbins=True,labels=False)
-    p_latent = jnp.zeros((label_tsd.shape[0],n_latent_bin))
-    p_latent = p_latent.at[np.arange(label_tsd.shape[0]),label_binned].set(1.)
-    p_latent += jr.uniform(key,shape=p_latent.shape) * noise_scale
-    p_latent = p_latent / jnp.sum(p_latent,axis=1,keepdims=True)
-    log_p_latent = jnp.where(p_latent>0,jnp.log(p_latent),-1e20)
+        # uniformly initialize everything first
+        posterior = jnp.ones((T,n_latent_bin)) / n_latent_bin
+        
+        
+        # index range where label_tsd is supported; assuming label_tsd is contiguous!!!
+        sl = t_l.get_slice(label_tsd.time_support.start[0],label_tsd.time_support.end[0]) 
+        # set the posterior to 0/1 based on label_binned, where label_tsd is supported
+        posterior = posterior.at[sl,:].set(0.)
+        posterior = posterior.at[sl,label_binned].set(1.)
+        # add noise
+        posterior = posterior + jr.uniform(key,shape=posterior.shape) * noise_scale
+        # normalize
+        posterior = posterior / jnp.sum(posterior,axis=1,keepdims=True)
+        # convert to log
+        log_p_latent = jnp.where(posterior>0,jnp.log(posterior),-1e20)
+        
+    else:
+        T = len(label_tsd)
+        posterior = jnp.ones((T,n_latent_bin)) / n_latent_bin
+        posterior = posterior + jr.uniform(key,shape=posterior.shape) * noise_scale
+        posterior = posterior / jnp.sum(posterior,axis=1,keepdims=True)
+        log_p_latent = jnp.where(posterior>0,jnp.log(posterior),-1e20)
     return log_p_latent
     
