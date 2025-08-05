@@ -65,6 +65,7 @@ def init_with_label_1D(label_tsd,n_latent_bin=100,t_l=None,seed=0,noise_scale=1e
         posterior[sl,:]=0.
         posterior[sl,label_binned]=1.
         # add noise
+        print(posterior.shape)
         posterior = posterior + rng.random(*posterior.shape) * noise_scale
         # normalize
         posterior = posterior / np.sum(posterior,axis=1,keepdims=True)
