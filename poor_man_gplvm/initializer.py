@@ -66,7 +66,7 @@ def init_with_label_1D(label_tsd,n_latent_bin=100,t_l=None,seed=0,noise_scale=1e
         posterior[sl,label_binned]=1.
         # add noise
         print(posterior.shape)
-        posterior = posterior + rng.random(*posterior.shape) * noise_scale
+        posterior = posterior + rng.random(*(posterior.shape)) * noise_scale
         # normalize
         posterior = posterior / np.sum(posterior,axis=1,keepdims=True)
         # convert to log
@@ -75,7 +75,7 @@ def init_with_label_1D(label_tsd,n_latent_bin=100,t_l=None,seed=0,noise_scale=1e
     else:
         T = len(label_tsd)
         posterior = np.ones((T,n_latent_bin)) / n_latent_bin
-        posterior = posterior + rng.random(*posterior.shape) * noise_scale
+        posterior = posterior + rng.random(*(posterior.shape)) * noise_scale
         posterior = posterior / np.sum(posterior,axis=1,keepdims=True)
         log_p_latent = np.where(posterior>0,np.log(posterior),-1e20)
     return log_p_latent
