@@ -61,7 +61,7 @@ def init_with_label_1D(label_tsd,n_latent_bin=100,t_l=None,seed=0,noise_scale=1e
         
         # index range where label_tsd is supported; assuming label_tsd is contiguous!!!
         sl = t_l.get_slice(label_tsd.time_support.start[0],label_tsd.time_support.end[0]) 
-        sl = np.arange(sl.start,sl.end,sl.step)
+        sl = np.arange(sl.start,sl.stop,sl.step)
         # set the posterior to 0/1 based on label_binned, where label_tsd is supported
         posterior[sl,:]=0.
         posterior[sl,label_binned]=1.
