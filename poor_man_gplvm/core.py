@@ -23,6 +23,14 @@ hyperparams = {'tuning_lengthscale':,'movement_variance':,'prior_variance':}
 to model non jump can use the transition matrix
 at each EM iteration, create the transition matrix based on the hyperparams;
 fix lenscale, so eigenvalue and eigenvectors are fixed; but allow a latent mask in decoder such that i can do downsampled test lml for model selection;
+
+decode_latent (and decode_latent_naive_bayes) is an important method; model selection will rely on it; [will need to make sure the naming is consistent]
+
+
+
+
+
+
 '''
 
 # TODO:
