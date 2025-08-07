@@ -748,6 +748,8 @@ class PoissonGPLVMJump1D(AbstractGPLVMJump1D):
                **kwargs):
         hyperparam['param_prior_std'] = hyperparam.get('param_prior_std', self.param_prior_std)
         hyperparam['smoothness_penalty'] = hyperparam.get('smoothness_penalty', self.smoothness_penalty)
+        print('from subclass fit_em')
+        print(hyperparam)
         # create the adam runner
         self.adam_runner,self.opt_state_init_fun = fth.make_adam_runner(
             fth.poisson_m_step_objective_smoothness if self.basis_type == 'bspline' else fth.poisson_m_step_objective, 
