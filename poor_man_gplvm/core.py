@@ -18,6 +18,8 @@ import tqdm
 from poor_man_gplvm.initializer import init_with_pca
 import poor_man_gplvm.decoder_latentonly as decoder_latent
 
+import nemos as nmo
+
 '''
 hyperparams = {'tuning_lengthscale':,'movement_variance':,'prior_variance':}
 to model non jump can use the transition matrix
@@ -30,15 +32,22 @@ fix lenscale, so eigenvalue and eigenvectors are fixed; but allow a latent mask 
 # TODO:
 
 
-def generate_basis(lengthscale,n_latent_bin,explained_variance_threshold_basis = 0.999,include_bias=True ):
+def generate_basis(lengthscale,n_latent_bin,explained_variance_threshold_basis = 0.999,include_bias=True,basis_type='rbf' ):
+    # use rbf kernel eigenspectrum to determine n basis
     possible_latent_bin = jnp.linspace(0,1,n_latent_bin)
     tuning_kernel,log_tuning_kernel = vmap(vmap(lambda x,y: gpk.rbf_kernel(x,y,lengthscale,1.),in_axes=(0,None),out_axes=0),out_axes=1,in_axes=(None,0))(possible_latent_bin,possible_latent_bin)
 
     tuning_basis,sing_val,_ = jnp.linalg.svd(tuning_kernel)
     # filter out basis for numerical instability
     n_basis = (jnp.cumsum(sing_val / sing_val.sum()) < explained_variance_threshold_basis).sum() + 1 # first dimension that cross the thresh, n below + 1
-    sqrt_eigval=jnp.sqrt(jnp.sqrt(sing_val))
-    tuning_basis = tuning_basis[:,:n_basis] * sqrt_eigval[:n_basis][None,:] 
+    if basis_type == 'rbf':
+        sqrt_eigval=jnp.sqrt(jnp.sqrt(sing_val))
+        tuning_basis = tuning_basis[:,:n_basis] * sqrt_eigval[:n_basis][None,:] 
+    elif basis_type == 'bspline':
+        _,basis_mat_bsp=nmo.basis.BSplineEval(n_basis).evaluate_on_grid(n_latent_bin)
+        tuning_basis = basis_mat_bsp
+
+
     if include_bias:
         tuning_basis = jnp.concatenate([jnp.ones((n_latent_bin,1)),tuning_basis],axis=1)
     return tuning_basis
@@ -51,7 +60,7 @@ class AbstractGPLVM1D(ABC):
     
     def __init__(self, n_neuron, n_latent_bin=100, tuning_lengthscale=1., param_prior_std=1.,
                  movement_variance=1., explained_variance_threshold_basis=0.999,
-                 rng_init_int=123, w_init_variance=1., w_init_mean=0.):
+                 rng_init_int=123, w_init_variance=1., w_init_mean=0.,basis_type='rbf'):
         self.n_latent_bin = n_latent_bin
         self.tuning_lengthscale = tuning_lengthscale
         self.param_prior_std = param_prior_std
@@ -66,7 +75,7 @@ class AbstractGPLVM1D(ABC):
 
         # generate the basis
         self.tuning_basis = generate_basis(self.tuning_lengthscale, self.n_latent_bin, 
-                                         self.explained_variance_threshold_basis, include_bias=True)
+                                         self.explained_variance_threshold_basis, include_bias=True,basis_type=basis_type)
         self.n_basis = self.tuning_basis.shape[1]
        
         # default masks
@@ -330,6 +339,7 @@ class AbstractGPLVMJump1D(ABC):
                  w_init_mean=0.,
                  p_move_to_jump=0.01,
                  p_jump_to_move=0.01,
+                 basis_type='rbf'
                  ):
         self.n_latent_bin = n_latent_bin
         self.tuning_lengthscale = tuning_lengthscale
@@ -349,7 +359,7 @@ class AbstractGPLVMJump1D(ABC):
         # self.b_init_mean = b_init_mean
 
         # generate the basis
-        self.tuning_basis = generate_basis(self.tuning_lengthscale,self.n_latent_bin,self.explained_variance_threshold_basis,include_bias=True)
+        self.tuning_basis = generate_basis(self.tuning_lengthscale,self.n_latent_bin,self.explained_variance_threshold_basis,include_bias=True,basis_type=basis_type)
         self.n_basis = self.tuning_basis.shape[1]
        
         # default masks
