@@ -26,7 +26,7 @@ to model non jump can use the transition matrix
 at each EM iteration, create the transition matrix based on the hyperparams;
 fix lenscale, so eigenvalue and eigenvectors are fixed; but allow a latent mask in decoder such that i can do downsampled test lml for model selection;
 
-[todo] currently for tuning, the latent is treated as [0,1], whereas for dynamics, the latent is treated as [0...n_latent_bin-1]; need to decide whether to make uniform
+Notice for tuning_lengthscale and movement_variance, their values divided by n_latent_bin are the effective values; 
 '''
 
 # TODO:
@@ -34,7 +34,7 @@ fix lenscale, so eigenvalue and eigenvectors are fixed; but allow a latent mask 
 
 def generate_basis(lengthscale,n_latent_bin,explained_variance_threshold_basis = 0.999,include_bias=True,basis_type='rbf' ):
     # use rbf kernel eigenspectrum to determine n basis
-    possible_latent_bin = jnp.linspace(0,1,n_latent_bin)
+    possible_latent_bin = jnp.arange(n_latent_bin)
     tuning_kernel,log_tuning_kernel = vmap(vmap(lambda x,y: gpk.rbf_kernel(x,y,lengthscale,1.),in_axes=(0,None),out_axes=0),out_axes=1,in_axes=(None,0))(possible_latent_bin,possible_latent_bin)
 
     tuning_basis,sing_val,_ = jnp.linalg.svd(tuning_kernel)
@@ -58,7 +58,7 @@ class AbstractGPLVM1D(ABC):
     The latent governs firing rate with smooth temporal transitions.
     """
     
-    def __init__(self, n_neuron, n_latent_bin=100, tuning_lengthscale=1., param_prior_std=1.,
+    def __init__(self, n_neuron, n_latent_bin=100, tuning_lengthscale=5., param_prior_std=1.,
                  movement_variance=1., explained_variance_threshold_basis=0.999,
                  rng_init_int=123, w_init_variance=1., w_init_mean=0.,basis_type='rbf'):
         self.n_latent_bin = n_latent_bin
