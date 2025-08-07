@@ -124,6 +124,7 @@ def make_adam_runner(fun, step_size, maxiter=1000, tol=1e-6):
     make a function that run adam optimizer with a given objective function
     
     '''
+    jax.clear_caches()
     # fun(params, *args) -> loss scalar
     opt = optax.adam(step_size)
     init_fun = opt.init
