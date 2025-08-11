@@ -119,7 +119,7 @@ def evaluate_model_one_config(model_fit_l,y_test,key=jr.PRNGKey(1),latent_downsa
         model_eval_result[k]['best_index'] = np.argmax(model_eval_result[k]['value_per_fit'])
     return model_eval_result
 
-def model_selection_one_split(y,hyperparam_dict,train_index=None,test_index=None,test_frac=0.2,key = jr.PRNGKey(0),model_to_return_type='best_overall',fit_kwargs=default_fit_kwargs,model_class_str='poisson',n_repeat = 1,latent_downsample_frac=[0.2],downsample_n_repeat=10):
+def model_selection_one_split(y,hyperparam_dict,train_index=None,test_index=None,test_frac=0.2,key = jr.PRNGKey(0),model_to_return_type='best_overall',fit_kwargs=default_fit_kwargs,model_class_str='poisson',n_repeat = 1,latent_downsample_frac=[0.2],downsample_n_repeat=10,metric_type_l=['log_marginal_test','log_one_step_predictive_marginal_test','downsampled_lml','jump_consensus'],jump_dynamics_index=1,jump_consensus_window_size=5,jump_consensus_jump_p_thresh=0.4,jump_consensus_consensus_thresh=0.8):
     '''
     for one split of data, fit and evaluate the models given by all configs
     hyperparam_dict: dict of hyperparam ranges
@@ -173,7 +173,7 @@ def model_selection_one_split(y,hyperparam_dict,train_index=None,test_index=None
         key_fit,key_eval = jr.split(key)
         
         model_fit_l = fit_model_one_config(param_dict,y_train,key=key_fit,fit_kwargs=fit_kwargs,model_class_str=model_class_str,n_repeat=n_repeat)
-        model_eval_result = evaluate_model_one_config(model_fit_l,y_test,key=key_eval,latent_downsample_frac=latent_downsample_frac,downsample_n_repeat=downsample_n_repeat)
+        model_eval_result = evaluate_model_one_config(model_fit_l,y_test,key=key_eval,latent_downsample_frac=latent_downsample_frac,downsample_n_repeat=downsample_n_repeat,metric_type_l=metric_type_l,jump_dynamics_index=jump_dynamics_index,jump_consensus_window_size=jump_consensus_window_size,jump_consensus_jump_p_thresh=jump_consensus_jump_p_thresh,jump_consensus_consensus_thresh=jump_consensus_consensus_thresh)
         # append the best metrics to the result
         if model_eval_result_all_configs == {}:
             for k in model_eval_result.keys():
