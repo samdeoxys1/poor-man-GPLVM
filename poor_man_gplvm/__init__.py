@@ -9,4 +9,4 @@ from poor_man_gplvm.core import (
 )
 
 # Import modules to enable pmg.core, pmg.utils access
-from . import core,test,utils,model_selection_helper,experimental
+from . import core,test,utils,model_selection_helper,experimental,plot_helper
