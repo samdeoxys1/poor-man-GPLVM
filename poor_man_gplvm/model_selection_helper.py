@@ -98,8 +98,8 @@ def evaluate_model_one_config(model_fit_l,y_test,key=jr.PRNGKey(1),latent_downsa
         for decoding_res in decoding_res_l:
             jump_p = decoding_res['posterior_dynamics_marg'][:,jump_dynamics_index]
             jump_p_all_chain.append(jump_p)
-        jump_p_all_chain = np.array(jump_p_all_chain)
-        for jump_p in jump_p_all_chain:
+        jump_p_all_chain = np.array(jump_p_all_chain).T # n_time x n_chain
+        for jump_p in jump_p_all_chain.T:
             frac_consensus,jump_time_index_consensus,whether_all_chain_has_jump_ma = get_jump_consensus(jump_p,jump_p_all_chain,window_size=jump_consensus_window_size,jump_p_thresh = jump_consensus_jump_p_thresh,consensus_thresh=jump_consensus_consensus_thresh)
             model_eval_result['jump_consensus']['value_per_fit'].append(frac_consensus)
         model_eval_result['jump_consensus']['value_per_fit'] = np.array(model_eval_result['jump_consensus']['value_per_fit'])
