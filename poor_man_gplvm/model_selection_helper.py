@@ -165,7 +165,8 @@ def model_selection_one_split(y,hyperparam_dict,train_index=None,test_index=None
     metric_overall_best = -np.inf
 
     if 'log_posterior_init' in fit_kwargs:
-        fit_kwargs['log_posterior_init'] =fit_kwargs['log_posterior_init'][train_index]
+        if fit_kwargs['log_posterior_init'] is not None:
+            fit_kwargs['log_posterior_init'] =fit_kwargs['log_posterior_init'][train_index]
     
     for ii,param_dict in enumerate(hyperparam_grid_l): 
         print('== Config {} of {} =='.format(ii+1,len(hyperparam_grid_l)))
