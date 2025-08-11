@@ -6,6 +6,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pynapple as nap
 import sys,os
+plt.rcParams['font.family'] = 'Arial'
+plt.rcParams['svg.fonttype'] = 'none'
 
 def save_fig(fig,fig_name,fig_dir='./figs',fig_format=['png','svg'],dpi=300):
     '''
