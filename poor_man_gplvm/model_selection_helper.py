@@ -91,17 +91,7 @@ def evaluate_model_one_config(model_fit_l,y_test,key=jr.PRNGKey(1),latent_downsa
                 model_eval_result['downsampled_lml_'+str(downsample_frac)]['value_per_fit'].append(ds_lml_result['value'])
             model_eval_result['downsampled_lml_'+str(downsample_frac)]['value_per_fit'] = np.array(model_eval_result['downsampled_lml_'+str(downsample_frac)]['value_per_fit'])
         
-    # for now testing; metric_overall is the average of downsampled lml
-    if 'metric_overall' in metric_type_l:
-        model_eval_result['metric_overall'] = {'value_per_fit':[],'best_value':None,'best_index':None}
-        # model_eval_result['metric_overall']['value_per_fit'] = model_eval_result['log_marginal_test']['value_per_fit']
-        # model_eval_result['metric_overall']['value_per_fit'] = model_eval_result['downsampled_lml']['value_per_fit']
-        value_per_fit = np.zeros(len(model_fit_l))
-        for downsample_frac in latent_downsample_frac:
-            value_per_fit += model_eval_result['downsampled_lml_'+str(downsample_frac)]['value_per_fit']
-        value_per_fit /= len(latent_downsample_frac)
-        model_eval_result['metric_overall']['value_per_fit'] = value_per_fit
-    
+
     if 'jump_consensus' in metric_type_l:
         model_eval_result['jump_consensus'] = {'value_per_fit':[],'best_value':None,'best_index':None}
         jump_p_all_chain = []
@@ -113,6 +103,16 @@ def evaluate_model_one_config(model_fit_l,y_test,key=jr.PRNGKey(1),latent_downsa
             frac_consensus,jump_time_index_consensus,whether_all_chain_has_jump_ma = get_jump_consensus(jump_p,jump_p_all_chain,window_size=jump_consensus_window_size,jump_p_thresh = jump_consensus_jump_p_thresh,consensus_thresh=jump_consensus_consensus_thresh)
             model_eval_result['jump_consensus']['value_per_fit'].append(frac_consensus)
         model_eval_result['jump_consensus']['value_per_fit'] = np.array(model_eval_result['jump_consensus']['value_per_fit'])
+
+    # metric_overall
+    model_eval_result['metric_overall'] = {'value_per_fit':[],'best_value':None,'best_index':None}
+    # model_eval_result['metric_overall']['value_per_fit'] = model_eval_result['log_marginal_test']['value_per_fit']
+    # model_eval_result['metric_overall']['value_per_fit'] = model_eval_result['downsampled_lml']['value_per_fit']
+    value_per_fit = np.zeros(len(model_fit_l))
+    for downsample_frac in latent_downsample_frac:
+        value_per_fit += model_eval_result['downsampled_lml_'+str(downsample_frac)]['value_per_fit']
+    value_per_fit /= len(latent_downsample_frac)
+    model_eval_result['metric_overall']['value_per_fit'] = value_per_fit
 
     for k in model_eval_result.keys():
         model_eval_result[k]['best_value'] = np.max(model_eval_result[k]['value_per_fit'])
