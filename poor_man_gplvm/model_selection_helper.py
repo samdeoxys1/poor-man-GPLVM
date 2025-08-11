@@ -89,7 +89,7 @@ def evaluate_model_one_config(model_fit_l,y_test,key=jr.PRNGKey(1),latent_downsa
             for model_fit in model_fit_l:
                 ds_lml_result = get_downsampled_lml(model_fit,y_test,downsample_frac=downsample_frac,n_repeat=downsample_n_repeat,key=key)
                 model_eval_result['downsampled_lml_'+str(downsample_frac)]['value_per_fit'].append(ds_lml_result['value'])
-                model_eval_result['downsampled_lml_'+str(downsample_frac)]['value_per_fit'] = np.array(model_eval_result['downsampled_lml_'+str(downsample_frac)]['value_per_fit'])
+            model_eval_result['downsampled_lml_'+str(downsample_frac)]['value_per_fit'] = np.array(model_eval_result['downsampled_lml_'+str(downsample_frac)]['value_per_fit'])
         
     # for now testing; metric_overall is the average of downsampled lml
     if 'metric_overall' in metric_type_l:
