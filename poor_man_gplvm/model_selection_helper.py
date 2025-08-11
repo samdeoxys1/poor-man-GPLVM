@@ -51,7 +51,7 @@ def fit_model_one_config(config,y_train,key=jr.PRNGKey(0),fit_kwargs=default_fit
         model_fit_l.append(model_fit)
     return model_fit_l
 
-def evaluate_model_one_config(model_fit_l,y_test,key=jr.PRNGKey(1),latent_downsample_frac=[0.2],downsample_n_repeat=10):
+def evaluate_model_one_config(model_fit_l,y_test,key=jr.PRNGKey(1),latent_downsample_frac=[0.2],downsample_n_repeat=10,metric_type_l=['log_marginal_test','log_one_step_predictive_marginal_test','downsampled_lml','jump_consensus'],jump_dynamics_index=1,jump_consensus_window_size=5,jump_consensus_jump_p_thresh=0.4,jump_consensus_consensus_thresh=0.8):
     '''
     evaluate the fitted model on the test data
 
@@ -64,34 +64,55 @@ def evaluate_model_one_config(model_fit_l,y_test,key=jr.PRNGKey(1),latent_downsa
     '''
     model_eval_result = {}
 
-    # metric: log_marginal_test
-    model_eval_result['log_marginal_test'] = {'value_per_fit':[],'best_value':None,'best_index':None}
-    model_eval_result['log_one_step_predictive_marginal_test'] = {'value_per_fit':[],'best_value':None,'best_index':None}
+    decoding_res_l =[]
     for model_fit in model_fit_l:
         decoding_res = model_fit.decode_latent(y_test)
-        model_eval_result['log_marginal_test']['value_per_fit'].append(decoding_res['log_marginal_final'])
-        model_eval_result['log_one_step_predictive_marginal_test']['value_per_fit'].append(decoding_res['log_one_step_predictive_marginals_all'].sum())
-    model_eval_result['log_marginal_test']['value_per_fit'] = np.array(model_eval_result['log_marginal_test']['value_per_fit'])
-    model_eval_result['log_one_step_predictive_marginal_test']['value_per_fit'] = np.array(model_eval_result['log_one_step_predictive_marginal_test']['value_per_fit'])
+        decoding_res_l.append(decoding_res)
+
+    # metric: log_marginal_test
+    if 'log_marginal_test' in metric_type_l:
+        model_eval_result['log_marginal_test'] = {'value_per_fit':[],'best_value':None,'best_index':None}
+        for decoding_res in decoding_res_l:
+            model_eval_result['log_marginal_test']['value_per_fit'].append(decoding_res['log_marginal_final'])
+        model_eval_result['log_marginal_test']['value_per_fit'] = np.array(model_eval_result['log_marginal_test']['value_per_fit'])
+
+    if 'log_one_step_predictive_marginal_test' in metric_type_l:
+        model_eval_result['log_one_step_predictive_marginal_test'] = {'value_per_fit':[],'best_value':None,'best_index':None}
+        for decoding_res in decoding_res_l:
+            model_eval_result['log_one_step_predictive_marginal_test']['value_per_fit'].append(decoding_res['log_one_step_predictive_marginals_all'].sum())
+        model_eval_result['log_one_step_predictive_marginal_test']['value_per_fit'] = np.array(model_eval_result['log_one_step_predictive_marginal_test']['value_per_fit'])
     
     # metric: downsampled_lml
-    for downsample_frac in latent_downsample_frac:
-        model_eval_result['downsampled_lml_'+str(downsample_frac)] = {'value_per_fit':[],'best_value':None,'best_index':None}
-        for model_fit in model_fit_l:
-            ds_lml_result = get_downsampled_lml(model_fit,y_test,downsample_frac=downsample_frac,n_repeat=downsample_n_repeat,key=key)
-            model_eval_result['downsampled_lml_'+str(downsample_frac)]['value_per_fit'].append(ds_lml_result['value'])
-        model_eval_result['downsampled_lml_'+str(downsample_frac)]['value_per_fit'] = np.array(model_eval_result['downsampled_lml_'+str(downsample_frac)]['value_per_fit'])
-    
+    if 'downsampled_lml' in metric_type_l:
+        for downsample_frac in latent_downsample_frac:
+            model_eval_result['downsampled_lml_'+str(downsample_frac)] = {'value_per_fit':[],'best_value':None,'best_index':None}
+            for model_fit in model_fit_l:
+                ds_lml_result = get_downsampled_lml(model_fit,y_test,downsample_frac=downsample_frac,n_repeat=downsample_n_repeat,key=key)
+                model_eval_result['downsampled_lml_'+str(downsample_frac)]['value_per_fit'].append(ds_lml_result['value'])
+                model_eval_result['downsampled_lml_'+str(downsample_frac)]['value_per_fit'] = np.array(model_eval_result['downsampled_lml_'+str(downsample_frac)]['value_per_fit'])
+        
     # for now testing; metric_overall is the average of downsampled lml
-    model_eval_result['metric_overall'] = {'value_per_fit':[],'best_value':None,'best_index':None}
-    # model_eval_result['metric_overall']['value_per_fit'] = model_eval_result['log_marginal_test']['value_per_fit']
-    # model_eval_result['metric_overall']['value_per_fit'] = model_eval_result['downsampled_lml']['value_per_fit']
-    value_per_fit = np.zeros(len(model_fit_l))
-    for downsample_frac in latent_downsample_frac:
-        value_per_fit += model_eval_result['downsampled_lml_'+str(downsample_frac)]['value_per_fit']
-    value_per_fit /= len(latent_downsample_frac)
-    model_eval_result['metric_overall']['value_per_fit'] = value_per_fit
+    if 'metric_overall' in metric_type_l:
+        model_eval_result['metric_overall'] = {'value_per_fit':[],'best_value':None,'best_index':None}
+        # model_eval_result['metric_overall']['value_per_fit'] = model_eval_result['log_marginal_test']['value_per_fit']
+        # model_eval_result['metric_overall']['value_per_fit'] = model_eval_result['downsampled_lml']['value_per_fit']
+        value_per_fit = np.zeros(len(model_fit_l))
+        for downsample_frac in latent_downsample_frac:
+            value_per_fit += model_eval_result['downsampled_lml_'+str(downsample_frac)]['value_per_fit']
+        value_per_fit /= len(latent_downsample_frac)
+        model_eval_result['metric_overall']['value_per_fit'] = value_per_fit
     
+    if 'jump_consensus' in metric_type_l:
+        model_eval_result['jump_consensus'] = {'value_per_fit':[],'best_value':None,'best_index':None}
+        jump_p_all_chain = []
+        for decoding_res in decoding_res_l:
+            jump_p = decoding_res['posterior_dynamics_marg'][:,jump_dynamics_index]
+            jump_p_all_chain.append(jump_p)
+        jump_p_all_chain = np.array(jump_p_all_chain)
+        for jump_p in jump_p_all_chain:
+            frac_consensus,jump_time_index_consensus,whether_all_chain_has_jump_ma = get_jump_consensus(jump_p,jump_p_all_chain,window_size=jump_consensus_window_size,jump_p_thresh = jump_consensus_jump_p_thresh,consensus_thresh=jump_consensus_consensus_thresh)
+            model_eval_result['jump_consensus']['value_per_fit'].append(frac_consensus)
+        model_eval_result['jump_consensus']['value_per_fit'] = np.array(model_eval_result['jump_consensus']['value_per_fit'])
 
     for k in model_eval_result.keys():
         model_eval_result[k]['best_value'] = np.max(model_eval_result[k]['value_per_fit'])
@@ -210,4 +231,33 @@ def get_downsampled_lml(model_fit,y_test,downsample_frac=0.2,n_repeat=10,key=jr.
     return ds_lml_result
 
 
+# jump consensus -- measure the consistency of jumps of all chains relative to one chain
+def get_jump_consensus(jump_p,jump_p_all_chain,window_size=5,jump_p_thresh = 0.4,consensus_thresh=0.8):
+    '''
+    jump_p: jump probability of the best fit, n_time
+    jump_p_all_chain: jump probability of all fits, n_time x n_chain
+    window_size: window size to check for consistency; is sensitive to the time unit of the bin
+    jump_p_thresh: threshold for a jump
 
+    start with the best fit, find the jumps, 
+    then check if the jumps are consistent across chains, i.e. a jump occurs within a window in all other chains
+
+    '''
+
+    jump_time_index = np.nonzero(jump_p >= jump_p_thresh)[0]
+
+    # only keep the jump that is common to all chains; ie for each jump there's some jump within some window for other chains
+    jump_time_index_consensus = []
+    whether_all_chain_has_jump_ma = []
+    for jti in jump_time_index:
+        # whether_all_chain_has_jump=(jump_p_all_chain[jti-window_size:jti+window_size,:] > jump_p_thresh).any(axis=0).all()
+        whether_all_chain_has_jump=(jump_p_all_chain[jti-window_size:jti+window_size,:] > jump_p_thresh).any(axis=0).mean()>=consensus_thresh # instead of requiring all chains, require a certain fraction of chains to have a jump
+        whether_all_chain_has_jump_ma.append(whether_all_chain_has_jump)
+        if whether_all_chain_has_jump:
+            jump_time_index_consensus.append(jti)
+    jump_time_index_consensus= np.array(jump_time_index_consensus)
+    whether_all_chain_has_jump_ma = np.array(whether_all_chain_has_jump_ma)
+
+    frac_consensus = whether_all_chain_has_jump_ma.mean()
+
+    return frac_consensus,jump_time_index_consensus,whether_all_chain_has_jump_ma
