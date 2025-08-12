@@ -261,12 +261,13 @@ def get_jump_consensus(jump_p,jump_p_all_chain,window_size=5,jump_p_thresh = 0.4
         whether_consensus_ma.append(whether_consensus)
         if whether_consensus:
             jump_time_index_consensus.append(jti)
-    jump_time_index_consensus= np.array(jump_time_index_consensus)
+    jump_time_index_consensus= np.array(jump_time_index_consensus,dtype=int)
     whether_consensus_ma = np.array(whether_consensus_ma)
 
     frac_consensus = whether_consensus_ma.mean()
 
     is_jump_filtered = np.zeros(len(jump_p))
-    is_jump_filtered[jump_time_index_consensus] = 1
+    if len(jump_time_index_consensus) > 0:
+        is_jump_filtered[jump_time_index_consensus] = 1
 
     return frac_consensus,is_jump_filtered,whether_consensus_ma
