@@ -44,12 +44,14 @@ def fit_model_one_config(config,y_train,key=jr.PRNGKey(0),fit_kwargs=default_fit
     if model_class_str not in model_class_dict:
         raise ValueError(f"Invalid model class: {model_class_str}")
     model_class = model_class_dict[model_class_str]
+    em_res_l = []
     key_l = jr.split(key,n_repeat)
     for key in key_l:
         model_fit = model_class(n_neuron=y_train.shape[1],**config)
-        model_fit.fit_em(y_train,hyperparam={},key=key,**fit_kwargs) # hyperparam is empty because it is already in the initialization
+        em_res=model_fit.fit_em(y_train,hyperparam={},key=key,**fit_kwargs) # hyperparam is empty because it is already in the initialization
+        em_res_l.append(em_res)
         model_fit_l.append(model_fit)
-    return model_fit_l
+    return model_fit_l,em_res_l
 
 def evaluate_model_one_config(model_fit_l,y_test,key=jr.PRNGKey(1),n_time_per_chunk=10000,latent_downsample_frac=[0.2,0.4,0.6,0.8],downsample_n_repeat=10,metric_type_l=['log_marginal_test','log_one_step_predictive_marginal_test','downsampled_lml','jump_consensus'],jump_dynamics_index=1,jump_consensus_window_size=5,jump_consensus_jump_p_thresh=0.4,jump_consensus_consensus_thresh=0.8):
     '''
@@ -173,7 +175,7 @@ def model_selection_one_split(y,hyperparam_dict,train_index=None,test_index=None
         key,_ = jr.split(key)
         key_fit,key_eval = jr.split(key)
         
-        model_fit_l = fit_model_one_config(param_dict,y_train,key=key_fit,fit_kwargs=fit_kwargs,model_class_str=model_class_str,n_repeat=n_repeat)
+        model_fit_l,em_res_l = fit_model_one_config(param_dict,y_train,key=key_fit,fit_kwargs=fit_kwargs,model_class_str=model_class_str,n_repeat=n_repeat)
         model_eval_result = evaluate_model_one_config(model_fit_l,y_test,key=key_eval,latent_downsample_frac=latent_downsample_frac,downsample_n_repeat=downsample_n_repeat,metric_type_l=metric_type_l,jump_dynamics_index=jump_dynamics_index,jump_consensus_window_size=jump_consensus_window_size,jump_consensus_jump_p_thresh=jump_consensus_jump_p_thresh,jump_consensus_consensus_thresh=jump_consensus_consensus_thresh)
         # append the best metrics to the result
         if model_eval_result_all_configs == {}:
