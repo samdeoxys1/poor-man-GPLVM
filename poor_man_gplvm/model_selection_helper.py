@@ -102,7 +102,7 @@ def evaluate_model_one_config(model_fit_l,y_test,key=jr.PRNGKey(1),n_time_per_ch
             jump_p_all_chain.append(jump_p)
         jump_p_all_chain = np.array(jump_p_all_chain).T # n_time x n_chain
         for jump_p in jump_p_all_chain.T:
-            frac_consensus,jump_time_index_consensus,whether_all_chain_has_jump_ma = get_jump_consensus(jump_p,jump_p_all_chain,window_size=jump_consensus_window_size,jump_p_thresh = jump_consensus_jump_p_thresh,consensus_thresh=jump_consensus_consensus_thresh)
+            frac_consensus,_,_ = get_jump_consensus(jump_p,jump_p_all_chain,window_size=jump_consensus_window_size,jump_p_thresh = jump_consensus_jump_p_thresh,consensus_thresh=jump_consensus_consensus_thresh)
             model_eval_result['jump_consensus']['value_per_fit'].append(frac_consensus)
         model_eval_result['jump_consensus']['value_per_fit'] = np.array(model_eval_result['jump_consensus']['value_per_fit'])
 
@@ -246,7 +246,7 @@ def get_jump_consensus(jump_p,jump_p_all_chain,window_size=5,jump_p_thresh = 0.4
     then check if the jumps are consistent across chains, i.e. a jump occurs within a window in most other chains ( > consensus_thresh)
 
     frac_consensus: fraction of jumps that are consistent across chains
-    jump_time_index_consensus: time index of the jumps that are consistent across chains, n_jump
+    is_jump_consensus: whether the jump is consistent across chains, n_time
     whether_consensus_ma: whether the jump is consistent across chains, n_time
     '''
 
@@ -266,4 +266,7 @@ def get_jump_consensus(jump_p,jump_p_all_chain,window_size=5,jump_p_thresh = 0.4
 
     frac_consensus = whether_consensus_ma.mean()
 
-    return frac_consensus,jump_time_index_consensus,whether_consensus_ma
+    is_jump_consensus = np.zeros(len(jump_p))
+    is_jump_consensus[jump_time_index_consensus] = 1
+
+    return frac_consensus,is_jump_consensus,whether_consensus_ma
