@@ -69,7 +69,7 @@ def get_peri_event_with_shuffle(feature_tsd,event_ts,n_shuffle=100,minmax=4,do_z
     
 
 
-import numpy as np
+
 
 def get_consecutive_pv_distance(X, metric="cosine"):
     """
