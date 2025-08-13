@@ -69,6 +69,7 @@ def plot_pynapple_data_plotly(
     reference_time_key=None,
     width=900,
     heights=200,                 # int OR list of pixel heights (one per subplot)
+    global_scale = 1., # scale all size by the same factor
     vertical_spacing=0.04,       # increase a bit to avoid title overlap
     styles: dict | None = None,  # {key: {kwargs for go.Scatter/Heatmap}}
     x_nticks: int | None = None, # or dict: {key: int}
@@ -98,6 +99,14 @@ def plot_pynapple_data_plotly(
     data = {k: v.restrict(common_interval) for k, v in data_dict.items()}
     keys = list(data.keys())
     n = len(keys)
+
+    if isinstance(heights, list):
+        heights = np.array(heights)
+    heights = heights * global_scale
+    width = width * global_scale
+    vertical_spacing = vertical_spacing * global_scale
+    title_top_margin = title_top_margin * global_scale
+    annotation_yshift = annotation_yshift * global_scale
 
     # --- per-row heights (pixels -> relative row_heights) & total height ---
     if isinstance(heights, (list, tuple, np.ndarray)):
