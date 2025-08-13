@@ -212,10 +212,11 @@ def plot_pynapple_data_plotly(
         height=fig_height,
         showlegend=showlegend,
         margin=dict(t=title_top_margin, r=10, b=10, l=10),
-        font=dict(size=font_size)
     )
     # lift subplot titles slightly so they never collide with plots
     fig.for_each_annotation(lambda a: a.update(yshift=annotation_yshift))
+
+    set_plotly_fonts(fig,base=font_size)
 
     return fig
 
@@ -228,3 +229,57 @@ def plot_pynapple_data_plotly(
 # fig.write_html("figure.html", include_mathjax="cdn")
 # 3) Show as non-interactive in notebook:
 # fig.show(config={"staticPlot": True})
+
+import plotly.graph_objects as go
+
+def set_plotly_fonts(fig,
+    base=12,              # global default (ticks if not overridden)
+    title=None,           # figure title
+    subplot_title=None,   # titles from make_subplots (annotations)
+    axis_title=None,      # x/y axis titles
+    ticks=None,           # x/y tick labels
+    legend=None,
+    colorbar_title=None,
+    colorbar_ticks=None,
+    hover=None
+):
+    # sensible defaults relative to base
+    title           = title           or int(base*1.2)
+    subplot_title   = subplot_title   or int(base*1.1)
+    axis_title      = axis_title      or int(base*1.0)
+    ticks           = ticks           or int(base*0.9)
+    legend          = legend          or int(base*0.9)
+    colorbar_title  = colorbar_title  or int(base*0.9)
+    colorbar_ticks  = colorbar_ticks  or int(base*0.85)
+    hover           = hover           or int(base*0.9)
+
+    # global default for any text without its own font set
+    fig.update_layout(font=dict(size=base))
+
+    # figure title
+    fig.update_layout(title_font=dict(size=title))
+
+    # all axis ticks & titles at once
+    fig.update_xaxes(tickfont=dict(size=ticks), title_font=dict(size=axis_title), row="all", col="all")
+    fig.update_yaxes(tickfont=dict(size=ticks), title_font=dict(size=axis_title), row="all", col="all")
+
+    # subplot titles (are annotations)
+    if getattr(fig.layout, "annotations", None):
+        fig.update_annotations(font=dict(size=subplot_title))
+
+    # legend
+    fig.update_layout(legend=dict(font=dict(size=legend)))
+
+    # colorbars on traces (heatmap/contour/hist2d/etc.)
+    for tr in fig.data:
+        cb = getattr(tr, "colorbar", None)
+        if cb is not None:
+            tr.update(colorbar=dict(
+                titlefont=dict(size=colorbar_title),
+                tickfont=dict(size=colorbar_ticks)
+            ))
+
+    # hover labels (if you keep interactivity)
+    fig.update_layout(hoverlabel=dict(font=dict(size=hover)))
+
+    return fig
