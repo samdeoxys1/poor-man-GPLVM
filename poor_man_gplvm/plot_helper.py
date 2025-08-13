@@ -80,8 +80,10 @@ def plot_pynapple_data_plotly(
     showlegend=False
 ):
     """
-    Plot dict of pynapple objects (each has .t (1D), .d (1D/2D), .restrict()).
+    Plot dict of pynapple objects 
     1D -> line; 2D -> heatmap (time on x, rows on y).
+
+    reference_time_key: key of the data_dict to use as reference time; all other data will be restricted to this interval
     """
     # --- pick a common interval ---
     if reference_time_key is not None:
