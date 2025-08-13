@@ -23,7 +23,7 @@ def save_fig(fig,fig_name,fig_dir='./figs',fig_format=['png','svg'],dpi=300):
 def plot_mean_error_plot(data,error_type='ci',mean_axis=0,fig=None,ax=None,**kwargs):
     '''
     plt the mean and error of the data
-    data: pd.DataFrame, 
+    data: pd.DataFrame or np.ndarray
     error_type: 'ci' or 'std'
     mean_axis: axis to take the mean of, same for error; plot the other axis
     '''
@@ -38,5 +38,9 @@ def plot_mean_error_plot(data,error_type='ci',mean_axis=0,fig=None,ax=None,**kwa
     else:
         raise ValueError(f'error_type {error_type} not supported')
     ax.plot(mean,**kwargs)
-    ax.fill_between(np.arange(len(mean)),mean-error,mean+error,alpha=0.5)
+    if isinstance(data,pd.DataFrame):
+        xs = mean.index
+    else:
+        xs = np.arange(len(mean))
+    ax.fill_between(xs,mean-error,mean+error,alpha=0.5)
     return fig,ax
