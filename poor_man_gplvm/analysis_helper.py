@@ -6,6 +6,7 @@ import pynapple as nap
 import pandas as pd
 import scipy.stats
 import tqdm
+import scipy.ndimage
 
 def get_state_interval(p_l,p_thresh=0.8, merge_thresh=1,duration_thresh=2,):
     '''
@@ -71,7 +72,7 @@ def get_peri_event_with_shuffle(feature_tsd,event_ts,n_shuffle=100,minmax=4,do_z
 
 
 
-def get_consecutive_pv_distance(X, metric="cosine"):
+def get_consecutive_pv_distance(X, smooth_window=None,metric="cosine"):
     """
     Compute consecutive population vector distances.
 
@@ -79,6 +80,8 @@ def get_consecutive_pv_distance(X, metric="cosine"):
     ----------
     X : array-like, shape (T, N)
         Population activity matrix (time points × neurons).
+    smooth_window : int or in seconds (if X is pyanppel TsdFrame), optional
+        Window size for smoothing the population activity.
     metric : {'cosine', 'correlation', 'euclidean'}
         Distance metric to use.
 
@@ -89,9 +92,15 @@ def get_consecutive_pv_distance(X, metric="cosine"):
     """
     if isinstance(X,nap.TsdFrame):
         is_pyanppe=True
+        if smooth_window is not None:
+            X = X.smooth(smooth_window)
         X_ = X.d
+        
+
     else:
         is_pyanppe=False
+        if smooth_window is not None:
+            X = scipy.ndimage.gaussian_filter1d(X,smooth_window)
         X_ = X
     x1, x2 = X_[:-1], X_[1:]
 
