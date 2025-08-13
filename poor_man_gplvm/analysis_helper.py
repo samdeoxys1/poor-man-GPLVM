@@ -80,7 +80,7 @@ def get_consecutive_pv_distance(X, smooth_window=None,metric="cosine"):
     ----------
     X : array-like, shape (T, N)
         Population activity matrix (time points × neurons).
-    smooth_window : int or in seconds (if X is pyanppel TsdFrame), optional
+    smooth_window : int or in seconds (if X is pynapple TsdFrame), optional
         Window size for smoothing the population activity.
     metric : {'cosine', 'correlation', 'euclidean'}
         Distance metric to use.
@@ -109,16 +109,35 @@ def get_consecutive_pv_distance(X, smooth_window=None,metric="cosine"):
 
     elif metric == "cosine":
         numerator = np.sum(x1 * x2, axis=1)
-        denominator = np.linalg.norm(x1, axis=1) * np.linalg.norm(x2, axis=1)
-        dist = 1 - numerator / denominator
+        norm1 = np.linalg.norm(x1, axis=1)
+        norm2 = np.linalg.norm(x2, axis=1)
+        denom = norm1 * norm2
+        with np.errstate(invalid='ignore', divide='ignore'):
+            sim = np.divide(numerator, denom, out=np.zeros_like(numerator), where=denom > 0)
+        dist = 1 - sim
+        is_zero1 = norm1 <= 1e-12
+        is_zero2 = norm2 <= 1e-12
+        both_zero = is_zero1 & is_zero2
+        one_zero = is_zero1 ^ is_zero2
+        dist[both_zero] = 0.0
+        dist[one_zero] = 2.0
 
     elif metric == "correlation":
         x1_centered = x1 - x1.mean(axis=1, keepdims=True)
         x2_centered = x2 - x2.mean(axis=1, keepdims=True)
         numerator = np.sum(x1_centered * x2_centered, axis=1)
-        denominator = (np.linalg.norm(x1_centered, axis=1) *
-                       np.linalg.norm(x2_centered, axis=1))
-        dist = 1 - numerator / denominator
+        norm1 = np.linalg.norm(x1_centered, axis=1)
+        norm2 = np.linalg.norm(x2_centered, axis=1)
+        denom = norm1 * norm2
+        with np.errstate(invalid='ignore', divide='ignore'):
+            sim = np.divide(numerator, denom, out=np.zeros_like(numerator), where=denom > 0)
+        dist = 1 - sim
+        is_zero1 = norm1 <= 1e-12
+        is_zero2 = norm2 <= 1e-12
+        both_zero = is_zero1 & is_zero2
+        one_zero = is_zero1 ^ is_zero2
+        dist[both_zero] = 0.0
+        dist[one_zero] = 2.0
 
     else:
         raise ValueError(f"Unknown metric: {metric}")
