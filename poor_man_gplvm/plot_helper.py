@@ -6,6 +6,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pynapple as nap
 import sys,os
+import pandas as pd
+
 plt.rcParams['font.family'] = 'sans-serif'
 plt.rcParams['svg.fonttype'] = 'none'
 
