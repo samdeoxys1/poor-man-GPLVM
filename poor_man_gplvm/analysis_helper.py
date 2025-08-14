@@ -149,3 +149,150 @@ def get_consecutive_pv_distance(X, smooth_window=None,metric="cosine"):
 
 
 
+#### after doing peri event, regression analysis ####
+import numpy as np
+import pandas as pd
+import statsmodels.formula.api as smf
+
+def fit_time_prepost_interaction(
+    df_wide: pd.DataFrame,
+    time=None,
+    repeat_name: str = "repeat",
+    response_name: str = "y",
+    cov: str = "cluster",   # "cluster" (by repeat) or "HC1"
+):
+    """
+    Fit: response ~ time_within * C(is_post)
+    
+    Parameters
+    ----------
+    df_wide : DataFrame (shape: n_repeat x n_time)
+        Rows = repeats/trials, columns = time points, values = response.
+        Column names should be numeric (or convertible) time stamps; otherwise pass `time`.
+    time : 1D array-like, optional
+        Time vector aligned with df_wide's columns. If None, tries to parse df_wide.columns as float.
+    repeat_name : str
+        Name for the repeat id column in the long table.
+    response_name : str
+        Name for the response column in the long table.
+    cov : {"cluster","HC1"}
+        Covariance for standard errors. "cluster" clusters by repeat (recommended);
+        "HC1" uses heteroskedasticity-robust (no clustering).
+
+    Returns
+    -------
+    out : dict
+        Keys:
+          - params (Series)
+          - bse (Series)
+          - pvalues (Series)
+          - conf_int (DataFrame: low/high)
+          - rsquared, rsquared_adj, f_pvalue, nobs, cov_type
+          - coef_pre (dict with intercept, slope, p_slope)
+          - coef_post (dict with intercept, slope, p_slope)
+          - p_interaction (float)   # test that slopes differ
+          - p_intercept_diff (float) # test that intercepts differ
+          - model (fitted results)   # statsmodels result object
+    """
+
+    # ----- 1) Build long-format table -----
+    wide = df_wide.copy()
+
+    # Get time vector
+    if time is None:
+        try:
+            t = pd.to_numeric(wide.columns, errors="raise").astype(float)
+        except Exception:
+            raise ValueError("Cannot parse df_wide.columns as numeric times; pass `time` explicitly.")
+    else:
+        t = np.asarray(time, dtype=float)
+        if len(t) != wide.shape[1]:
+            raise ValueError("`time` length must match number of columns in df_wide.")
+
+    wide.columns = t
+    long = (
+        wide.rename_axis(index=repeat_name, columns="time")
+            .stack()
+            .reset_index(name=response_name)
+    )
+
+    # sanity: need at least one pre (<0) and one post (>=0) time
+    if not ((long["time"] < 0).any() and (long["time"] >= 0).any()):
+        raise ValueError("Time grid must include both pre (<0) and post (>=0) samples.")
+
+    # ----- 2) Build regressors -----
+    long["is_post"] = (long["time"] >= 0).astype(int)
+
+    # z-score time separately within pre and post
+    def _z_by_side(x):
+        s = x.std(ddof=0)
+        return (x - x.mean()) / s if s > 0 else x * 0.0
+
+    long["time_within"] = long.groupby("is_post")["time"].transform(_z_by_side)
+
+    # ----- 3) Fit OLS with interaction -----
+    formula = f"{response_name} ~ time_within * C(is_post)"
+    if cov == "cluster":
+        res = smf.ols(formula, data=long).fit(
+            cov_type="cluster", cov_kwds={"groups": long[repeat_name]}
+        )
+    elif cov == "HC1":
+        res = smf.ols(formula, data=long).fit(cov_type="HC1")
+    else:
+        raise ValueError("cov must be 'cluster' or 'HC1'.")
+
+    # ----- 4) Extract contrasts and helpful summaries -----
+    # Baseline group is is_post == 0 (pre)
+    # Pre slope = coef['time_within']
+    # Post slope = coef['time_within'] + coef['time_within:C(is_post)[T.1]']
+    # Post intercept = intercept + C(is_post)[T.1]
+    ci = res.conf_int()
+    ci.columns = ["low", "high"]
+
+    # names in params
+    p_time = "time_within"
+    p_group = "C(is_post)[T.1]"
+    p_interact = "time_within:C(is_post)[T.1]"
+
+    # t-tests for slopes (pre and post = linear combinations)
+    p_slope_pre = float(res.t_test(f"{p_time} = 0").pvalue)
+    p_slope_post = float(res.t_test(f"{p_time} + {p_interact} = 0").pvalue)
+
+    # tests for differences
+    p_interaction = float(res.t_test(f"{p_interact} = 0").pvalue)      # slopes differ?
+    p_intercept_diff = float(res.t_test(f"{p_group} = 0").pvalue)       # intercepts differ?
+
+    # compute explicit slopes/intercepts
+    beta0 = res.params.get("Intercept", np.nan)
+    beta_time = res.params.get(p_time, np.nan)
+    beta_grp = res.params.get(p_group, np.nan)
+    beta_int = res.params.get(p_interact, np.nan)
+
+    coef_pre = {
+        "intercept": beta0,
+        "slope": beta_time,
+        "p_slope": p_slope_pre,
+    }
+    coef_post = {
+        "intercept": beta0 + beta_grp,
+        "slope": beta_time + beta_int,
+        "p_slope": p_slope_post,
+    }
+
+    return {
+        "params": res.params,
+        "bse": res.bse,
+        "pvalues": res.pvalues,
+        "conf_int": ci,
+        "rsquared": res.rsquared,
+        "rsquared_adj": res.rsquared_adj,
+        "f_pvalue": res.f_pvalue,
+        "nobs": int(res.nobs),
+        "cov_type": res.cov_type,
+        "coef_pre": coef_pre,
+        "coef_post": coef_post,
+        "p_interaction": p_interaction,
+        "p_intercept_diff": p_intercept_diff,
+        "model": res,
+        "data_long": long,  # included for convenience (e.g., plotting diagnostics)
+    }
