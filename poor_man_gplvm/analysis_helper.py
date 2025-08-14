@@ -154,6 +154,10 @@ import numpy as np
 import pandas as pd
 import statsmodels.formula.api as smf
 
+import numpy as np
+import pandas as pd
+import statsmodels.formula.api as smf
+
 def fit_time_prepost_interaction(
     df_wide: pd.DataFrame,
     time=None,
@@ -163,36 +167,18 @@ def fit_time_prepost_interaction(
 ):
     """
     Fit: response ~ time_within * C(is_post)
-    
-    Parameters
-    ----------
-    df_wide : DataFrame (shape: n_repeat x n_time)
-        Rows = repeats/trials, columns = time points, values = response.
-        Column names should be numeric (or convertible) time stamps; otherwise pass `time`.
-    time : 1D array-like, optional
-        Time vector aligned with df_wide's columns. If None, tries to parse df_wide.columns as float.
-    repeat_name : str
-        Name for the repeat id column in the long table.
-    response_name : str
-        Name for the response column in the long table.
-    cov : {"cluster","HC1"}
-        Covariance for standard errors. "cluster" clusters by repeat (recommended);
-        "HC1" uses heteroskedasticity-robust (no clustering).
+    - time_within: z-scored within pre (<0) and post (>=0) separately
+    - is_post: 1 if time>=0 else 0
 
-    Returns
-    -------
-    out : dict
-        Keys:
-          - params (Series)
-          - bse (Series)
-          - pvalues (Series)
-          - conf_int (DataFrame: low/high)
-          - rsquared, rsquared_adj, f_pvalue, nobs, cov_type
-          - coef_pre (dict with intercept, slope, p_slope)
-          - coef_post (dict with intercept, slope, p_slope)
-          - p_interaction (float)   # test that slopes differ
-          - p_intercept_diff (float) # test that intercepts differ
-          - model (fitted results)   # statsmodels result object
+    Returns dict with:
+      - summary_df: tidy table of slopes & intercepts
+          index: ["slope_pre","slope_post","slope_diff",
+                  "intercept_pre","intercept_post","intercept_diff"]
+          columns: ["estimate","std_value","pvalue","ci_low","ci_high"]
+        * 'std_value' is the t-statistic (estimate / SE)
+      - params, bse, pvalues, conf_int, rsquared, rsquared_adj, f_pvalue, nobs, cov_type
+      - coef_pre, coef_post, p_interaction, p_intercept_diff
+      - model (statsmodels results), data_long (for convenience)
     """
 
     # ----- 1) Build long-format table -----
@@ -216,14 +202,12 @@ def fit_time_prepost_interaction(
             .reset_index(name=response_name)
     )
 
-    # sanity: need at least one pre (<0) and one post (>=0) time
     if not ((long["time"] < 0).any() and (long["time"] >= 0).any()):
         raise ValueError("Time grid must include both pre (<0) and post (>=0) samples.")
 
-    # ----- 2) Build regressors -----
+    # ----- 2) Regressors -----
     long["is_post"] = (long["time"] >= 0).astype(int)
 
-    # z-score time separately within pre and post
     def _z_by_side(x):
         s = x.std(ddof=0)
         return (x - x.mean()) / s if s > 0 else x * 0.0
@@ -241,49 +225,62 @@ def fit_time_prepost_interaction(
     else:
         raise ValueError("cov must be 'cluster' or 'HC1'.")
 
-    # ----- 4) Extract contrasts and helpful summaries -----
-    # Baseline group is is_post == 0 (pre)
-    # Pre slope = coef['time_within']
-    # Post slope = coef['time_within'] + coef['time_within:C(is_post)[T.1]']
-    # Post intercept = intercept + C(is_post)[T.1]
-    ci = res.conf_int()
-    ci.columns = ["low", "high"]
-
-    # names in params
+    # Name helpers
     p_time = "time_within"
     p_group = "C(is_post)[T.1]"
     p_interact = "time_within:C(is_post)[T.1]"
 
-    # t-tests for slopes (pre and post = linear combinations)
-    p_slope_pre = float(res.t_test(f"{p_time} = 0").pvalue)
-    p_slope_post = float(res.t_test(f"{p_time} + {p_interact} = 0").pvalue)
+    # Convenience function for linear contrasts -> tidy stats
+    def _lincon(expr):
+        tt = res.t_test(expr)
+        est = float(np.atleast_1d(tt.effect)[0])
+        tval = float(np.atleast_1d(tt.tvalue)[0])
+        pval = float(np.atleast_1d(tt.pvalue)[0])
+        ci = tt.conf_int()
+        low, high = float(ci[0,0]), float(ci[0,1])
+        return {"estimate": est, "std_value": tval, "pvalue": pval, "ci_low": low, "ci_high": high}
 
-    # tests for differences
-    p_interaction = float(res.t_test(f"{p_interact} = 0").pvalue)      # slopes differ?
-    p_intercept_diff = float(res.t_test(f"{p_group} = 0").pvalue)       # intercepts differ?
+    # Slopes
+    stats_slope_pre  = _lincon(f"{p_time} = 0")                  # β1
+    stats_slope_post = _lincon(f"{p_time} + {p_interact} = 0")   # β1 + β3
+    stats_slope_diff = _lincon(f"{p_interact} = 0")              # β3
 
-    # compute explicit slopes/intercepts
+    # Intercepts
+    stats_int_pre   = _lincon("Intercept = 0")                   # β0
+    stats_int_post  = _lincon(f"Intercept + {p_group} = 0")      # β0 + β2
+    stats_int_diff  = _lincon(f"{p_group} = 0")                  # β2
+
+    summary_df = pd.DataFrame.from_dict(
+        {
+            "slope_pre":       stats_slope_pre,
+            "slope_post":      stats_slope_post,
+            "slope_diff":      stats_slope_diff,
+            "intercept_pre":   stats_int_pre,
+            "intercept_post":  stats_int_post,
+            "intercept_diff":  stats_int_diff,
+        },
+        orient="index",
+    )
+
+    # Other useful outputs
+    ci_full = res.conf_int()
+    ci_full.columns = ["low", "high"]
+
+    # Pre/Post slope point estimates for quick access (same as summary_df values)
     beta0 = res.params.get("Intercept", np.nan)
-    beta_time = res.params.get(p_time, np.nan)
-    beta_grp = res.params.get(p_group, np.nan)
-    beta_int = res.params.get(p_interact, np.nan)
+    beta1 = res.params.get(p_time, np.nan)
+    beta2 = res.params.get(p_group, np.nan)
+    beta3 = res.params.get(p_interact, np.nan)
 
-    coef_pre = {
-        "intercept": beta0,
-        "slope": beta_time,
-        "p_slope": p_slope_pre,
-    }
-    coef_post = {
-        "intercept": beta0 + beta_grp,
-        "slope": beta_time + beta_int,
-        "p_slope": p_slope_post,
-    }
+    coef_pre = {"intercept": beta0, "slope": beta1, "p_slope": stats_slope_pre["pvalue"]}
+    coef_post = {"intercept": beta0 + beta2, "slope": beta1 + beta3, "p_slope": stats_slope_post["pvalue"]}
 
     return {
+        "summary_df": summary_df,            # << clean table you asked for
         "params": res.params,
         "bse": res.bse,
         "pvalues": res.pvalues,
-        "conf_int": ci,
+        "conf_int": ci_full,
         "rsquared": res.rsquared,
         "rsquared_adj": res.rsquared_adj,
         "f_pvalue": res.f_pvalue,
@@ -291,8 +288,8 @@ def fit_time_prepost_interaction(
         "cov_type": res.cov_type,
         "coef_pre": coef_pre,
         "coef_post": coef_post,
-        "p_interaction": p_interaction,
-        "p_intercept_diff": p_intercept_diff,
+        "p_interaction": stats_slope_diff["pvalue"],     # = test of β3
+        "p_intercept_diff": stats_int_diff["pvalue"],    # = test of β2
         "model": res,
-        "data_long": long,  # included for convenience (e.g., plotting diagnostics)
+        "data_long": long,
     }
