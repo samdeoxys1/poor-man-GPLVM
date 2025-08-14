@@ -10,7 +10,7 @@ import scipy.ndimage
 
 def get_state_interval(p_l,p_thresh=0.8, merge_thresh=1,duration_thresh=2,):
     '''
-    get the state interval from the posterior, by thresholding, get intervals, filter for duration, merge
+    get the state interval from the posterior, by thresholding, get intervals, merge, filter for duration
 
     e.g. can use this to get the chunks of continuous fragmented states
 
@@ -23,10 +23,9 @@ def get_state_interval(p_l,p_thresh=0.8, merge_thresh=1,duration_thresh=2,):
     intv_merge: nap.IntervalSet, the interval of the chunks
     '''
     intv=p_l.threshold(p_thresh).time_support
-    intv_filtered = intv[(intv[:,1]-intv[:,0])>duration_thresh] # filter out too short ones
-    intv_merge = intv_filtered.merge_close_intervals(merge_thresh) # threshold for merging adjacent intervals
-    # ma=intv_merge[:,1]-intv_merge[:,0] > duration_thresh
-    # intv_merge = intv_merge[ma]
+    intv_merge = intv.merge_close_intervals(merge_thresh) # threshold for merging adjacent intervals
+    ma=intv_merge[:,1]-intv_merge[:,0] > duration_thresh
+    intv_merge = intv_merge[ma]
     return intv_merge
 
 def get_peri_event_with_shuffle(feature_tsd,event_ts,n_shuffle=100,minmax=4,do_zscore=True):
