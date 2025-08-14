@@ -64,6 +64,24 @@ def _deep_update(base: dict, extra: dict):
             base[k] = v
     return base
 
+def _per_key(value, key):
+    if isinstance(value, dict):
+        return value.get(key, None)
+    return value
+
+
+def _compute_tickvals(requested, vmin, vmax):
+    if requested is None:
+        return None
+    if isinstance(requested, int):
+        n = max(1, requested)
+        if not np.isfinite(vmin) or not np.isfinite(vmax):
+            return None
+        if vmin == vmax:
+            return [vmin]
+        return list(np.linspace(vmin, vmax, n))
+    return requested
+
 def plot_pynapple_data_plotly(
     data_dict: dict,
     reference_time_key=None,
@@ -76,6 +94,12 @@ def plot_pynapple_data_plotly(
     y_nticks: int | None = None, # or dict: {key: int}
     tickformat: str | None = None,   # e.g. '%H:%M:%S' for time axes
     y_lim_quantile: tuple[float, float] | dict[str, tuple[float, float] | None] | None = (0.01, 0.99),
+    ylabel: str | dict[str, str] | None = None,
+    xlabel: str | dict[str, str] | None = None,
+    tickvals: list[float] | int | dict[str, list[float] | int | None] | None = None,
+    ticktext: list[str] | dict[str, list[str] | None] | None = None,
+    ylabel_standoff: float | dict[str, float] | None = None,
+    xlabel_standoff: float | dict[str, float] | None = None,
     title_top_margin=70,         # extra top space so titles never clip
     annotation_yshift=8,         # lift subplot titles a bit (pixels)
     shared_vlines: list[float] | None = None,  # x positions
@@ -166,6 +190,8 @@ def plot_pynapple_data_plotly(
     # --- axis ranges & tick control ---
     for i, k in enumerate(keys, start=1):
         arr = data[k]
+        y_min_used = None
+        y_max_used = None
         if arr.d.size and arr.d.ndim == 1:
             y = arr.d
             # Determine quantile config for this subplot
@@ -184,7 +210,11 @@ def plot_pynapple_data_plotly(
                         ymin -= eps
                         ymax += eps
                 fig.update_yaxes(range=[ymin, ymax], row=i, col=1)
-            # else: None -> do not override; keep default auto y-limits
+                y_min_used, y_max_used = ymin, ymax
+            else:
+                # no override -> fall back to raw data extent for tick computations
+                y_min_used = float(np.nanmin(y))
+                y_max_used = float(np.nanmax(y))
 
         # ticks: global int OR per-key dict
         if isinstance(x_nticks, dict):
@@ -201,6 +231,43 @@ def plot_pynapple_data_plotly(
 
         if tickformat:
             fig.update_xaxes(tickformat=tickformat, row=i, col=1)
+
+        # --- labels, tickvals/ticktext, standoff ---
+        # y-axis
+        ylab = _per_key(ylabel, k)
+        ystandoff = _per_key(ylabel_standoff, k)
+        y_tick_req = _per_key(tickvals, k)
+        y_tick_text = _per_key(ticktext, k)
+        y_update = {}
+        if ylab is not None:
+            y_update["title"] = ylab
+        if ystandoff is not None:
+            y_update["title_standoff"] = ystandoff
+        if y_tick_req is not None:
+            # If no prior range calc, use data extents when available
+            if y_min_used is None or y_max_used is None:
+                if arr.d.size and arr.d.ndim == 1:
+                    y_min_used = float(np.nanmin(arr.d))
+                    y_max_used = float(np.nanmax(arr.d))
+            tv = _compute_tickvals(y_tick_req, y_min_used, y_max_used)
+            if tv is not None:
+                y_update["tickmode"] = "array"
+                y_update["tickvals"] = tv
+                if y_tick_text is not None:
+                    y_update["ticktext"] = y_tick_text
+        if y_update:
+            fig.update_yaxes(**y_update, row=i, col=1)
+
+        # x-axis
+        xlab = _per_key(xlabel, k)
+        xstandoff = _per_key(xlabel_standoff, k)
+        x_update = {}
+        if xlab is not None:
+            x_update["title"] = xlab
+        if xstandoff is not None:
+            x_update["title_standoff"] = xstandoff
+        if x_update:
+            fig.update_xaxes(**x_update, row=i, col=1)
 
     # hide x tick labels except bottom row (cleaner stacked look)
     for i in range(1, n):
