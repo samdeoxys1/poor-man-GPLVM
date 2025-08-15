@@ -56,7 +56,8 @@ def get_peri_event_with_shuffle(feature_tsd,event_ts,n_shuffle=100,minmax=4,do_z
     peri_event: pd.DataFrame, n_event x n_time
     peri_event_sh: pd.DataFrame,n_shuffle x n_time or empty list
     '''
-    event_ts = event_ts[(event_ts.t>minmax) & (event_ts.t<feature_tsd.t[-1]-minmax)]
+    trim_window = (feature_tsd.t[0]+minmax,feature_tsd.t[-1]-minmax)
+    event_ts = event_ts[(event_ts.t>trim_window[0]) & (event_ts.t<trim_window[1])]
 
     peri_event = nap.compute_perievent_continuous(timeseries=feature_tsd,tref=event_ts,minmax=minmax) # n_time x n_event
     peri_event = peri_event.as_dataframe().T # n_event x n_time
@@ -69,7 +70,7 @@ def get_peri_event_with_shuffle(feature_tsd,event_ts,n_shuffle=100,minmax=4,do_z
             # event_ts_sh=shift_timestamp(event_ts,time_support=[feature_tsd.t[0],feature_tsd.t[-1]]) # notice the feature might span across different chunks of some state, so this would smear the difference across states
             event_ts_sh=nap.shift_timestamps(event_ts,min_shift=1.,max_shift=10.) # notice the feature might span across different chunks of some state, so this would smear the difference across states
             
-            event_ts_sh = event_ts_sh[(event_ts_sh.t>minmax) & (event_ts_sh.t<event_ts_sh.t[-1]-minmax)]
+            event_ts_sh = event_ts_sh[(event_ts_sh.t>trim_window[0]) & (event_ts_sh.t<trim_window[1])]
             
 
             peri_event_sh=nap.compute_perievent_continuous(timeseries=feature_tsd,tref=event_ts_sh,minmax=minmax) # n_time x n_event
