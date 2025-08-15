@@ -209,7 +209,7 @@ def shuffle_test_distance_vs_label(
     n = Dv.shape[0]
     for s in range(n_shuffles):
         perm = rng.permutation(n)
-        Dp = Dv[np.ix__(perm, perm)]
+        Dp = Dv[np.ix_(perm, perm)]
         y_shuf = Dp[iu, ju]
         # regression
         reg = _linregress_np(x, y_shuf)
