@@ -185,8 +185,8 @@ def distance_vs_label_regression(
         If provided, include pairwise |Δtime| as an additional regressor.
     label_distance_threshold : float or None
         If provided, replace continuous |Δlabel| with a binary variable:
-        1 if |Δlabel| <= threshold else 0. If threshold==0, this enforces strict
-        sameness as the positive category.
+        1 if |Δlabel| > threshold else 0. If threshold==0, this enforces strict
+        sameness as the 0 category.
 
     Returns
     -------
@@ -206,7 +206,7 @@ def distance_vs_label_regression(
     # Choose regressor: continuous |Δlabel| or binary category
     if label_distance_threshold is not None:
         thr = float(label_distance_threshold)
-        x = (x_cont <= thr).astype(float)
+        x = (x_cont > thr).astype(float)
         edges_eff = np.array([-0.5, 0.5, 1.5])
     else:
         x = x_cont
