@@ -459,3 +459,21 @@ def set_two_ticks(axis, ylim=None,do_int=True):
         ylim = [int(k) for k in ylim]
     axis.set_yticks([ylim[0], ylim[1]])
     return axis
+
+# for plotting the distribution of the shuffle data and the data itself
+def plot_shuffle_data_dist_with_thresh(shuffle,data,bins=20,alpha=0.025,fig=None,ax=None,lw=4,plot_ci_high=True,plot_ci_low=False,figsize=(2,1.3)):
+    thresh_high=np.quantile(shuffle,(1-alpha))
+    percentile_high = (1-alpha) * 100
+    # if plot_ci_low:
+    thresh_low=np.quantile(shuffle,alpha)
+    percentile_low = alpha * 100
+    if ax is None:
+        fig,ax=plt.subplots(figsize=figsize)
+    ax.hist(shuffle,bins=bins,alpha=0.5)
+    ax.axvline(data,label='data',linewidth=lw)
+    if plot_ci_low:
+        ax.axvline(thresh_low,label=f'{percentile_low:.02f} percentile',linestyle=':',linewidth=lw)
+    if plot_ci_high:
+        ax.axvline(thresh_high,label=f'{percentile_high:.02f} percentile',linestyle=':',linewidth=lw)
+    ax.legend()
+    return fig,ax
