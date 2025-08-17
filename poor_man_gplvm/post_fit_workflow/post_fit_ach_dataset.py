@@ -159,7 +159,6 @@ def event_triggered_analysis_multiple_feature_event(feature_d,event_ts_d,n_shuff
     ylim_d_ = {k:None for k in feature_d.keys()} # by default use None as ylim, but can be overridden by ylim_d
 
     ylabel_d_.update(ylabel_d)
-    print(ylabel_d_)
     title_d_.update(title_d)
     ylim_d_.update(ylim_d)
     if do_plot:
@@ -171,9 +170,9 @@ def event_triggered_analysis_multiple_feature_event(feature_d,event_ts_d,n_shuff
         for event_name,event_ts in event_ts_d.items():
             print(f'====Event: {event_name}====')
             if do_plot:
-                analysis_res,fig_,ax_=event_triggered_analysis(feat,event_ts,n_shuffle=n_shuffle,minmax=minmax,do_zscore=do_zscore,test_win=test_win,do_plot=do_plot,fig=fig,ax=ax)
+                analysis_res,fig_,ax_=event_triggered_analysis(feat,event_ts,n_shuffle=n_shuffle,minmax=minmax,do_zscore=do_zscore,test_win=test_win,do_plot=do_plot,fig=fig,ax=ax,,ylabel=ylabel_d_[feat_name],title=title_d_[event_name],ylim=ylim_d_[feat_name])
             else:
-                analysis_res = event_triggered_analysis(feat,event_ts,n_shuffle=n_shuffle,minmax=minmax,do_zscore=do_zscore,test_win=test_win,ylabel=ylabel_d_[feat_name],title=title_d_[event_name],ylim=ylim_d_[feat_name])
+                analysis_res = event_triggered_analysis(feat,event_ts,n_shuffle=n_shuffle,minmax=minmax,do_zscore=do_zscore,test_win=test_win)
             analysis_res_d[feat_name,event_name] = analysis_res
             if do_plot:
                 ax_=ph.set_two_ticks(ax_)
