@@ -167,6 +167,7 @@ def event_triggered_analysis_multiple_feature_event(feature_d,event_ts_d,n_shuff
 def prep_feature_d(prep_res,consec_pv_dist_metric='correlation',continuous_dynamics_ind=0,jump_dynamics_ind=1):
     '''
     prepare the features used for peri event analysis
+    This function is updated when we care about different features
     '''
     ach = prep_res['fluo_data']['ACh']
     spike_mat_sub = prep_res['spike_mat_sub']
@@ -177,5 +178,27 @@ def prep_feature_d(prep_res,consec_pv_dist_metric='correlation',continuous_dynam
     p_jump = prep_res['posterior_dynamics_marg'][:,jump_dynamics_ind]
     feature_d = {'ach':ach,'pop_fr':pop_fr,'consec_pv_dist':consec_pv_dist,'p_continuous':p_continuous,'p_jump':p_jump}
     return feature_d
+
+def turn_sleep_state_tsd_to_interval(sleep_state_index,sleep_state_label_d={'Wake':0,'NREM':2,'REM':4}):
+    '''
+    turn numerically coded sleep state time series to interval for each state
+    sleep_state_index: Tsd, n_time, the sleep state index
+    '''
+    for label,label_num in sleep_state_label_d.items():
+        intv=(sleep_state_index==label_num).threshold(0.5).time_support
+        sleep_state_label_d[label] = intv
+    return sleep_state_label_d
+
+def segregate_event_ts_by_sleep_state(event_ts,sleep_state_label_d):
+    '''
+    segregate the event timestamps by sleep state
+    event_ts: Ts, the event timestamps
+    sleep_state_label_d: dict, key is the sleep state label, value is the interval
+    return: dict, key is the sleep state label, value is the event timestamps
+    '''
+    event_ts_d = {}
+    for label,intv in sleep_state_label_d.items():
+        event_ts_d[label] = event_ts.restrict(intv)
+    return event_ts_d,sleep_state_label_d
 
 # def prep_event_ts_d(prep_res):
