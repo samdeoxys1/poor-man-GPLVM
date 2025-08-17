@@ -26,6 +26,7 @@ import pynapple as nap
 import dill
 import poor_man_gplvm.analysis_helper as ah
 import poor_man_gplvm.plot_helper as ph
+import matplotlib.pyplot as plt
 
 # helper function to get list of processed decoding result from em_res_l (multiple em fit results)
 def get_decode_res_l_from_em_res_l(em_res_l,t_l=None):
