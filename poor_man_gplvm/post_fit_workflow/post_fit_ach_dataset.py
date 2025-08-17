@@ -189,7 +189,7 @@ def event_triggered_analysis_multiple_feature_event(feature_d,event_ts_d,n_shuff
         return analysis_res_d,fig_d,ax_d
     return analysis_res_d
 
-def prep_feature_d(prep_res,consec_pv_dist_metric='correlation',continuous_dynamics_ind=0,jump_dynamics_ind=1):
+def prep_feature_d(prep_res,consec_pv_dist_metric='correlation',continuous_dynamics_ind=0,jump_dynamics_ind=1,feature_to_include=['ach','pop_fr','consec_pv_dist','p_continuous','p_jump']):
     '''
     prepare the features used for peri event analysis
     This function is updated when we care about different features
@@ -201,7 +201,18 @@ def prep_feature_d(prep_res,consec_pv_dist_metric='correlation',continuous_dynam
 
     p_continuous = prep_res['posterior_dynamics_marg'][:,continuous_dynamics_ind]
     p_jump = prep_res['posterior_dynamics_marg'][:,jump_dynamics_ind]
-    feature_d = {'ach':ach,'pop_fr':pop_fr,'consec_pv_dist':consec_pv_dist,'p_continuous':p_continuous,'p_jump':p_jump}
+    
+    feature_d = {}
+    if 'ach' in feature_to_include:
+        feature_d['ach'] = ach
+    if 'pop_fr' in feature_to_include:
+        feature_d['pop_fr'] = pop_fr
+    if 'consec_pv_dist' in feature_to_include:
+        feature_d['consec_pv_dist'] = consec_pv_dist
+    if 'p_continuous' in feature_to_include:
+        feature_d['p_continuous'] = p_continuous
+    if 'p_jump' in feature_to_include:
+        feature_d['p_jump'] = p_jump
     return feature_d
 
 def turn_sleep_state_tsd_to_interval(sleep_state_index,sleep_state_label_d={'Wake':0,'NREM':2,'REM':4}):
