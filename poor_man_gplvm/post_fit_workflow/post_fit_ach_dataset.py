@@ -159,6 +159,7 @@ def event_triggered_analysis_multiple_feature_event(feature_d,event_ts_d,n_shuff
     ylim_d_ = {k:None for k in feature_d.keys()} # by default use None as ylim, but can be overridden by ylim_d
 
     ylabel_d_.update(ylabel_d)
+    print(ylabel_d_)
     title_d_.update(title_d)
     ylim_d_.update(ylim_d)
     if do_plot:
