@@ -151,7 +151,9 @@ def event_triggered_analysis_multiple_feature_event(feature_d,event_ts_d,n_shuff
         fig_d = {}
         ax_d = {}
     for feat_name,feat in feature_d.items():
+        print(f'====Feature: {feat_name}====')
         for event_name,event_ts in event_ts_d.items():
+            print(f'====Event: {event_name}====')
             if do_plot:
                 analysis_res,fig_,ax_=event_triggered_analysis(feat,event_ts,n_shuffle=n_shuffle,minmax=minmax,do_zscore=do_zscore,test_win=test_win,do_plot=do_plot,fig=fig,ax=ax)
             else:
