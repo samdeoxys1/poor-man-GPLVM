@@ -135,6 +135,8 @@ def event_triggered_analysis(feature,event_ts,n_shuffle=10,minmax=4,do_zscore=Fa
     
     # plot
     if do_plot:
+        if ax is None:
+            fig,ax=plt.subplots(figsize=(1,1.5))
         fig,ax=ph.plot_mean_error_plot(toplot_z,mean_axis=0,ax=ax,fig=fig)
         fig,ax=ph.plot_mean_error_plot(ach_peri_shuffle,mean_axis=0,fig=fig,ax=ax,color='grey')
         ax.set_xlabel('Time (s)')
