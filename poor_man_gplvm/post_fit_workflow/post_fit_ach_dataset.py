@@ -54,3 +54,26 @@ def load_data_and_fit_res(data_path,fit_res_path):
     prep_res = {**data_load_res,**decode_res,'model_fit':model_fit}
 
     return prep_res
+
+def find_ach_ramp_onset(ach_data,smooth_win=1,height=0.3,do_zscore=True,detrend_cutoff=None):
+    '''
+    detrend_cutoff: float, optional, usually 0.01
+    '''
+    if do_zscore:
+        t_l = ach_data.t
+        ach_data = scipy.stats.zscore(ach_data)
+        ach_data = nap.Tsd(d=ach_data,t=t_l)
+    if detrend_cutoff is not None:
+        ach_data = ach_data - nap.apply_lowpass_filter(ach_data,detrend_cutoff).d
+    if smooth_win is not None:
+        ach_data_smth = ach_data.smooth(smooth_win)
+    else:
+        ach_data_smth = ach_data
+    
+    slope = ach_data_smth.derivative()
+    peaks,metadata=scipy.signal.find_peaks(slope,height=height)
+    peak_heights = metadata['peak_heights']
+    peak_heights = nap.Tsd(d=peak_heights,t=slope.t[peaks])
+    ach_ramp_onset = nap.Ts(slope.t[peaks])
+    ach_ramp_onset_res = {'ach_ramp_onset':ach_ramp_onset,'slope':slope,'ach_data_smth':ach_data_smth,'ach_data':ach_data,'peak_heights':peak_heights}
+    return ach_ramp_onset_res
