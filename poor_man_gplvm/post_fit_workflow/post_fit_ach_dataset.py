@@ -186,10 +186,11 @@ def turn_sleep_state_tsd_to_interval(sleep_state_index,sleep_state_label_d={'Wak
     turn numerically coded sleep state time series to interval for each state
     sleep_state_index: Tsd, n_time, the sleep state index
     '''
+    sleep_state_intv_d = {}
     for label,label_num in sleep_state_label_d.items():
         intv=(sleep_state_index==label_num).threshold(0.5).time_support
-        sleep_state_label_d[label] = intv
-    return sleep_state_label_d
+        sleep_state_intv_d[label] = intv
+    return sleep_state_intv_d
 
 def segregate_event_ts_by_sleep_state(event_ts,sleep_state_label_d):
     '''
