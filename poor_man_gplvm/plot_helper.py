@@ -452,12 +452,68 @@ def set_plotly_fonts(fig,
     return fig
 
 # for small plots, only keep two ticks 
-def set_two_ticks(axis, ylim=None,do_int=True):
-    if ylim is None:
-        ylim = axis.get_ylim()
-    if do_int:
-        ylim = [int(k) for k in ylim]
-    axis.set_yticks([ylim[0], ylim[1]])
+def set_two_ticks(axis, xlim=None, ylim=None, do_int=True, apply_to='y'):
+    """
+    Set exactly two ticks on the specified axis/axes.
+
+    apply_to: 'x', 'y', or 'both'
+    """
+    def _compute_two(lim, getlim):
+        if lim is None:
+            lim = getlim()
+        lo, hi = lim
+        if do_int:
+            lo_i = int(np.floor(lo))
+            hi_i = int(np.ceil(hi))
+            if lo_i == hi_i:
+                hi_i = lo_i + 1
+            return [lo_i, hi_i]
+        else:
+            if lo == hi:
+                eps = 1e-6 if lo == 0 else abs(lo) * 1e-6
+                lo -= eps
+                hi += eps
+            return [lo, hi]
+
+    if apply_to in ('y', 'both'):
+        y_ticks = _compute_two(ylim, axis.get_ylim)
+        axis.set_yticks([y_ticks[0], y_ticks[1]])
+    if apply_to in ('x', 'both'):
+        x_ticks = _compute_two(xlim, axis.get_xlim)
+        axis.set_xticks([x_ticks[0], x_ticks[1]])
+    return axis
+
+# New: symmetric ticks around 0 (e.g., [-M, 0, M])
+def set_symmetric_ticks(axis, xlim=None, ylim=None, do_int=True, apply_to='y'):
+    """
+    Set symmetric ticks around 0 on the specified axis/axes: [-M, 0, M].
+
+    - Limits are taken from xlim/ylim if provided, otherwise from the current axis limits
+    - M is max(abs(lo), abs(hi)) (ceil if do_int)
+    - apply_to: 'x', 'y', or 'both'
+    """
+    def _compute_three(lim, getlim):
+        if lim is None:
+            lim = getlim()
+        lo, hi = lim
+        if do_int:
+            M = int(np.ceil(max(abs(lo), abs(hi))))
+            if M == 0:
+                M = 1
+            return [-M, 0, M]
+        else:
+            M = float(max(abs(lo), abs(hi)))
+            if M == 0:
+                eps = 1e-6 if lo == 0 else abs(lo) * 1e-6
+                M = eps
+            return [-M, 0.0, M]
+
+    if apply_to in ('y', 'both'):
+        y_ticks = _compute_three(ylim, axis.get_ylim)
+        axis.set_yticks(y_ticks)
+    if apply_to in ('x', 'both'):
+        x_ticks = _compute_three(xlim, axis.get_xlim)
+        axis.set_xticks(x_ticks)
     return axis
 
 # for plotting the distribution of the shuffle data and the data itself
