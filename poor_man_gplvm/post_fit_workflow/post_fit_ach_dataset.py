@@ -175,7 +175,8 @@ def event_triggered_analysis_multiple_feature_event(feature_d,event_ts_d,n_shuff
                 analysis_res = event_triggered_analysis(feat,event_ts,n_shuffle=n_shuffle,minmax=minmax,do_zscore=do_zscore,test_win=test_win)
             analysis_res_d[feat_name,event_name] = analysis_res
             if do_plot:
-                ax_=ph.set_two_ticks(ax_)
+                ax_=ph.set_two_ticks(ax_,apply_to='y')
+                ax_=ph.set_symmetric_ticks(ax_,apply_to='x')
                 fig_d[feat_name,event_name] = fig_
                 ax_d[feat_name,event_name] = ax_
     if do_plot:
