@@ -359,31 +359,25 @@ def test_pre_post_against_shuffle(df,df_shuffle,center=0,test_win=None):
 # do regression and shuffle test
 # plot tentative: dist matrix marked by label transition; mean feature in interval indices, marked by label transition; regression weight with shuffle
 
-def get_mean_feature_in_interval(feature_d,interval_d,ep=None):
+def get_mean_feature_in_interval(feature_d,interval_d):
     '''
     get the mean feature within each interval
     feature_d: dict, key is the feature name, value is the feature nap.Tsd
     interval_d: dict, key is the interval name, value is the nap.IntervalSet, or nap.Tsd which is a mask
-    ep: nap.IntervalSet, the epoch to restrict the feature to, e.g. NREM intervals
+    
     '''
     mean_feature_d = {}
     for feat_name,feat in feature_d.items():
         for interval_name,interval in interval_d.items():
             if isinstance(interval,nap.IntervalSet):
-                if ep is not None:
-                    feat_sub = feat.restrict(ep)
-                else:
-                    feat_sub = feat
+                
                 mean_feat = []
                 for intv in interval:
-                    feat_sub_intv = feat_sub.restrict(intv).mean(axis=0)
+                    feat_sub_intv = feat.restrict(intv).mean(axis=0)
                     mean_feat.append(feat_sub_intv)
                 mean_feature_d[feat_name,interval_name] = nap.TsdFrame(d=mean_feat,t=interval['start'])
-            else:
-                if ep is not None:
-                    mean_feature_d[feat_name,interval_name] = feat[interval.d].restrict(ep)
-                else:
-                    mean_feature_d[feat_name,interval_name] = feat[interval.d]
+            else:            
+               mean_feature_d[feat_name,interval_name] = feat[interval.d]
     return mean_feature_d
 
 def get_distance_matrix(mean_feature_d,metric_d={'pv':'correlation'}):
@@ -422,7 +416,7 @@ def feature_distance_vs_label_distance_analysis(prep_res,label_intv,ach_intv=Non
             interval_d['ripple'] = prep_res['is_ripple'].restrict(label_intv)
         else:
             print('ripple interval not found, skipping')
-    mean_feature_d = get_mean_feature_in_interval(feature_d,interval_d,ep=label_intv)
+    mean_feature_d = get_mean_feature_in_interval(feature_d,interval_d)
     
     dist_d = get_distance_matrix(mean_feature_d)
     
