@@ -103,8 +103,8 @@ def find_ach_ramp_onset(ach_data,smooth_win=1,height=0.05,do_zscore=True,detrend
     mask=(to_check<0) & (np.isfinite(to_check))
     closest_signal_peak_time = ach_data_smth.t[signal_peaks][closest_signal_peak_index][mask]
     
-    ach_ramp_onset = nap.Ts(closest_signal_valley_time)
-    ach_ramp_end = nap.Ts(closest_signal_peak_time)
+    ach_ramp_onset = nap.Ts(closest_signal_valley_time) +0.01 # jitter a little?
+    ach_ramp_end = nap.Ts(closest_signal_peak_time)  -0.01
 
     # make interval; need to filter out end before the earliest onset, and the onset after the last end
     ach_ramp_onset_sub = ach_ramp_onset[ach_ramp_onset.t < ach_ramp_end.t.max()]
