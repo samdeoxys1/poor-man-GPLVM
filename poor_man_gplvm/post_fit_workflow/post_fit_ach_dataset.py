@@ -336,10 +336,11 @@ def feature_distance_vs_label_distance_analysis(prep_res,label_intv,ach_onset=No
     interval_d = {}
     if 'ACh_onset' in interval_key_l:
         assert ach_onset is not None
-        interval_d['ACh_onset'] = nap.IntervalSet(ach_onset.t,ach_onset.t+ach_extend_win)
+        ach_onset_sub = ach_onset.restrict(label_intv)
+        interval_d['ACh_onset'] = nap.IntervalSet(ach_onset_sub.t,ach_onset_sub.t+ach_extend_win)
     if 'ripple' in interval_key_l:
         if 'is_ripple' in prep_res:
-            interval_d['ripple'] = prep_res['is_ripple']
+            interval_d['ripple'] = prep_res['is_ripple'].restrict(label_intv)
         else:
             print('ripple interval not found, skipping')
     mean_feature_d = get_mean_feature_in_interval(feature_d,interval_d,ep=label_intv)
