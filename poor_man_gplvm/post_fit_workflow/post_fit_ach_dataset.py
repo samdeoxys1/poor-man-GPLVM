@@ -233,9 +233,15 @@ def cluster_peri_event(peri_event,n_cluster=2,do_plot=False,fig=None,ax=None,do_
     '''
     peri_event: n_sample x n_time
     '''
-    if do_zscore: # for removing change in baseline and overall variance, if i only want to cluster based on direction of change
-        peri_event = scipy.stats.zscore(peri_event,axis=1)
-    kmeans = KMeans(n_clusters=n_cluster,random_state=0).fit(peri_event)
+    # for removing change in baseline and overall variance, if i only want to cluster based on direction of change
+    # when analyzing and showing, go back to original scale
+    if do_zscore: 
+        mean_peri_event = peri_event.mean(axis=0)
+        std_peri_event = peri_event.std(axis=0)
+        peri_event_z = (peri_event - mean_peri_event) / std_peri_event
+    else:
+        peri_event_z = peri_event
+    kmeans = KMeans(n_clusters=n_cluster,random_state=0).fit(peri_event_z)
     peri_event_cluster_mean_d ={}
     peri_event_per_cluster_d={}
     for i in range(n_cluster):
