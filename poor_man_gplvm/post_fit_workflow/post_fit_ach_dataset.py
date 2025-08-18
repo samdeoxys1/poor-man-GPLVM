@@ -288,3 +288,16 @@ def main(data_path=None,fit_res_path=None,prep_res=None,
     
 
     return analysis_res_d
+
+
+def get_post_pre_diff(df,center=0,test_win=None):
+    '''
+    assume columne is peri event time, 
+    center: the time of the event, default is 0
+    '''
+    if test_win is None:
+        test_win = np.minimum(center - df.columns.min(),df.columns.max() - center)
+    pre = df.loc[:,df.columns<center-test_win].mean(axis=1)
+    post = df.loc[:,df.columns>center+test_win].mean(axis=1)
+    diff = post-pre
+    return diff
