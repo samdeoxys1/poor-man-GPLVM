@@ -229,10 +229,12 @@ def event_triggered_analysis_multiple_feature_event(feature_d,event_ts_d,n_shuff
     return analysis_res_d
 
 from sklearn.cluster import KMeans
-def cluster_peri_event(peri_event,n_cluster=2,do_plot=False,fig=None,ax=None):
+def cluster_peri_event(peri_event,n_cluster=2,do_plot=False,fig=None,ax=None,do_zscore=False):
     '''
     peri_event: n_sample x n_time
     '''
+    if do_zscore: # for removing change in baseline and overall variance, if i only want to cluster based on direction of change
+        peri_event = scipy.stats.zscore(peri_event,axis=1)
     kmeans = KMeans(n_clusters=n_cluster,random_state=0).fit(peri_event)
     peri_event_cluster_mean_d ={}
     peri_event_per_cluster_d={}
