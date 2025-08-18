@@ -31,6 +31,7 @@ import seaborn as sns
 import os,copy
 from scipy.spatial.distance import squareform, pdist
 import poor_man_gplvm.distance_analysis as da
+import pandas as pd
 
 # helper function to get list of processed decoding result from em_res_l (multiple em fit results)
 def get_decode_res_l_from_em_res_l(em_res_l,t_l=None):
@@ -251,6 +252,27 @@ def cluster_peri_event(peri_event,n_cluster=2,do_plot=False,fig=None,ax=None,do_
     if do_plot:
         for i in range(n_cluster):
             fig,ax = ph.plot_mean_error_plot(peri_event_per_cluster_d[i],mean_axis=0,fig=fig,ax=ax,color=f'C{i}')
+            ax.set_title(f'Cluster {i}')
+            ax.set_xlabel('Time (s)')
+        return to_return,fig,ax
+    return to_return
+
+def manual_cluster_peri_event(peri_event,time_window=(-2,0),n_cluster=2,do_plot=False,fig=None,ax=None):
+    '''
+    quantive based on average within some time window
+    '''
+    peri_event_sub = peri_event.loc[:,(peri_event.columns >=time_window[0]) & (peri_event.columns <=time_window[1])]
+    temporal_mean = peri_event_sub.mean(axis=1)
+    temporal_mean_quantile = pd.qcut(temporal_mean,n_cluster,labels=False)
+    peri_event_per_cluster_d = {}
+    peri_event_per_cluster_mean_d = {}
+    for i in range(n_cluster):
+        peri_event_per_cluster_d[i] = peri_event.loc[temporal_mean_quantile==i]
+        peri_event_per_cluster_mean_d[i] = peri_event_per_cluster_d[i].mean(axis=0)
+    to_return = {'temporal_mean_quantile':temporal_mean_quantile,'temporal_mean':temporal_mean,'peri_event_per_cluster_d':peri_event_per_cluster_d,'peri_event_per_cluster_mean_d':peri_event_per_cluster_mean_d}
+    if do_plot:
+        for i in range(n_cluster):
+            fig,ax = ph.plot_mean_error_plot(peri_event_per_cluster_mean_d[i],fig=fig,ax=ax,color=f'C{i}')
             ax.set_title(f'Cluster {i}')
             ax.set_xlabel('Time (s)')
         return to_return,fig,ax
