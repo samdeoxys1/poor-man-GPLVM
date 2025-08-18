@@ -291,7 +291,7 @@ def manual_cluster_peri_event(peri_event,time_window=(-2,0),bin=None,n_cluster=2
     return to_return
 
 
-def prep_feature_d(prep_res,consec_pv_dist_metric='correlation',continuous_dynamics_ind=0,jump_dynamics_ind=1,feature_to_include=['ach','pop_fr','consec_pv_dist','p_continuous','p_jump']):
+def prep_feature_d(prep_res,consec_pv_dist_metric='correlation',continuous_dynamics_ind=0,jump_dynamics_ind=1,feature_to_include=['ach','pop_fr','consec_pv_dist','p_continuous','p_jump'],mask_d={}):
     '''
     prepare the features used for peri event analysis
     This function is updated when we care about different features
@@ -312,7 +312,11 @@ def prep_feature_d(prep_res,consec_pv_dist_metric='correlation',continuous_dynam
     if 'pv' in feature_to_include:
         feature_d['pv'] = spike_mat_sub
     if 'p_latent' in feature_to_include:
-        feature_d['p_latent'] = prep_res['posterior_latent_marg']
+        ma = mask_d.get('p_latent',None)
+        if ma is None:
+            feature_d['p_latent'] = prep_res['posterior_latent_marg']
+        else:
+            feature_d['p_latent'] = prep_res['posterior_latent_marg'][ma]
     if 'consec_pv_dist' in feature_to_include:
         feature_d['consec_pv_dist'] = consec_pv_dist
     if 'p_continuous' in feature_to_include:
@@ -422,7 +426,7 @@ def get_distance_matrix(mean_feature_d,metric_d={'pv':'correlation'}):
     return dist_d
 
 
-def feature_distance_vs_label_distance_analysis(prep_res,label_intv,ach_intv=None,ach_onset=None,ach_extend_win=1,feature_key_l=['p_latent','pv'],interval_key_l=['ACh_onset','ripple'],n_shuffles=200,label_distance_threshold=None):
+def feature_distance_vs_label_distance_analysis(prep_res,label_intv,ach_intv=None,ach_onset=None,ach_extend_win=1,feature_key_l=['p_latent','pv'],interval_key_l=['ACh_onset','ripple'],n_shuffles=200,label_distance_threshold=None,mask_d={}):
     '''
     ach_onset: Ts, the ACh onset timestamps
     ach_extend_win: int, the window to extend the ACh onset into interval, in second
@@ -430,7 +434,7 @@ def feature_distance_vs_label_distance_analysis(prep_res,label_intv,ach_intv=Non
     feature_key_l: list, the features to include
     interval_key_l: list, the intervals to include
     '''
-    feature_d = prep_feature_d(prep_res,feature_to_include=feature_key_l)
+    feature_d = prep_feature_d(prep_res,feature_to_include=feature_key_l,mask_d=mask_d)
     interval_d = {}
     if 'ACh_onset' in interval_key_l:
         if ach_intv is None:
