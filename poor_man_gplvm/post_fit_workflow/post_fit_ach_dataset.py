@@ -257,7 +257,7 @@ def cluster_peri_event(peri_event,n_cluster=2,do_plot=False,fig=None,ax=None,do_
         return to_return,fig,ax
     return to_return
 
-def manual_cluster_peri_event(peri_event,time_window=(-2,0),n_cluster=2,do_plot=False,fig=None,ax=None,do_zscore=False):
+def manual_cluster_peri_event(peri_event,time_window=(-2,0),bin=None,n_cluster=2,do_plot=False,fig=None,ax=None,do_zscore=False):
     '''
     manual cluster based on quantile of average within some time window
     '''
@@ -269,7 +269,10 @@ def manual_cluster_peri_event(peri_event,time_window=(-2,0),n_cluster=2,do_plot=
         peri_event_z = peri_event
     peri_event_sub = peri_event_z.loc[:,(peri_event_z.columns >=time_window[0]) & (peri_event_z.columns <=time_window[1])]
     temporal_mean = peri_event_sub.mean(axis=1)
-    temporal_mean_quantile = pd.qcut(temporal_mean,n_cluster,labels=False)
+    if bin is None:
+        temporal_mean_quantile = pd.qcut(temporal_mean,n_cluster,labels=False)
+    else:
+        temporal_mean_quantile = pd.cut(temporal_mean,bin,labels=False)
     peri_event_per_cluster_d = {}
     peri_event_per_cluster_mean_d = {}
     for i in range(n_cluster):
