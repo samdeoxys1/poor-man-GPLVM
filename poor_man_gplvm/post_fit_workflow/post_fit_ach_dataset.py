@@ -300,4 +300,7 @@ def get_post_pre_diff(df,center=0,test_win=None):
     pre = df.loc[:,df.columns<center-test_win].mean(axis=1)
     post = df.loc[:,df.columns>center+test_win].mean(axis=1)
     diff = post-pre
-    return diff
+    diff_median=diff.median()
+    effect_size=diff.mean() / diff.std()
+    dres = {'pre':pre,'post':post,'diff':diff,'diff_median':diff_median,'effect_size':effect_size}
+    return dres
