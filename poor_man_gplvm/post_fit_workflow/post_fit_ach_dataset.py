@@ -400,7 +400,9 @@ def get_mean_feature_in_interval(feature_d,interval_d):
     
     '''
     mean_feature_d = {}
+    
     for feat_name,feat in feature_d.items():
+        t_l = []
         for interval_name,interval in interval_d.items():
             if isinstance(interval,nap.IntervalSet):
                 
@@ -410,10 +412,12 @@ def get_mean_feature_in_interval(feature_d,interval_d):
                     feat_sub_intv = feat.restrict(intv)
                     if feat_sub_intv.shape[0]>0:
                         mean_feat.append(feat_sub_intv.mean(axis=0))
+                        t_l.append(feat_sub_intv.t[0])
                     
-                mean_feature_d[feat_name,interval_name] = nap.TsdFrame(d=mean_feat,t=interval['start'])
+                mean_feature_d[feat_name,interval_name] = nap.TsdFrame(d=mean_feat,t=t_l)
             else:            
                mean_feature_d[feat_name,interval_name] = feat[interval.d]
+        
     return mean_feature_d
 
 def get_distance_matrix(mean_feature_d,metric_d={'pv':'correlation'}):
