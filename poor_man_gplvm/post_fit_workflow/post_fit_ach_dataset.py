@@ -338,7 +338,7 @@ def feature_distance_vs_label_distance_analysis(prep_res,label_intv,ach_onset=No
         else:
             print('ripple interval not found, skipping')
     mean_feature_d = get_mean_feature_in_interval(feature_d,interval_d,ep=label_intv)
-    pdb.set_trace()
+    import pdb; pdb.set_trace()
     dist_d = get_distance_matrix(mean_feature_d)
     
     analysis_res_d = {}
