@@ -64,7 +64,7 @@ def load_data_and_fit_res(data_path,fit_res_path):
 def find_ach_ramp_onset(ach_data,smooth_win=1,height=0.05,do_zscore=True,detrend_cutoff=None):
     '''
     current method: gaussian smooth, finite difference for slope, find peaks with some threshold, find closest signal valley as the onset and peak as the end, instead of manual shifting 
-
+    slope peak is assumed to lie between onset and end of an ACh bout
     detrend_cutoff: float, optional, usually 0.01
     shift: float, optional, shift the onset by this amount in second, to correct for the detection not using an acausal window
     '''
@@ -92,12 +92,16 @@ def find_ach_ramp_onset(ach_data,smooth_win=1,height=0.05,do_zscore=True,detrend
     time_diff_mat_ = copy.copy(time_diff_mat)
     time_diff_mat_[time_diff_mat_ < 0] = np.inf
     closest_signal_valley_index = time_diff_mat_.argmin(axis=1) # min positive time difference
-    closest_signal_valley_time = ach_data_smth.t[signal_valleys][closest_signal_valley_index]
+    to_check=time_diff_mat_[np.arange(time_diff_mat_.shape[0]),closest_signal_valley_index]
+    mask=(to_check>0) & (np.isfinite(to_check))
+    closest_signal_valley_time = ach_data_smth.t[signal_valleys][closest_signal_valley_index][mask]
     
     time_diff_mat_ = copy.copy(time_diff_mat)
     time_diff_mat_[time_diff_mat_ > 0] = -np.inf
-    closest_signal_peak_index = time_diff_mat_.argmax(axis=1) # max positive time difference
-    closest_signal_peak_time = ach_data_smth.t[signal_peaks][closest_signal_peak_index]
+    closest_signal_peak_index = time_diff_mat_.argmax(axis=1) # max negative time difference
+    to_check=time_diff_mat_[np.arange(time_diff_mat_.shape[0]),closest_signal_peak_index]
+    mask=(to_check<0) & (np.isfinite(to_check))
+    closest_signal_peak_time = ach_data_smth.t[signal_peaks][closest_signal_peak_index][mask]
     
     ach_ramp_onset = nap.Ts(closest_signal_valley_time)
     ach_ramp_end = nap.Ts(closest_signal_peak_time)
