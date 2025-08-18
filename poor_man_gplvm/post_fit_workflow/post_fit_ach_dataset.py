@@ -273,6 +273,7 @@ def manual_cluster_peri_event(peri_event,time_window=(-2,0),bin=None,n_cluster=2
         temporal_mean_quantile = pd.qcut(temporal_mean,n_cluster,labels=False)
     else:
         temporal_mean_quantile = pd.cut(temporal_mean,bin,labels=False)
+        n_cluster = len(bin)-1
     peri_event_per_cluster_d = {}
     peri_event_per_cluster_mean_d = {}
     for i in range(n_cluster):
