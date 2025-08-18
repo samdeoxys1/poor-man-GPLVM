@@ -99,31 +99,33 @@ def find_ach_ramp_onset(ach_data,smooth_win=1,height=0.05,do_zscore=True,detrend
     peak_heights = nap.Tsd(d=peak_heights,t=slope.t[peaks])
 
     slope_peak_time = nap.Ts(slope.t[peaks])
-    time_diff_mat = slope_peak_time.t[:,None] - ach_data_smth.t[signal_valleys][None,:] # n_slope_peak x n_signal_valley
-    time_diff_mat_ = copy.copy(time_diff_mat)
-    time_diff_mat_[time_diff_mat_ < 0] = np.inf
-    closest_signal_valley_index = time_diff_mat_.argmin(axis=1) # min positive time difference
-    to_check=time_diff_mat_[np.arange(time_diff_mat_.shape[0]),closest_signal_valley_index]
-    mask=(to_check>0) & (np.isfinite(to_check))
-    closest_signal_valley_time = ach_data_smth.t[signal_valleys][closest_signal_valley_index][mask]
-    
-    time_diff_mat_ = copy.copy(time_diff_mat)
-    time_diff_mat_[time_diff_mat_ > 0] = -np.inf
-    closest_signal_peak_index = time_diff_mat_.argmax(axis=1) # max negative time difference
-    to_check=time_diff_mat_[np.arange(time_diff_mat_.shape[0]),closest_signal_peak_index]
-    mask=(to_check<0) & (np.isfinite(to_check))
-    closest_signal_peak_time = ach_data_smth.t[signal_peaks][closest_signal_peak_index][mask]
-    
-    ach_ramp_onset = nap.Ts(closest_signal_valley_time)
-    ach_ramp_end = nap.Ts(closest_signal_peak_time)
 
-    # make interval; need to filter out end before the earliest onset, and the onset after the last end
-    ach_ramp_onset_sub = ach_ramp_onset[ach_ramp_onset.t < ach_ramp_end.t.max()]
-    ach_ramp_end_sub = ach_ramp_end[ach_ramp_end.t > ach_ramp_onset.t.min()]
-    ach_ramp_intv = nap.IntervalSet(ach_ramp_onset_sub.t,ach_ramp_end_sub.t)
+    # time_diff_mat = slope_peak_time.t[:,None] - ach_data_smth.t[signal_valleys][None,:] # n_slope_peak x n_signal_valley
+    # time_diff_mat_ = copy.copy(time_diff_mat)
+    # time_diff_mat_[time_diff_mat_ < 0] = np.inf
+    # closest_signal_valley_index = time_diff_mat_.argmin(axis=1) # min positive time difference
+    # to_check=time_diff_mat_[np.arange(time_diff_mat_.shape[0]),closest_signal_valley_index]
+    # mask=(to_check>0) & (np.isfinite(to_check))
+    # closest_signal_valley_time = ach_data_smth.t[signal_valleys][closest_signal_valley_index][mask]
+    
+    # time_diff_mat_ = copy.copy(time_diff_mat)
+    # time_diff_mat_[time_diff_mat_ > 0] = -np.inf
+    # closest_signal_peak_index = time_diff_mat_.argmax(axis=1) # max negative time difference
+    # to_check=time_diff_mat_[np.arange(time_diff_mat_.shape[0]),closest_signal_peak_index]
+    # mask=(to_check<0) & (np.isfinite(to_check))
+    # closest_signal_peak_time = ach_data_smth.t[signal_peaks][closest_signal_peak_index][mask]
+    
+    # ach_ramp_onset = nap.Ts(closest_signal_valley_time)
+    # ach_ramp_end = nap.Ts(closest_signal_peak_time)
 
-    # ach_ramp_onset = nap.Ts(slope.t[peaks]+shift)
-    ach_ramp_onset_res = {'ach_ramp_onset':ach_ramp_onset,'ach_ramp_end':ach_ramp_end,'ach_ramp_intv':ach_ramp_intv,'slope':slope,'slope_peak_time':slope_peak_time,'signal_peaks':signal_peaks,'signal_valleys':signal_valleys,'signal_metadata_peak':signal_metadata_peak,'signal_metadata_valley':signal_metadata_valley,'ach_data_smth':ach_data_smth,'ach_data':ach_data,'peak_heights':peak_heights}
+    # # make interval; need to filter out end before the earliest onset, and the onset after the last end
+    # ach_ramp_onset_sub = ach_ramp_onset[ach_ramp_onset.t < ach_ramp_end.t.max()]
+    # ach_ramp_end_sub = ach_ramp_end[ach_ramp_end.t > ach_ramp_onset.t.min()]
+    # ach_ramp_intv = nap.IntervalSet(ach_ramp_onset_sub.t,ach_ramp_end_sub.t)
+
+    
+    # ach_ramp_onset_res = {'ach_ramp_onset':ach_ramp_onset,'ach_ramp_end':ach_ramp_end,'ach_ramp_intv':ach_ramp_intv,'slope':slope,'slope_peak_time':slope_peak_time,'signal_peaks':signal_peaks,'signal_valleys':signal_valleys,'signal_metadata_peak':signal_metadata_peak,'signal_metadata_valley':signal_metadata_valley,'ach_data_smth':ach_data_smth,'ach_data':ach_data,'peak_heights':peak_heights}
+    ach_ramp_onset_res = {'ach_ramp_onset':slope_peak_time,'slope':slope,'slope_peak_time':slope_peak_time,'signal_peaks':signal_peaks,'signal_valleys':signal_valleys,'signal_metadata_peak':signal_metadata_peak,'signal_metadata_valley':signal_metadata_valley,'ach_data_smth':ach_data_smth,'ach_data':ach_data,'peak_heights':peak_heights}
     return ach_ramp_onset_res
 
 
