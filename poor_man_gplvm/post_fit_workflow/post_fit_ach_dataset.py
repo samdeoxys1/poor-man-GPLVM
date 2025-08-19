@@ -477,7 +477,11 @@ def feature_distance_vs_label_distance_analysis(prep_res,label_intv,ach_intv=Non
     
     return feature_dist_vs_label_dist_res
 
-
+def within_nrem_interval_ach_induced_latent_ramp_analysis():
+    '''
+    within a nrem interval, test whether ach induced latent ramp up / down
+    '''
+    pass
 
 # ====all together====#
 def main(data_path=None,fit_res_path=None,prep_res=None,

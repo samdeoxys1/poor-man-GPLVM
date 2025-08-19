@@ -588,3 +588,19 @@ def plot_shuffle_data_dist_with_thresh(shuffle,data,bins=20,alpha=0.025,fig=None
         ax.axvline(thresh_high,label=f'{percentile_high:.02f} percentile',linestyle=':',linewidth=lw)
     ax.legend()
     return fig,ax
+
+
+def subplots_wrapper(nplots,return_axs=True,basewidth=6,baseheight=4,figsize=None,**kwargs):
+    nrows = int(np.sqrt(nplots))
+    ncols = int(nplots // nrows)
+    if nplots%nrows !=0:
+        ncols+=1
+    if figsize is None:
+        figsize=(ncols*basewidth,nrows*baseheight)
+    if return_axs:
+        
+        fig,axs = plt.subplots(nrows,ncols,figsize=figsize,**kwargs)
+        return fig,axs
+    else:
+        fig = plt.figure(figsize=figsize)
+        return fig, nrows, ncols
