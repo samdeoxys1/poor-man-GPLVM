@@ -166,6 +166,9 @@ def _residualize_on_time(y, t):
     resid = y - (a + b * t)
     return resid, dict(intercept=a, slope=b)
 
+
+
+
 def distance_vs_label_regression(
     D, labels, *, bin_edges=None, nbins=50, binning='uniform', z=1.96, return_pairs_df=True,
     timestamps=None, label_distance_threshold=None

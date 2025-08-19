@@ -430,7 +430,8 @@ def get_distance_matrix(mean_feature_d,metric_d={'pv':'correlation'}):
         if 'pv' in k:
             dist_d[k] = squareform(pdist(val.d,metric=metric_d['pv']))
         else:
-            dist_d[k],C = da.w1_cdf_distance_matrix(val.d)
+            # dist_d[k],C = da.w1_cdf_distance_matrix(val.d)
+            dist_d[k] = squareform(pdist(val.d, metric="jensenshannon"))
     return dist_d
 
 
