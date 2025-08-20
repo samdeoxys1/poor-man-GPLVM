@@ -655,8 +655,8 @@ def ach_vs_dynamics_tuning_all_sessions(prep_res_l,dynamics_label_l=['Continuous
         ax.set_title('Tuning to dynamics')
         if fig_save_dir is not None:
             ph.save_fig(fig,figfn,fig_save_dir)
-        else:
-            return ach_vs_dynamics_l,fig,ax,test_res_ach_vs_dynamics
+        
+        return ach_vs_dynamics_l,fig,ax,test_res_ach_vs_dynamics
     else:
         return ach_vs_dynamics_l
     
