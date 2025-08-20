@@ -671,7 +671,7 @@ def latent_cluster_vs_timing_regression(cluster_label_l,event_ts,nrem_intv):
     predict the cluster 
     '''
     which_nrem_intv = nrem_intv.in_interval(event_ts)
-    assert np.nan(which_nrem_intv).sum()==0 # all events are in nrem_intv, no nan here
+    assert np.isnan(which_nrem_intv).sum()==0 # all events are in nrem_intv, no nan here
     duration = nrem_intv['end']-nrem_intv['start']
     # for each event, need duration of that interval, and it's time minus the start of the interval
     duration_each_event= duration[which_nrem_intv]
