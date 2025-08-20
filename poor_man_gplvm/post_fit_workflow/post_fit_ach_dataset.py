@@ -716,8 +716,8 @@ def latent_cluster_vs_timing_regression(cluster_label_l,event_ts,nrem_intv,do_pr
         shuffle_res_d['params_l'] = pd.concat(shuffle_params_l,axis=0)
         shuffle_res_d['prsquared_l'] = np.array(shuffle_prsquared_l)
         shuffle_res_d['prsquared_high'] = np.quantile(shuffle_res_d['prsquared_l'],quantile,axis=0)
-        shuffle_res_d['t_high'] = shuffle_res_d['t_l'].groupby(level=1).apply(lambda x: np.quantile(x,quantile,axis=0))
-        shuffle_res_d['p_high'] = shuffle_res_d['p_l'].groupby(level=1).apply(lambda x: np.quantile(x,quantile,axis=0))
+        # shuffle_res_d['t_high'] = shuffle_res_d['t_l'].groupby(level=1).apply(lambda x: np.quantile(x,quantile,axis=0))
+        # shuffle_res_d['p_high'] = shuffle_res_d['p_l'].groupby(level=1).apply(lambda x: np.quantile(x,quantile,axis=0))
         res['shuffle_res_d'] = shuffle_res_d
             
     return res
