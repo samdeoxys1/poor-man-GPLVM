@@ -555,7 +555,7 @@ def main(data_path=None,fit_res_path=None,prep_res=None,
     return analysis_res_d
 
 
-def gather_feature_shuffle_across_sessions(analysis_res_d_allsess,prep_fig_save_dir='./'):
+def gather_feature_shuffle_across_sessions(analysis_res_d_allsess,prep_fig_save_dir='./',ylim_d={}):
     '''
     analysis_res_d_allsess: list of the analysis_res_d from event_triggered_analysis_multiple_feature_event of all sessions
     '''
@@ -588,7 +588,8 @@ def gather_feature_shuffle_across_sessions(analysis_res_d_allsess,prep_fig_save_
         all_feature_allsess[kk] = pd.DataFrame(all_feature_allsess[kk]) - to_shift[:,None]
         
     test_res_d={}
-    ylim_d={'ach':[-0.06,0.06],'pop_fr':[0,1.],'consec_pv_dist':[0,1],'p_continuous':[0,1]}
+    ylim_d_={'ach':[-0.06,0.06],'pop_fr':[0,1.5],'consec_pv_dist':[0,1],'p_continuous':[0,1]}
+    ylim_d_.update(ylim_d)
     ylabel_d = {'ach':'ACh (dF/F)','pop_fr':'Rate (Hz)','consec_pv_dist':'Consec. PV Dist.','p_continuous':'P(Continuous)'}
     fig_d = {}
     for (feature_key,event_key),one_feat_allsess in all_feature_allsess.items():
@@ -606,7 +607,7 @@ def gather_feature_shuffle_across_sessions(analysis_res_d_allsess,prep_fig_save_
         ph.plot_mean_error_plot(shuffle_toplot,color='grey',fig=fig,ax=ax,error_type='std')
         
 
-        ylim = ylim_d.get(feature_key,None)
+        ylim = ylim_d_.get(feature_key,None)
         
         ax=ph.set_two_ticks(ax,apply_to='y',do_int=False,ylim=ylim)
         ax=ph.set_symmetric_ticks(ax,apply_to='x')
