@@ -543,3 +543,67 @@ def main(data_path=None,fit_res_path=None,prep_res=None,
 
     return analysis_res_d
 
+
+def gather_feature_shuffle_across_sessions(analysis_res_d_allsess,prep_fig_save_dir='./'):
+    '''
+    analysis_res_d_allsess: dict, key is the feature_key, value is the analysis_res_d from event_triggered_analysis_multiple_feature_event of all sessions
+    '''
+    all_feature_allsess = {} # (feature_key,event_key): df, n_sess x n_time
+    all_shuffle_allsess = {} # mean across session, (feature_key,event_key): n_shuffle x n_time
+    # both are already shifted
+
+    to_shift_d={} # (feature_key,event_key): n_sess
+    for kk in analysis_res_d_allsess[0].keys():
+        all_feature_allsess[kk] = []
+        all_shuffle_allsess[kk] = []
+        for analysis_res_d in analysis_res_d_allsess:
+            feature_mean = analysis_res_d[kk]['feature'].mean(axis=0)
+            shuffle_mean = analysis_res_d[kk]['shuffle']
+            all_feature_allsess[kk].append(feature_mean)
+            all_shuffle_allsess[kk].append(shuffle_mean)
+        
+        all_shuffle_allsess[kk] = np.array(all_shuffle_allsess[kk]) # n_session x n_shuffle x n_time
+        to_shift = all_shuffle_allsess[kk].mean(axis=(1,2)) - all_shuffle_allsess[kk].mean()
+        to_shift_d[kk] = to_shift # n_sess
+        all_shuffle_allsess[kk] = all_shuffle_allsess[kk] - to_shift[:,None,None]
+        all_shuffle_allsess[kk] = all_shuffle_allsess[kk].mean(axis=0) # n_shuffle x n_time 
+        all_shuffle_allsess[kk] = pd.DataFrame(all_shuffle_allsess[kk],columns=shuffle_mean.columns)
+        all_feature_allsess[kk] = pd.DataFrame(all_feature_allsess[kk]) - to_shift[:,None]
+        
+    test_res_d={}
+    ylim_d={'ach':[-0.06,0.06],'pop_fr':[0,1.],'consec_pv_dist':[0,1],'p_continuous':[0,1]}
+    ylabel_d = {'ach':'ACh (dF/F)','pop_fr':'Rate (Hz)','consec_pv_dist':'Consec. PV Dist.','p_continuous':'P(Continuous)'}
+    for (feature_key,event_key),one_feat_allsess in all_feature_allsess.items():
+        one_shuffle_allsess = all_shuffle_allsess[(feature_key,event_key)]
+        
+        test_res=test_pre_post_against_shuffle(one_feat_allsess,one_shuffle_allsess,center=0,test_win=None)
+        test_res_d[(feature_key,event_key)] = test_res
+        fig,ax=plt.subplots(figsize=(1.5,2))
+        feat_toplot = one_feat_allsess.T 
+        shuffle_toplot=one_shuffle_allsess
+        feat_toplot_mean = feat_toplot.mean(axis=1)
+        ax.plot(feat_toplot,alpha=0.3)
+        ax.plot(feat_toplot_mean,c='k',linewidth=3)
+    #     ax.plot(one_shuffle_allsess.T- to_shift.values[None,:],alpha=0.3,linestyle=':')
+        ph.plot_mean_error_plot(shuffle_toplot,color='grey',fig=fig,ax=ax,error_type='std')
+        
+
+        ylim = ylim_d.get(feature_key,None)
+        
+        ax=ph.set_two_ticks(ax,apply_to='y',do_int=False,ylim=ylim)
+        ax=ph.set_symmetric_ticks(ax,apply_to='x')
+        
+        
+        ax.set_xlabel('Time (s)')
+        ylabel = ylabel_d.get(feature_key,feature_key)
+        ax.set_ylabel(ylabel)
+        ax.set_title(event_key.replace('_',' '))
+        
+        sns.despine()
+        
+        figfn = f'{feature_key};{event_key}_peri_event_session_agg'
+        ph.save_fig(fig,figfn,prep_fig_save_dir)
+    test_res_d=pd.DataFrame(test_res_d).T
+    test_res_d.to_csv(os.path.join(prep_fig_save_dir,'peri_event_session_agg_test_res.csv'))
+
+    res = {'all_feature_allsess':all_feature_allsess,'all_shuffle_allsess':all_shuffle_allsess,'to_shift_d':to_shift_d,'test_res_d':test_res_d}
