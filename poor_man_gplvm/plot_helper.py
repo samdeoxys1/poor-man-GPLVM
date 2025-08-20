@@ -11,6 +11,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from scipy.stats import wilcoxon
+import seaborn as sns
 
 plt.rcParams['font.family'] = 'sans-serif'
 plt.rcParams['svg.fonttype'] = 'none'
@@ -791,5 +792,7 @@ def plot_paired_line_median(
         'stars': stars,
     }
 
+    sns.despine()
+    set_two_ticks(ax,apply_to='y')
     return fig, ax, result
 
