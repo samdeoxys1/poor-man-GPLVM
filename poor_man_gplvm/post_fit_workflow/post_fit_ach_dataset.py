@@ -546,7 +546,7 @@ def main(data_path=None,fit_res_path=None,prep_res=None,
 
 def gather_feature_shuffle_across_sessions(analysis_res_d_allsess,prep_fig_save_dir='./'):
     '''
-    analysis_res_d_allsess: dict, key is the feature_key, value is the analysis_res_d from event_triggered_analysis_multiple_feature_event of all sessions
+    analysis_res_d_allsess: list of the analysis_res_d from event_triggered_analysis_multiple_feature_event of all sessions
     '''
     all_feature_allsess = {} # (feature_key,event_key): df, n_sess x n_time
     all_shuffle_allsess = {} # mean across session, (feature_key,event_key): n_shuffle x n_time
