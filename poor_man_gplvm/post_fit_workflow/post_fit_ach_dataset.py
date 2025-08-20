@@ -705,11 +705,15 @@ def latent_cluster_vs_timing_regression(cluster_label_l,event_ts,nrem_intv,do_pr
             label_shuffle=np.random.permutation(cluster_label_l)
             shuffle_reg_df['previous_label'] = label_shuffle[:-1]
             shuffle_reg_df['to_predict'] = label_shuffle[1:]
-            shuffle_reg_res = smf.mnlogit('to_predict ~ event_phase_in_intv + intv_phase_in_session + C(previous_label)',data=shuffle_reg_df).fit()
-            shuffle_t_l.append(shuffle_reg_res.tvalues)
-            shuffle_p_l.append(shuffle_reg_res.pvalues)
-            shuffle_params_l.append(shuffle_reg_res.params)
-            shuffle_prsquared_l.append(shuffle_reg_res.prsquared)
+            try:
+                shuffle_reg_res = smf.mnlogit('to_predict ~ event_phase_in_intv + intv_phase_in_session + C(previous_label)',data=shuffle_reg_df).fit()
+                shuffle_t_l.append(shuffle_reg_res.tvalues)
+                shuffle_p_l.append(shuffle_reg_res.pvalues)
+                shuffle_params_l.append(shuffle_reg_res.params)
+                shuffle_prsquared_l.append(shuffle_reg_res.prsquared)
+            except Exception as e:
+                print(f'shuffle {i} failed: {e}')
+                continue
         
         shuffle_res_d['t_l'] = np.stack(shuffle_t_l,axis=0)
         shuffle_res_d['p_l'] = np.stack(shuffle_p_l,axis=0)
