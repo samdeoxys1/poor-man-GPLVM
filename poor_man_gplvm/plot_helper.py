@@ -483,7 +483,7 @@ def _round_to_first_distinguishing_digit(a, b):
     return ra, rb
 
 # for small plots, only keep two ticks 
-def set_two_ticks(axis, xlim=None, ylim=None, do_int=True, apply_to='y'):
+def set_two_ticks(axis, xlim=None, ylim=None, do_int=False, apply_to='y'):
     """
     Set exactly two ticks on the specified axis/axes.
 
@@ -530,7 +530,7 @@ def set_two_ticks(axis, xlim=None, ylim=None, do_int=True, apply_to='y'):
     return axis
 
 # New: symmetric ticks around 0 (e.g., [-M, 0, M])
-def set_symmetric_ticks(axis, xlim=None, ylim=None, do_int=True, apply_to='y'):
+def set_symmetric_ticks(axis, xlim=None, ylim=None, do_int=False, apply_to='y'):
     """
     Set symmetric ticks around 0 on the specified axis/axes: [-M, 0, M].
 
@@ -793,6 +793,6 @@ def plot_paired_line_median(
     }
 
     sns.despine()
-    set_two_ticks(ax,apply_to='y')
+    set_two_ticks(ax,apply_to='y',do_int=False)
     return fig, ax, result
 
