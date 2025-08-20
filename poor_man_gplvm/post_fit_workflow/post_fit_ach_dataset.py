@@ -606,7 +606,9 @@ def gather_feature_shuffle_across_sessions(analysis_res_d_allsess,prep_fig_save_
         figfn = f'{feature_key};{event_key}_peri_event_session_agg'
         ph.save_fig(fig,figfn,prep_fig_save_dir)
     test_res_d=pd.DataFrame(test_res_d).T
-    test_res_d.to_csv(os.path.join(prep_fig_save_dir,'peri_event_session_agg_test_res.csv'))
+    csv_fn = os.path.join(prep_fig_save_dir,'peri_event_session_agg_test_res.csv')
+    test_res_d.to_csv(csv_fn)
+    print(f'saved test res to {csv_fn}')
 
     res = {'all_feature_allsess':all_feature_allsess,'all_shuffle_allsess':all_shuffle_allsess,'to_shift_d':to_shift_d,'test_res_d':test_res_d}
     return res
