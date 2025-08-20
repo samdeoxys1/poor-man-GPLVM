@@ -501,11 +501,22 @@ def main(data_path=None,fit_res_path=None,prep_res=None,
         assert data_path is not None and fit_res_path is not None
         prep_res = load_data_and_fit_res(data_path,fit_res_path)
     sleep_state_index = prep_res['sleep_state_index']
-    ach = prep_res['fluo_data']['ACh']
-    ach_onset_res=find_ach_ramp_onset(ach,**ach_ramp_kwargs)
+    if 'fluo_data' in prep_res:
+        has_ach=True
+        has_stim=False
+        ach = prep_res['fluo_data']['ACh']
+        ach_onset_res=find_ach_ramp_onset(ach,**ach_ramp_kwargs)
+    else:
+        has_ach=False
+        has_stim=True
+        is_stim = prep_res['is_stim']
 
     # prepare features
-    feature_d = prep_feature_d(prep_res,feature_to_include=['p_continuous','ach','pop_fr','consec_pv_dist'])
+    if has_ach:
+        feature_to_include=['p_continuous','ach','pop_fr','consec_pv_dist']
+    else:
+        feature_to_include=['p_continuous','pop_fr','consec_pv_dist']
+    feature_d = prep_feature_d(prep_res,feature_to_include=feature_to_include)
     print(feature_d.keys())
 
     # prepare event timestamps
