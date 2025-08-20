@@ -675,8 +675,10 @@ def latent_cluster_vs_timing_regression(cluster_label_l,event_ts,nrem_intv):
     for each time point (of an event) within a NREM interval, need the phase within the interval, the phase of the interval within the recording, using index, and the previous event cluster
     predict the cluster 
     '''
-    which_nrem_intv = nrem_intv.in_interval(event_ts).astype(int)
-    assert np.isnan(which_nrem_intv).sum()==0 # all events are in nrem_intv, no nan here
+    which_nrem_intv = nrem_intv.in_interval(event_ts)
+    
+    assert np.isnan(which_nrem_intv).sum()==0 # all events are in nrem  _intv, no nan here
+    which_nrem_intv = which_nrem_intv.astype(int)
     duration = nrem_intv['end']-nrem_intv['start']
     # for each event, need duration of that interval, and it's time minus the start of the interval
     duration_each_event= duration[which_nrem_intv]
