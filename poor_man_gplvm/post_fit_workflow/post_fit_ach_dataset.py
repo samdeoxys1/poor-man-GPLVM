@@ -716,10 +716,21 @@ def latent_cluster_vs_timing_regression(cluster_label_l,event_ts,nrem_intv,do_pr
         shuffle_res_d['params_l'] = np.stack(shuffle_params_l,axis=0)
         shuffle_res_d['prsquared_l'] = np.array(shuffle_prsquared_l)
         shuffle_res_d['prsquared_high'] = np.nanquantile(shuffle_res_d['prsquared_l'],quantile,axis=0)
+        
+        shuffle_res_d['params_high'] = np.nanquantile(shuffle_res_d['params_l'],quantile,axis=0)
+        shuffle_res_d['params_high'] = pd.DataFrame(shuffle_res_d['params_high'],index=shuffle_reg_res.params.index,columns=shuffle_reg_res.params.columns)
+        shuffle_res_d['params_low'] = np.nanquantile(shuffle_res_d['params_l'],1-quantile,axis=0)
+        shuffle_res_d['params_low'] = pd.DataFrame(shuffle_res_d['params_low'],index=shuffle_reg_res.params.index,columns=shuffle_reg_res.params.columns)
+        
         shuffle_res_d['t_high'] = np.nanquantile(shuffle_res_d['t_l'],quantile,axis=0)
         shuffle_res_d['t_high'] = pd.DataFrame(shuffle_res_d['t_high'],index=shuffle_reg_res.tvalues.index,columns=shuffle_reg_res.tvalues.columns)
+        shuffle_res_d['t_low'] = np.nanquantile(shuffle_res_d['t_l'],1-quantile,axis=0)
+        shuffle_res_d['t_low'] = pd.DataFrame(shuffle_res_d['t_low'],index=shuffle_reg_res.tvalues.index,columns=shuffle_reg_res.tvalues.columns)
+        
         shuffle_res_d['p_high'] = np.nanquantile(shuffle_res_d['p_l'],quantile,axis=0)
         shuffle_res_d['p_high'] = pd.DataFrame(shuffle_res_d['p_high'],index=shuffle_reg_res.pvalues.index,columns=shuffle_reg_res.pvalues.columns)
+        shuffle_res_d['p_low'] = np.nanquantile(shuffle_res_d['p_l'],1-quantile,axis=0)
+        shuffle_res_d['p_low'] = pd.DataFrame(shuffle_res_d['p_low'],index=shuffle_reg_res.pvalues.index,columns=shuffle_reg_res.pvalues.columns)
         res['shuffle_res_d'] = shuffle_res_d
             
     return res
