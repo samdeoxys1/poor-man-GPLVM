@@ -510,6 +510,8 @@ def main(data_path=None,fit_res_path=None,prep_res=None,
         has_ach=False
         has_stim=True
         is_stim = prep_res['is_stim']
+        ach_ramp_intv = is_stim.threshold(0.5).time_support
+        ach_onset_res = {'ach_ramp_onset':nap.Ts(t=ach_ramp_intv['start'])}
 
     # prepare features
     if has_ach:
