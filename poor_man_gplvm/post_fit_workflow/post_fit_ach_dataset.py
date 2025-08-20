@@ -524,7 +524,10 @@ def main(data_path=None,fit_res_path=None,prep_res=None,
     # prepare event timestamps
     sleep_state_intv=turn_sleep_state_tsd_to_interval(sleep_state_index,)
     event_ts = ach_onset_res['ach_ramp_onset']
-    event_ts_d = {'ACh_onset':event_ts}
+    if has_ach:
+        event_ts_d = {'ACh_onset':event_ts}
+    else:
+        event_ts_d = {'stim_onset':event_ts}
     event_ts_by_sleep=segregate_event_ts_by_sleep_state(event_ts_d,sleep_state_intv)
 
     # do event triggered analysis
