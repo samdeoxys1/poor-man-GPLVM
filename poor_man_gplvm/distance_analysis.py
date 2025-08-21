@@ -786,3 +786,18 @@ def labels_to_transition_matrix(
     P = np.divide(counts, row_sums, out=np.zeros_like(counts), where=row_sums > 0)
 
     return P, states
+
+
+def get_transmat_and_shuffle(labels_hd,n_shuffle=100,quantile=0.99):
+    trans_mat,_ = labels_to_transition_matrix(labels_hd)
+    trans_mat_sh_l = []
+    for i in range(n_shuffle):
+        reind=np.random.choice(np.arange(len(labels_hd)),size=len(labels_hd),replace=False)
+        trans_mat_sh,_=labels_to_transition_matrix(labels_hd[reind])
+        trans_mat_sh_l.append(trans_mat_sh)
+    trans_mat_sh_l = np.array(trans_mat_sh_l) #n_shuffle x n_cluster x n_cluster
+    trans_mat_sh_l_up = np.quantile(trans_mat_sh_l,quantile,axis=0)
+    is_sig = trans_mat > trans_mat_sh_l_up
+    res = {'trans_mat':trans_mat,'trans_mat_sh_l':trans_mat_sh_l,'trans_mat_sh_l_up':trans_mat_sh_l_up,'is_sig':is_sig}
+    return res
+    
