@@ -671,7 +671,7 @@ def ach_vs_dynamics_tuning_all_sessions(prep_res_l,dynamics_label_l=['Continuous
 
 #========= latent anlaysis, not included in main yet=================#
 import statsmodels.formula.api as smf
-def latent_cluster_vs_timing_regression(cluster_label_l,event_ts,nrem_intv,do_print=True,n_shuffle=100,quantile=0.99,alpha=0.01,regularization_method='l1'):
+def latent_cluster_vs_timing_regression(cluster_label_l,event_ts,nrem_intv,do_print=True,n_shuffle=100,quantile=0.99,alpha=0.01,include_previous_label=True,regularization_method='l1'):
     '''
     given cluster indices for all the ACh bouts (as events)
     for each time point (of an event) within a NREM interval, need the phase within the interval, the phase of the interval within the recording, using index, and the previous event cluster
@@ -694,7 +694,10 @@ def latent_cluster_vs_timing_regression(cluster_label_l,event_ts,nrem_intv,do_pr
     reg_df = {'event_phase_in_intv':event_phase_in_intv_each_event[1:],'intv_phase_in_session':intv_phase_in_session_each_event[1:],'previous_label':previous_label_each_event,'to_predict':to_predict}
     reg_df['event_phase_in_intv_categorical'] = pd.cut(reg_df['event_phase_in_intv'],bins=[0,0.1,0.9,1],labels=False)
     # formula = 'to_predict ~ C(event_phase_in_intv_categorical, Treatment(reference=1)) + intv_phase_in_session + C(previous_label)'
-    formula = 'to_predict ~ event_phase_in_intv + intv_phase_in_session + C(previous_label)'
+    if include_previous_label:
+        formula = 'to_predict ~ event_phase_in_intv + intv_phase_in_session + C(previous_label)'
+    else:
+        formula = 'to_predict ~ event_phase_in_intv + intv_phase_in_session'
     # model = smf.mnlogit('to_predict ~ event_phase_in_intv + intv_phase_in_session + C(previous_label)',data=reg_df)
     model = smf.mnlogit(formula,data=reg_df)
     if regularization_method is None:
