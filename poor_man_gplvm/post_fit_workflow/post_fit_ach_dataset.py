@@ -669,7 +669,7 @@ def ach_vs_dynamics_tuning_all_sessions(prep_res_l,dynamics_label_l=['Continuous
 
 #========= latent anlaysis, not included in main yet=================#
 import statsmodels.formula.api as smf
-def latent_cluster_vs_timing_regression(cluster_label_l,event_ts,nrem_intv,do_print=True,n_shuffle=100,quantile=0.99):
+def latent_cluster_vs_timing_regression(cluster_label_l,event_ts,nrem_intv,do_print=True,n_shuffle=100,quantile=0.99,alpha=0.01,regularization_method='l1'):
     '''
     given cluster indices for all the ACh bouts (as events)
     for each time point (of an event) within a NREM interval, need the phase within the interval, the phase of the interval within the recording, using index, and the previous event cluster
@@ -706,35 +706,42 @@ def latent_cluster_vs_timing_regression(cluster_label_l,event_ts,nrem_intv,do_pr
             shuffle_reg_df['previous_label'] = label_shuffle[:-1]
             shuffle_reg_df['to_predict'] = label_shuffle[1:]
             try:
-                shuffle_reg_res = smf.mnlogit('to_predict ~ event_phase_in_intv + intv_phase_in_session + C(previous_label)',data=shuffle_reg_df).fit()
-                shuffle_t_l.append(shuffle_reg_res.tvalues)
-                shuffle_p_l.append(shuffle_reg_res.pvalues)
+                if regularization_method is None:
+                    shuffle_reg_res = smf.mnlogit('to_predict ~ event_phase_in_intv + intv_phase_in_session + C(previous_label)',data=shuffle_reg_df).fit()
+                else:
+                    shuffle_reg_res = smf.mnlogit('to_predict ~ event_phase_in_intv + intv_phase_in_session + C(previous_label)',data=shuffle_reg_df).fit_regularized(method=method,alpha=alpha)
                 shuffle_params_l.append(shuffle_reg_res.params)
-                shuffle_prsquared_l.append(shuffle_reg_res.prsquared)
+                
+                if regularization_method is None:
+                    shuffle_p_l.append(shuffle_reg_res.pvalues)
+                    shuffle_t_l.append(shuffle_reg_res.tvalues)
+                    shuffle_prsquared_l.append(shuffle_reg_res.prsquared)
             except Exception as e:
                 print(f'shuffle {i} failed: {e}')
                 continue
         
-        shuffle_res_d['t_l'] = np.stack(shuffle_t_l,axis=0)
-        shuffle_res_d['p_l'] = np.stack(shuffle_p_l,axis=0)
         shuffle_res_d['params_l'] = np.stack(shuffle_params_l,axis=0)
-        shuffle_res_d['prsquared_l'] = np.array(shuffle_prsquared_l)
-        shuffle_res_d['prsquared_high'] = np.nanquantile(shuffle_res_d['prsquared_l'],quantile,axis=0)
-        
         shuffle_res_d['params_high'] = np.nanquantile(shuffle_res_d['params_l'],quantile,axis=0)
         shuffle_res_d['params_high'] = pd.DataFrame(shuffle_res_d['params_high'],index=shuffle_reg_res.params.index,columns=shuffle_reg_res.params.columns)
         shuffle_res_d['params_low'] = np.nanquantile(shuffle_res_d['params_l'],1-quantile,axis=0)
         shuffle_res_d['params_low'] = pd.DataFrame(shuffle_res_d['params_low'],index=shuffle_reg_res.params.index,columns=shuffle_reg_res.params.columns)
-        
-        shuffle_res_d['t_high'] = np.nanquantile(shuffle_res_d['t_l'],quantile,axis=0)
-        shuffle_res_d['t_high'] = pd.DataFrame(shuffle_res_d['t_high'],index=shuffle_reg_res.tvalues.index,columns=shuffle_reg_res.tvalues.columns)
-        shuffle_res_d['t_low'] = np.nanquantile(shuffle_res_d['t_l'],1-quantile,axis=0)
-        shuffle_res_d['t_low'] = pd.DataFrame(shuffle_res_d['t_low'],index=shuffle_reg_res.tvalues.index,columns=shuffle_reg_res.tvalues.columns)
-        
-        shuffle_res_d['p_high'] = np.nanquantile(shuffle_res_d['p_l'],quantile,axis=0)
-        shuffle_res_d['p_high'] = pd.DataFrame(shuffle_res_d['p_high'],index=shuffle_reg_res.pvalues.index,columns=shuffle_reg_res.pvalues.columns)
-        shuffle_res_d['p_low'] = np.nanquantile(shuffle_res_d['p_l'],1-quantile,axis=0)
-        shuffle_res_d['p_low'] = pd.DataFrame(shuffle_res_d['p_low'],index=shuffle_reg_res.pvalues.index,columns=shuffle_reg_res.pvalues.columns)
+
+        if regularization_method is None:
+            shuffle_res_d['t_l'] = np.stack(shuffle_t_l,axis=0)
+            shuffle_res_d['p_l'] = np.stack(shuffle_p_l,axis=0)
+            
+            shuffle_res_d['prsquared_l'] = np.array(shuffle_prsquared_l)
+            shuffle_res_d['prsquared_high'] = np.nanquantile(shuffle_res_d['prsquared_l'],quantile,axis=0)
+                
+            shuffle_res_d['t_high'] = np.nanquantile(shuffle_res_d['t_l'],quantile,axis=0)
+            shuffle_res_d['t_high'] = pd.DataFrame(shuffle_res_d['t_high'],index=shuffle_reg_res.tvalues.index,columns=shuffle_reg_res.tvalues.columns)
+            shuffle_res_d['t_low'] = np.nanquantile(shuffle_res_d['t_l'],1-quantile,axis=0)
+            shuffle_res_d['t_low'] = pd.DataFrame(shuffle_res_d['t_low'],index=shuffle_reg_res.tvalues.index,columns=shuffle_reg_res.tvalues.columns)
+            
+            shuffle_res_d['p_high'] = np.nanquantile(shuffle_res_d['p_l'],quantile,axis=0)
+            shuffle_res_d['p_high'] = pd.DataFrame(shuffle_res_d['p_high'],index=shuffle_reg_res.pvalues.index,columns=shuffle_reg_res.pvalues.columns)
+            shuffle_res_d['p_low'] = np.nanquantile(shuffle_res_d['p_l'],1-quantile,axis=0)
+            shuffle_res_d['p_low'] = pd.DataFrame(shuffle_res_d['p_low'],index=shuffle_reg_res.pvalues.index,columns=shuffle_reg_res.pvalues.columns)
         res['shuffle_res_d'] = shuffle_res_d
             
     return res
