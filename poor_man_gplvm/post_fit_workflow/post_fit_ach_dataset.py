@@ -691,8 +691,10 @@ def latent_cluster_vs_timing_regression(cluster_label_l,event_ts,nrem_intv,do_pr
 
     reg_df = {'event_phase_in_intv':event_phase_in_intv_each_event[1:],'intv_phase_in_session':intv_phase_in_session_each_event[1:],'previous_label':previous_label_each_event,'to_predict':to_predict}
     reg_df['event_phase_in_intv_categorical'] = pd.cut(reg_df['event_phase_in_intv'],bins=[0,0.1,0.9,1],labels=False)
+    formula = 'to_predict ~ C(event_phase_in_intv_categorical) + intv_phase_in_session + C(previous_label)'
+    formula = 'to_predict ~ event_phase_in_intv + intv_phase_in_session + C(previous_label)'
     # model = smf.mnlogit('to_predict ~ event_phase_in_intv + intv_phase_in_session + C(previous_label)',data=reg_df)
-    model = smf.mnlogit('to_predict ~ C(event_phase_in_intv_categorical) + intv_phase_in_session + C(previous_label)',data=reg_df)
+    model = smf.mnlogit(formula,data=reg_df)
     if regularization_method is None:
         reg_res = model.fit()
     else:
@@ -713,9 +715,9 @@ def latent_cluster_vs_timing_regression(cluster_label_l,event_ts,nrem_intv,do_pr
             shuffle_reg_df['to_predict'] = label_shuffle[1:]
             try:
                 if regularization_method is None:
-                    shuffle_reg_res = smf.mnlogit('to_predict ~ event_phase_in_intv + intv_phase_in_session + C(previous_label)',data=shuffle_reg_df).fit()
+                    shuffle_reg_res = smf.mnlogit(formula,data=shuffle_reg_df).fit()
                 else:
-                    shuffle_reg_res = smf.mnlogit('to_predict ~ event_phase_in_intv + intv_phase_in_session + C(previous_label)',data=shuffle_reg_df).fit_regularized(method=regularization_method,alpha=alpha)
+                    shuffle_reg_res = smf.mnlogit(formula,data=shuffle_reg_df).fit_regularized(method=regularization_method,alpha=alpha)
                 shuffle_params_l.append(shuffle_reg_res.params)
                 
                 if regularization_method is None:
