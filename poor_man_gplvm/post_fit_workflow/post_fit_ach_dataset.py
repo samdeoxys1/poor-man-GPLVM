@@ -691,7 +691,7 @@ def latent_cluster_vs_timing_regression(cluster_label_l,event_ts,nrem_intv,do_pr
 
     reg_df = {'event_phase_in_intv':event_phase_in_intv_each_event[1:],'intv_phase_in_session':intv_phase_in_session_each_event[1:],'previous_label':previous_label_each_event,'to_predict':to_predict}
     reg_df['event_phase_in_intv_categorical'] = pd.cut(reg_df['event_phase_in_intv'],bins=[0,0.1,0.9,1],labels=False)
-    formula = 'to_predict ~ C(event_phase_in_intv_categorical) + intv_phase_in_session + C(previous_label)'
+    formula = 'to_predict ~ C(event_phase_in_intv_categorical, Treatment(reference=1)) + intv_phase_in_session + C(previous_label)'
     formula = 'to_predict ~ event_phase_in_intv + intv_phase_in_session + C(previous_label)'
     # model = smf.mnlogit('to_predict ~ event_phase_in_intv + intv_phase_in_session + C(previous_label)',data=reg_df)
     model = smf.mnlogit(formula,data=reg_df)
