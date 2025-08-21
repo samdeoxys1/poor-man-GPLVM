@@ -419,7 +419,7 @@ def get_mean_feature_in_interval(feature_d,interval_d):
                     
                 mean_feature_d[feat_name,interval_name] = nap.TsdFrame(d=mean_feat,t=t_l)
             else:            
-               mean_feature_d[feat_name,interval_name] = feat[interval.d]
+               mean_feature_d[feat_name,interval_name] = feat[interval]
         
     return mean_feature_d
 
@@ -460,6 +460,7 @@ def feature_distance_vs_label_distance_analysis(prep_res,label_intv,ach_intv=Non
     if 'ripple' in interval_key_l:
         if 'is_ripple' in prep_res:
             interval_d['ripple'] = prep_res['is_ripple'].restrict(label_intv)
+            interval_d['ripple'] = np.nonzero(interval_d['ripple'].d)[0] # indices
         else:
             print('ripple interval not found, skipping')
     mean_feature_d = get_mean_feature_in_interval(feature_d,interval_d)
