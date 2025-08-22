@@ -19,6 +19,7 @@ from poor_man_gplvm.initializer import init_with_pca
 import poor_man_gplvm.decoder_latentonly as decoder_latent
 
 import nemos as nmo
+import pynapple as nap
 
 '''
 hyperparams = {'tuning_lengthscale':,'movement_variance':,'prior_variance':}
@@ -407,7 +408,7 @@ class AbstractGPLVMJump1D(ABC):
     
     
     # this is a more convenient call after fitting; hyperparam is used when available, if not then use the self.xxx
-    def decode_latent(self,y,tuning=None,hyperparam={},ma_neuron=None,ma_latent=None,likelihood_scale=1.,n_time_per_chunk=10000):
+    def decode_latent(self,y,tuning=None,hyperparam={},ma_neuron=None,ma_latent=None,likelihood_scale=1.,n_time_per_chunk=10000,t_l=None):
         
         if tuning is None:
             tuning = self.tuning
@@ -425,6 +426,9 @@ class AbstractGPLVMJump1D(ABC):
         posterior_all = np.exp(log_posterior_all)
         posterior_latent_marg = posterior_all.sum(axis=1)
         posterior_dynamics_marg = posterior_all.sum(axis=2)
+        if t_l is not None:
+            posterior_latent_marg = nap.TsdFrame(d=posterior_latent_marg,t=t_l)
+            posterior_dynamics_marg = nap.TsdFrame(d=posterior_dynamics_marg,t=t_l)
         
      
         
