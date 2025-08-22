@@ -114,7 +114,7 @@ class AbstractGPLVM1D(ABC):
         pass
 
     def decode_latent(self, y, tuning=None, hyperparam={}, ma_neuron=None, ma_latent=None, 
-                     likelihood_scale=1., n_time_per_chunk=10000):
+                     likelihood_scale=1., n_time_per_chunk=10000,t_l=None):
         if tuning is None:
             tuning = self.tuning
         if ma_neuron is None:
@@ -131,6 +131,8 @@ class AbstractGPLVM1D(ABC):
             ma_latent=ma_latent, likelihood_scale=likelihood_scale, n_time_per_chunk=n_time_per_chunk)
         
         posterior_all = np.exp(log_posterior_all)
+        if t_l is not None:
+            posterior_all = nap.TsdFrame(d=posterior_all,t=t_l)
         
         decoding_res = {
             'log_posterior_all': np.array(log_posterior_all),
