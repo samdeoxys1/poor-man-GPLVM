@@ -1,17 +1,11 @@
-'''
-random pandas helper functions
-'''
-
 import re
 import numpy as np
 import pandas as pd
 from typing import Any, Dict, List, Tuple, Union
 
-Condition = Dict[str, Any]
-Spec = Union[Condition, Dict[str, List["Spec"]]]  # recursive: {"all":[...]} | {"any":[...]} | {"not": {...}} | condition dict
+Spec = Union[Dict[str, Any], List[Any]]  # nested {"all": [...]}, {"any": [...]}, {"not": {...}}, or {col:(op,val[,opts]), ...}
 
 def _btick(col: str) -> str:
-    """Backtick a column if necessary for df.query."""
     return f"`{col}`" if re.search(r"\W", col) else col
 
 def _ensure_listlike(x):
@@ -19,57 +13,49 @@ def _ensure_listlike(x):
         return list(x)
     return [x]
 
-def _compile_condition(df: pd.DataFrame, cond: Condition, env: Dict[str, Any], var_id: List[int]) -> Tuple[pd.Series, str]:
-    """
-    Compile a single condition into a boolean mask and a query snippet.
-    Supported ops: ==, !=, >, >=, <, <=, in, not in, between, isna, notna,
-                   contains, startswith, endswith, regex
-    """
-    col = cond["col"]
-    op  = cond["op"].lower()
-    val = cond.get("value", None)
-    col_bt = _btick(col)
+def _new_var(env: Dict[str, Any], var_id: List[int], v: Any) -> str:
+    name = f"v{var_id[0]}"
+    var_id[0] += 1
+    env[name] = v
+    return name
 
+def _compile_condition(df: pd.DataFrame, col: str, op_tuple: Tuple, env: Dict[str, Any], var_id: List[int]):
     if col not in df.columns:
         raise KeyError(f"Column '{col}' not in DataFrame.")
+    if not isinstance(op_tuple, (list, tuple)) or len(op_tuple) < 1:
+        raise ValueError(f"Condition for '{col}' must be a tuple like (op, value[, options]).")
 
+    op = str(op_tuple[0]).lower()
+    val = None if len(op_tuple) < 2 else op_tuple[1]
+    opts = {} if len(op_tuple) < 3 or not isinstance(op_tuple[2], dict) else op_tuple[2]
     s = df[col]
+    col_bt = _btick(col)
 
-    # Pick a fresh @var name for query env when needed
-    def new_var(v):
-        name = f"v{var_id[0]}"
-        var_id[0] += 1
-        env[name] = v
-        return name
-
-    # Numeric and categorical comparisons
+    # Comparators
     if op in ("==", "!=", ">", ">=", "<", "<="):
-        var = new_var(val)
+        var = _new_var(env, var_id, val)
         mask = getattr(s, {"==":"eq","!=":"ne",">":"gt",">=":"ge","<":"lt","<=":"le"}[op])(env[var])
-        q = f"{col_bt} {op} @{var}"
-        return mask, q
+        return mask, f"{col_bt} {op} @{var}"
 
     # Membership
     if op in ("in", "not in"):
         vals = _ensure_listlike(val)
-        var = new_var(vals)
+        var = _new_var(env, var_id, vals)
         mask = s.isin(env[var])
+        q = f"{col_bt} in @{var}"
         if op == "not in":
             mask = ~mask
             q = f"{col_bt} not in @{var}"
-        else:
-            q = f"{col_bt} in @{var}"
         return mask, q
 
     # Between
     if op == "between":
         if not (isinstance(val, (list, tuple)) and len(val) == 2):
-            raise ValueError("between expects value=[low, high].")
+            raise ValueError("between expects value=(low, high).")
         low, high = val
-        inclusive = cond.get("inclusive", "both")  # 'both'|'neither'|'left'|'right'
+        inclusive = opts.get("inclusive", "both")  # 'both'|'neither'|'left'|'right'
         mask = s.between(low, high, inclusive=inclusive)
-        varL, varH = new_var(low), new_var(high)
-        # df.query has no native 'between', so expand:
+        varL, varH = _new_var(env, var_id, low), _new_var(env, var_id, high)
         if inclusive in ("both", True):
             q = f"(@{varL} <= {col_bt}) and ({col_bt} <= @{varH})"
         elif inclusive in ("neither", False):
@@ -84,128 +70,98 @@ def _compile_condition(df: pd.DataFrame, cond: Condition, env: Dict[str, Any], v
 
     # Null checks
     if op in ("isna", "isnull"):
-        mask = s.isna()
-        q = f"{col_bt}.isnull()"
-        return mask, q
+        return s.isna(), f"{col_bt}.isnull()"
     if op in ("notna", "notnull"):
-        mask = s.notna()
-        q = f"{col_bt}.notnull()"
-        return mask, q
+        return s.notna(), f"{col_bt}.notnull()"
 
-    # String ops: contains/startswith/endswith/regex
-    # For query, we emit a .str.* expression (requires engine='python' in df.query).
+    # String ops
     if op in ("contains", "startswith", "endswith", "regex"):
-        case = bool(cond.get("case", True))
-        na = cond.get("na", False)
+        case = bool(opts.get("case", True))
+        na = opts.get("na", False)
+        strobj = s.astype("string")
         if op == "contains":
             pat = str(val)
-            mask = s.astype("string").str.contains(pat, case=case, na=na, regex=True)
-            var = new_var(pat)
+            mask = strobj.str.contains(pat, case=case, na=na, regex=opts.get("regex", True))
+            var = _new_var(env, var_id, pat)
+            q = f"{col_bt}.str.contains(@{var}, case={case}, na={na}, regex={opts.get('regex', True)})"
+            return mask, q
+        if op == "regex":
+            pat = str(val)
+            mask = strobj.str.contains(pat, case=case, na=na, regex=True)
+            var = _new_var(env, var_id, pat)
             q = f"{col_bt}.str.contains(@{var}, case={case}, na={na}, regex=True)"
             return mask, q
         if op == "startswith":
             pat = str(val)
-            mask = s.astype("string").str.startswith(pat, na=na)
-            var = new_var(pat)
-            q = f"{col_bt}.str.startswith(@{var}, na={na})"
-            return mask, q
+            mask = strobj.str.startswith(pat, na=na)
+            var = _new_var(env, var_id, pat)
+            return mask, f"{col_bt}.str.startswith(@{var}, na={na})"
         if op == "endswith":
             pat = str(val)
-            mask = s.astype("string").str.endswith(pat, na=na)
-            var = new_var(pat)
-            q = f"{col_bt}.str.endswith(@{var}, na={na})"
-            return mask, q
-        if op == "regex":
-            pat = str(val)
-            mask = s.astype("string").str.contains(pat, regex=True, case=case, na=na)
-            var = new_var(pat)
-            q = f"{col_bt}.str.contains(@{var}, case={case}, na={na}, regex=True)"
-            return mask, q
+            mask = strobj.str.endswith(pat, na=na)
+            var = _new_var(env, var_id, pat)
+            return mask, f"{col_bt}.str.endswith(@{var}, na={na})"
 
     raise ValueError(f"Unsupported op: {op}")
 
-def _compile_spec(df: pd.DataFrame, spec: Spec, env: Dict[str, Any], var_id: List[int]) -> Tuple[pd.Series, str]:
+def _is_logic_spec(spec: Dict[str, Any]) -> bool:
+    return any(k in spec for k in ("all", "any", "not"))
+
+def _compile_spec(df: pd.DataFrame, spec: Spec, env: Dict[str, Any], var_id: List[int]):
     """
-    Recursively compile a spec into (mask, query_string).
-    Spec forms:
-      - {"all": [spec, spec, ...]}
-      - {"any": [spec, spec, ...]}
-      - {"not": spec}
-      - {"col": ..., "op": ..., "value": ...}  (a single condition)
+    Returns (mask, query_string). Supports:
+      - {"all":[spec, ...]}  -> AND
+      - {"any":[spec, ...]}  -> OR
+      - {"not": spec}        -> NOT
+      - {col:(op,val[,opts]), col2:(op,val[,opts]), ...} -> implicit AND over columns
     """
+    # Logical forms
     if isinstance(spec, dict) and "all" in spec:
         parts = [ _compile_spec(df, s, env, var_id) for s in spec["all"] ]
-        masks, qs = zip(*parts) if parts else ([], [])
-        mask = pd.Series(True, index=df.index) if not parts else parts[0][0]
-        for m,_ in parts[1:]:
-            mask = mask & m
-        q = "(" + " and ".join([f"({qq})" for qq in qs]) + ")" if qs else ""
-        return mask, q
-
+        mask = pd.Series(True, index=df.index)
+        qs = []
+        for m, q in parts:
+            mask &= m
+            qs.append(f"({q})")
+        return mask, "(" + " and ".join(qs) + ")" if qs else ""
     if isinstance(spec, dict) and "any" in spec:
         parts = [ _compile_spec(df, s, env, var_id) for s in spec["any"] ]
-        masks, qs = zip(*parts) if parts else ([], [])
-        mask = pd.Series(False, index=df.index) if not parts else parts[0][0]
-        for m,_ in parts[1:]:
-            mask = mask | m
-        q = "(" + " or ".join([f"({qq})" for qq in qs]) + ")" if qs else ""
-        return mask, q
-
+        mask = pd.Series(False, index=df.index)
+        qs = []
+        for m, q in parts:
+            mask |= m
+            qs.append(f"({q})")
+        return mask, "(" + " or ".join(qs) + ")" if qs else ""
     if isinstance(spec, dict) and "not" in spec:
         m, q = _compile_spec(df, spec["not"], env, var_id)
         return (~m), f"not ({q})"
 
-    # leaf condition
-    return _compile_condition(df, spec, env, var_id)
+    # Leaf or implicit-AND dict: {col:(op,val[,opts]), ...}
+    if isinstance(spec, dict):
+        mask = pd.Series(True, index=df.index)
+        qs = []
+        for col, op_tuple in spec.items():
+            m, q = _compile_condition(df, col, op_tuple, env, var_id)
+            mask &= m
+            qs.append(f"({q})")
+        return mask, " and ".join(qs)
 
-def filter_df_with_spec(
-    df: pd.DataFrame,
-    spec: Spec,
-    *,
-    return_query: bool = True
-) -> Dict[str, Any]:
+    raise ValueError("Invalid spec structure.")
+
+def filter_df_with_spec(df: pd.DataFrame, spec: Spec, *, return_query: bool = True) -> Dict[str, Any]:
     """
-    Apply a nested filter spec to `df`.
-
-    Returns a dict with:
-      - df:        filtered DataFrame
-      - mask:      boolean mask used
-      - query:     generated df.query string (works best with engine='python' if string ops present)
-      - env:       local_dict for df.query
+    Apply simplified spec to `df`.
+    Returns:
+      - df:    filtered DataFrame
+      - mask:  boolean mask used
+      - query: generated df.query string (use engine='python' if string ops present)
+      - env:   local_dict for df.query
     """
     env: Dict[str, Any] = {}
     var_id = [0]
     mask, q = _compile_spec(df, spec, env, var_id)
-    out = {
-        "df": df[mask],
-        "mask": mask,
-    }
+    out = {"df": df[mask], "mask": mask}
     if return_query:
         out["query"] = q
         out["env"] = env
     return out
-
-# Example call:
-# spec = {
-#   "all": [
-#     {"col": "age", "op": ">=", "value": 18},
-#     {"col": "status", "op": "in", "value": ["active", "pending"]},
-#     {"col": "email", "op": "contains", "value": "@nyu.edu", "case": False, "na": False},
-#     {"col": "last_login", "op": "notna"},
-#     {"col": "score", "op": "between", "value": [0.7, 0.95], "inclusive": "right"},
-#   ],
-#   "any": [
-#     {"col": "role", "op": "==", "value": "admin"},
-#     {"col": "dept", "op": "startswith", "value": "neuro"}
-#   ]
-# }
-# 
-# out = filter_df_with_spec(df, spec)
-# df_filtered = out["df"]
-# mask = out["mask"]
-# qstr = out["query"]
-# env = out["env"]
-# 
-# # If you really want to use df.query (string ops require engine='python'):
-# df_q = df.query(qstr, local_dict=env, engine="python")
-# assert df_q.equals(df_filtered)
