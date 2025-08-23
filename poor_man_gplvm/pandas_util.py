@@ -3,15 +3,10 @@ import numpy as np
 import pandas as pd
 from typing import Any, Dict, List, Tuple, Union
 
-Spec = Union[Dict[str, Any], List[Any]]  # nested {"all": [...]}, {"any": [...]}, {"not": {...}}, or {col:(op,val[,opts]), ...}
+Spec = Union[List[Any], Tuple[Any, ...]]  # list-based AST
 
 def _btick(col: str) -> str:
     return f"`{col}`" if re.search(r"\W", col) else col
-
-def _ensure_listlike(x):
-    if isinstance(x, (list, tuple, set, pd.Index, np.ndarray)):
-        return list(x)
-    return [x]
 
 def _new_var(env: Dict[str, Any], var_id: List[int], v: Any) -> str:
     name = f"v{var_id[0]}"
@@ -19,34 +14,53 @@ def _new_var(env: Dict[str, Any], var_id: List[int], v: Any) -> str:
     env[name] = v
     return name
 
-def _compile_condition(df: pd.DataFrame, col: str, op_tuple: Tuple, env: Dict[str, Any], var_id: List[int]):
+def _ensure_listlike(x):
+    if isinstance(x, (list, tuple, set, pd.Index, np.ndarray)):
+        return list(x)
+    return [x]
+
+def _is_logic_node(node: Any) -> bool:
+    return isinstance(node, (list, tuple)) and len(node) > 0 and isinstance(node[0], str) and node[0].lower() in {"all","any","not"}
+
+def _is_leaf(node: Any) -> bool:
+    # leaf looks like ["col", "op", value?, opts?] with col as string not in {"all","any","not"}
+    return (
+        isinstance(node, (list, tuple))
+        and len(node) >= 2
+        and isinstance(node[0], str)
+        and node[0].lower() not in {"all","any","not"}
+    )
+
+def _compile_leaf(df: pd.DataFrame, leaf: Union[List[Any], Tuple[Any, ...]], env: Dict[str, Any], var_id: List[int]):
+    """
+    Compile a leaf: ["col","op", value?, opts?] -> (mask, query_snippet)
+    """
+    if len(leaf) < 2:
+        raise ValueError(f"Leaf too short: {leaf}")
+    col = leaf[0]
+    op = str(leaf[1]).lower()
+    val = leaf[2] if len(leaf) >= 3 else None
+    opts = leaf[3] if len(leaf) >= 4 and isinstance(leaf[3], dict) else {}
     if col not in df.columns:
         raise KeyError(f"Column '{col}' not in DataFrame.")
-    if not isinstance(op_tuple, (list, tuple)) or len(op_tuple) < 1:
-        raise ValueError(f"Condition for '{col}' must be a tuple like (op, value[, options]).")
-
-    op = str(op_tuple[0]).lower()
-    val = None if len(op_tuple) < 2 else op_tuple[1]
-    opts = {} if len(op_tuple) < 3 or not isinstance(op_tuple[2], dict) else op_tuple[2]
     s = df[col]
     col_bt = _btick(col)
 
     # Comparators
-    if op in ("==", "!=", ">", ">=", "<", "<="):
+    if op in {"==","!=","<",">","<=",">="}:
         var = _new_var(env, var_id, val)
-        mask = getattr(s, {"==":"eq","!=":"ne",">":"gt",">=":"ge","<":"lt","<=":"le"}[op])(env[var])
+        mask = getattr(s, {"==":"eq","!=":"ne","<":"lt",">":"gt","<=":"le",">=":"ge"}[op])(env[var])
         return mask, f"{col_bt} {op} @{var}"
 
     # Membership
-    if op in ("in", "not in"):
+    if op in {"in","not in"}:
         vals = _ensure_listlike(val)
         var = _new_var(env, var_id, vals)
         mask = s.isin(env[var])
-        q = f"{col_bt} in @{var}"
         if op == "not in":
             mask = ~mask
-            q = f"{col_bt} not in @{var}"
-        return mask, q
+            return mask, f"{col_bt} not in @{var}"
+        return mask, f"{col_bt} in @{var}"
 
     # Between
     if op == "between":
@@ -55,42 +69,41 @@ def _compile_condition(df: pd.DataFrame, col: str, op_tuple: Tuple, env: Dict[st
         low, high = val
         inclusive = opts.get("inclusive", "both")  # 'both'|'neither'|'left'|'right'
         mask = s.between(low, high, inclusive=inclusive)
-        varL, varH = _new_var(env, var_id, low), _new_var(env, var_id, high)
+        vL, vH = _new_var(env, var_id, low), _new_var(env, var_id, high)
         if inclusive in ("both", True):
-            q = f"(@{varL} <= {col_bt}) and ({col_bt} <= @{varH})"
+            q = f"(@{vL} <= {col_bt}) and ({col_bt} <= @{vH})"
         elif inclusive in ("neither", False):
-            q = f"(@{varL} < {col_bt}) and ({col_bt} < @{varH})"
+            q = f"(@{vL} < {col_bt}) and ({col_bt} < @{vH})"
         elif inclusive == "left":
-            q = f"(@{varL} <= {col_bt}) and ({col_bt} < @{varH})"
+            q = f"(@{vL} <= {col_bt}) and ({col_bt} < @{vH})"
         elif inclusive == "right":
-            q = f"(@{varL} < {col_bt}) and ({col_bt} <= @{varH})"
+            q = f"(@{vL} < {col_bt}) and ({col_bt} <= @{vH})"
         else:
-            q = f"(@{varL} <= {col_bt}) and ({col_bt} <= @{varH})"
+            q = f"(@{vL} <= {col_bt}) and ({col_bt} <= @{vH})"
         return mask, q
 
     # Null checks
-    if op in ("isna", "isnull"):
+    if op in {"isna","isnull"}:
         return s.isna(), f"{col_bt}.isnull()"
-    if op in ("notna", "notnull"):
+    if op in {"notna","notnull"}:
         return s.notna(), f"{col_bt}.notnull()"
 
     # String ops
-    if op in ("contains", "startswith", "endswith", "regex"):
+    if op in {"contains","startswith","endswith","regex"}:
         case = bool(opts.get("case", True))
         na = opts.get("na", False)
         strobj = s.astype("string")
         if op == "contains":
             pat = str(val)
-            mask = strobj.str.contains(pat, case=case, na=na, regex=opts.get("regex", True))
+            regex = bool(opts.get("regex", True))
+            mask = strobj.str.contains(pat, case=case, na=na, regex=regex)
             var = _new_var(env, var_id, pat)
-            q = f"{col_bt}.str.contains(@{var}, case={case}, na={na}, regex={opts.get('regex', True)})"
-            return mask, q
+            return mask, f"{col_bt}.str.contains(@{var}, case={case}, na={na}, regex={regex})"
         if op == "regex":
             pat = str(val)
             mask = strobj.str.contains(pat, case=case, na=na, regex=True)
             var = _new_var(env, var_id, pat)
-            q = f"{col_bt}.str.contains(@{var}, case={case}, na={na}, regex=True)"
-            return mask, q
+            return mask, f"{col_bt}.str.contains(@{var}, case={case}, na={na}, regex=True)"
         if op == "startswith":
             pat = str(val)
             mask = strobj.str.startswith(pat, na=na)
@@ -104,53 +117,70 @@ def _compile_condition(df: pd.DataFrame, col: str, op_tuple: Tuple, env: Dict[st
 
     raise ValueError(f"Unsupported op: {op}")
 
-def _is_logic_spec(spec: Dict[str, Any]) -> bool:
-    return any(k in spec for k in ("all", "any", "not"))
+def _compile_spec(df: pd.DataFrame, spec: Spec, env: Dict[str, Any], var_id: List[int]) -> Tuple[pd.Series, str]:
+    """
+    Compile a list-based spec to (mask, query_string).
 
-def _compile_spec(df: pd.DataFrame, spec: Spec, env: Dict[str, Any], var_id: List[int]):
+    Accepted forms:
+      - ["all", spec1, spec2, ...]     -> AND over parts
+      - ["any", spec1, spec2, ...]     -> OR  over parts
+      - ["not", spec]                   -> NOT of part
+      - [leaf, leaf, ...]               -> implicit AND across leaves
+      - leaf                            -> single leaf
+      where leaf := ["col","op", value?, opts?]
     """
-    Returns (mask, query_string). Supports:
-      - {"all":[spec, ...]}  -> AND
-      - {"any":[spec, ...]}  -> OR
-      - {"not": spec}        -> NOT
-      - {col:(op,val[,opts]), col2:(op,val[,opts]), ...} -> implicit AND over columns
-    """
-    # Logical forms
-    if isinstance(spec, dict) and "all" in spec:
-        parts = [ _compile_spec(df, s, env, var_id) for s in spec["all"] ]
+    # Single leaf?
+    if _is_leaf(spec):
+        return _compile_leaf(df, spec, env, var_id)
+
+    # Logic node?
+    if _is_logic_node(spec):
+        tag = spec[0].lower()
+        if tag == "not":
+            if len(spec) != 2:
+                raise ValueError("['not', spec] expects exactly one child.")
+            m, q = _compile_spec(df, spec[1], env, var_id)
+            return (~m), f"not ({q})"
+        parts = [ _compile_spec(df, s, env, var_id) for s in spec[1:] ]
+        if tag == "all":
+            mask = pd.Series(True, index=df.index)
+            qs = []
+            for m, q in parts:
+                mask &= m
+                qs.append(f"({q})")
+            return mask, "(" + " and ".join(qs) + ")" if qs else ""
+        if tag == "any":
+            mask = pd.Series(False, index=df.index)
+            qs = []
+            for m, q in parts:
+                mask |= m
+                qs.append(f"({q})")
+            return mask, "(" + " or ".join(qs) + ")" if qs else ""
+        raise ValueError(f"Unknown logic tag: {tag}")
+
+    # Implicit AND list: [leaf_or_spec, leaf_or_spec, ...]
+    if isinstance(spec, (list, tuple)):
+        if len(spec) == 0:
+            raise ValueError("Empty spec list.")
         mask = pd.Series(True, index=df.index)
         qs = []
-        for m, q in parts:
-            mask &= m
-            qs.append(f"({q})")
-        return mask, "(" + " and ".join(qs) + ")" if qs else ""
-    if isinstance(spec, dict) and "any" in spec:
-        parts = [ _compile_spec(df, s, env, var_id) for s in spec["any"] ]
-        mask = pd.Series(False, index=df.index)
-        qs = []
-        for m, q in parts:
-            mask |= m
-            qs.append(f"({q})")
-        return mask, "(" + " or ".join(qs) + ")" if qs else ""
-    if isinstance(spec, dict) and "not" in spec:
-        m, q = _compile_spec(df, spec["not"], env, var_id)
-        return (~m), f"not ({q})"
-
-    # Leaf or implicit-AND dict: {col:(op,val[,opts]), ...}
-    if isinstance(spec, dict):
-        mask = pd.Series(True, index=df.index)
-        qs = []
-        for col, op_tuple in spec.items():
-            m, q = _compile_condition(df, col, op_tuple, env, var_id)
+        for node in spec:
+            m, q = _compile_spec(df, node, env, var_id)
             mask &= m
             qs.append(f"({q})")
         return mask, " and ".join(qs)
 
-    raise ValueError("Invalid spec structure.")
+    raise ValueError("Invalid spec structure; expected list-based form.")
 
-def filter_df_with_spec(df: pd.DataFrame, spec: Spec, *, return_query: bool = True) -> Dict[str, Any]:
+def filter_df_with_spec(
+    df: pd.DataFrame,
+    spec: Spec,
+    *,
+    return_query: bool = True
+) -> Dict[str, Any]:
     """
-    Apply simplified spec to `df`.
+    Filter `df` using a list-based spec (see _compile_spec docstring).
+
     Returns:
       - df:    filtered DataFrame
       - mask:  boolean mask used
