@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 from typing import Any, Dict, List, Tuple, Union
 
-Spec = Union[List[Any], Tuple[Any, ...]]  # list-based AST
+Spec = Union[List[Any], Tuple[Any, ...], Dict[str, Any]]
 
 def _btick(col: str) -> str:
     return f"`{col}`" if re.search(r"\W", col) else col
@@ -19,11 +19,13 @@ def _ensure_listlike(x):
         return list(x)
     return [x]
 
-def _is_logic_node(node: Any) -> bool:
-    return isinstance(node, (list, tuple)) and len(node) > 0 and isinstance(node[0], str) and node[0].lower() in {"all","any","not"}
+def _is_logic_list(node: Any) -> bool:
+    return isinstance(node, (list, tuple)) and node and isinstance(node[0], str) and node[0].lower() in {"all","any","not"}
 
-def _is_leaf(node: Any) -> bool:
-    # leaf looks like ["col", "op", value?, opts?] with col as string not in {"all","any","not"}
+def _is_logic_dict(node: Any) -> bool:
+    return isinstance(node, dict) and any(k in node for k in ("all","any","not"))
+
+def _is_leaf_list(node: Any) -> bool:
     return (
         isinstance(node, (list, tuple))
         and len(node) >= 2
@@ -31,14 +33,10 @@ def _is_leaf(node: Any) -> bool:
         and node[0].lower() not in {"all","any","not"}
     )
 
-def _compile_leaf(df: pd.DataFrame, leaf: Union[List[Any], Tuple[Any, ...]], env: Dict[str, Any], var_id: List[int]):
-    """
-    Compile a leaf: ["col","op", value?, opts?] -> (mask, query_snippet)
-    """
-    if len(leaf) < 2:
-        raise ValueError(f"Leaf too short: {leaf}")
+def _compile_leaf_list(df: pd.DataFrame, leaf: Union[List[Any], Tuple[Any, ...]], env: Dict[str, Any], var_id: List[int]):
+    """Compile ["col","op", value?, opts?] into (mask, query_snippet)."""
     col = leaf[0]
-    op = str(leaf[1]).lower()
+    op  = str(leaf[1]).lower()
     val = leaf[2] if len(leaf) >= 3 else None
     opts = leaf[3] if len(leaf) >= 4 and isinstance(leaf[3], dict) else {}
     if col not in df.columns:
@@ -57,10 +55,11 @@ def _compile_leaf(df: pd.DataFrame, leaf: Union[List[Any], Tuple[Any, ...]], env
         vals = _ensure_listlike(val)
         var = _new_var(env, var_id, vals)
         mask = s.isin(env[var])
+        q = f"{col_bt} in @{var}"
         if op == "not in":
             mask = ~mask
-            return mask, f"{col_bt} not in @{var}"
-        return mask, f"{col_bt} in @{var}"
+            q = f"{col_bt} not in @{var}"
+        return mask, q
 
     # Between
     if op == "between":
@@ -85,7 +84,7 @@ def _compile_leaf(df: pd.DataFrame, leaf: Union[List[Any], Tuple[Any, ...]], env
     # Null checks
     if op in {"isna","isnull"}:
         return s.isna(), f"{col_bt}.isnull()"
-    if op in {"notna","notnull"}:
+    if op in {"notna","notnull"} or op == "notna":  # allow "notna" explicitly
         return s.notna(), f"{col_bt}.notnull()"
 
     # String ops
@@ -119,22 +118,42 @@ def _compile_leaf(df: pd.DataFrame, leaf: Union[List[Any], Tuple[Any, ...]], env
 
 def _compile_spec(df: pd.DataFrame, spec: Spec, env: Dict[str, Any], var_id: List[int]) -> Tuple[pd.Series, str]:
     """
-    Compile a list-based spec to (mask, query_string).
-
-    Accepted forms:
-      - ["all", spec1, spec2, ...]     -> AND over parts
-      - ["any", spec1, spec2, ...]     -> OR  over parts
-      - ["not", spec]                   -> NOT of part
-      - [leaf, leaf, ...]               -> implicit AND across leaves
-      - leaf                            -> single leaf
-      where leaf := ["col","op", value?, opts?]
+    Accepts BOTH:
+      - dict logic nodes: {'all': [ ... ]} | {'any': [ ... ]} | {'not': spec}
+      - list logic nodes: ['all', ...]     | ['any', ...]     | ['not', spec]
+      - leaf lists:       ['col','op', val?, opts?]
+      - implicit-AND list: [node, node, ...]
     """
-    # Single leaf?
-    if _is_leaf(spec):
-        return _compile_leaf(df, spec, env, var_id)
+    # dict logic nodes
+    if _is_logic_dict(spec):
+        if "not" in spec:
+            m, q = _compile_spec(df, spec["not"], env, var_id)
+            return (~m), f"not ({q})"
+        if "all" in spec:
+            items = spec["all"]
+            if not isinstance(items, (list, tuple)):
+                items = [items]
+            parts = [ _compile_spec(df, it, env, var_id) for it in items ]
+            mask = pd.Series(True, index=df.index)
+            qs = []
+            for m, q in parts:
+                mask &= m
+                qs.append(f"({q})")
+            return mask, "(" + " and ".join(qs) + ")" if qs else ""
+        if "any" in spec:
+            items = spec["any"]
+            if not isinstance(items, (list, tuple)):
+                items = [items]
+            parts = [ _compile_spec(df, it, env, var_id) for it in items ]
+            mask = pd.Series(False, index=df.index)
+            qs = []
+            for m, q in parts:
+                mask |= m
+                qs.append(f"({q})")
+            return mask, "(" + " or ".join(qs) + ")" if qs else ""
 
-    # Logic node?
-    if _is_logic_node(spec):
+    # list logic nodes
+    if _is_logic_list(spec):
         tag = spec[0].lower()
         if tag == "not":
             if len(spec) != 2:
@@ -158,9 +177,13 @@ def _compile_spec(df: pd.DataFrame, spec: Spec, env: Dict[str, Any], var_id: Lis
             return mask, "(" + " or ".join(qs) + ")" if qs else ""
         raise ValueError(f"Unknown logic tag: {tag}")
 
-    # Implicit AND list: [leaf_or_spec, leaf_or_spec, ...]
+    # leaf list
+    if _is_leaf_list(spec):
+        return _compile_leaf_list(df, spec, env, var_id)
+
+    # implicit-AND list of nodes (each node can be a leaf list or a logic subtree)
     if isinstance(spec, (list, tuple)):
-        if len(spec) == 0:
+        if not spec:
             raise ValueError("Empty spec list.")
         mask = pd.Series(True, index=df.index)
         qs = []
@@ -170,23 +193,9 @@ def _compile_spec(df: pd.DataFrame, spec: Spec, env: Dict[str, Any], var_id: Lis
             qs.append(f"({q})")
         return mask, " and ".join(qs)
 
-    raise ValueError("Invalid spec structure; expected list-based form.")
+    raise ValueError("Invalid spec structure.")
 
-def filter_df_with_spec(
-    df: pd.DataFrame,
-    spec: Spec,
-    *,
-    return_query: bool = True
-) -> Dict[str, Any]:
-    """
-    Filter `df` using a list-based spec (see _compile_spec docstring).
-
-    Returns:
-      - df:    filtered DataFrame
-      - mask:  boolean mask used
-      - query: generated df.query string (use engine='python' if string ops present)
-      - env:   local_dict for df.query
-    """
+def filter_df_with_spec(df: pd.DataFrame, spec: Spec, *, return_query: bool = True) -> Dict[str, Any]:
     env: Dict[str, Any] = {}
     var_id = [0]
     mask, q = _compile_spec(df, spec, env, var_id)
