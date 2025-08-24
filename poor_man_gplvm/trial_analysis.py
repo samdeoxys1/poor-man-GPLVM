@@ -1,6 +1,8 @@
 '''
 helper function for analyzing trial-by-trial data
 '''
+import numpy as np
+import pandas as pd
 
 def get_event_phase_in_trial(trials,event_key_l=[],span_key=['start','end']):
     '''
