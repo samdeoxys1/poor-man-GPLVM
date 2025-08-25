@@ -22,12 +22,14 @@ def get_contrast_axis_and_proj(x_sub,tuning,map_state_pre,map_state_post,map_sta
     
     return proj_on_contrast_axis,contrast_axis
 
-# for each trial, segment the trial into chunks with continuous dynamics, seperated by jumps or periods of jumps
-# dominant latent within each continuous segment
-# neurons tuned to those latents
+
+
 
 def segment_trial_by_jump(jump_p_sub,post_map_sub,jump_p_merge_threshold_time=1,is_jump_threshold=0.5):
     '''
+    for each trial, segment the trial into chunks with continuous dynamics, seperated by jumps or periods of jumps
+    find dominant latent (take median of the posterior MAP) within each continuous segment
+
     jump_p_sub: n_time
     post_map_sub: n_time
     jump_p_merge_threshold_ind: merge jump if gap between consecutive jump is less than this threshold
