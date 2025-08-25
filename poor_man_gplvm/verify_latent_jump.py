@@ -21,3 +21,28 @@ def get_contrast_axis_and_proj(x_sub,tuning,map_state_pre,map_state_post,map_sta
     proj_on_contrast_axis=x_sub.dot(contrast_axis)
     
     return proj_on_contrast_axis,contrast_axis
+
+# for each trial, segment the trial into chunks with continuous dynamics, seperated by jumps or periods of jumps
+# dominant latent within each continuous segment
+# neurons tuned to those latents
+
+def segment_trial_by_jump(jump_p_sub,post_map_sub,jump_p_merge_threshold_time=1,is_jump_threshold=0.5):
+    '''
+    jump_p_sub: n_time
+    post_map_sub: n_time
+    jump_p_merge_threshold_ind: merge jump if gap between consecutive jump is less than this threshold
+    if jump_p_sub is probability, then threshold by is_jump_threshold to get is_jump; otherwise jump_p_sub is boolean is_jump, is_jump_threshold is not used
+    '''
+    
+    
+    # merge jump if gap between consecutive jump is less than jump_p_merge_threshold_ind
+    jump_epoch = jump_p_sub.threshold(is_jump_threshold).time_support.merge_close_intervals(jump_p_merge_threshold_time)
+    continuous_epoch = post_map_sub.time_support.set_diff(jump_epoch)
+    
+    post_map_median_per_epoch = {}
+    for ii,epoch in enumerate(continuous_epoch):
+        post_map_median = np.nanmedian(post_map_sub.restrict(epoch))
+        post_map_median_per_epoch[ii] = post_map_median
+    
+    res = {'post_map_median_per_epoch':post_map_median_per_epoch,'jump_epoch':jump_epoch,'continuous_epoch':continuous_epoch}
+    return res
