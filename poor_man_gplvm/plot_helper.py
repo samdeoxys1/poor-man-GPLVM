@@ -54,7 +54,7 @@ def plot_mean_error_plot(data,error_type='ci',mean_axis=0,fig=None,ax=None,**kwa
     error_type: 'ci' or 'std'
     mean_axis: axis to take the mean of, same for error; plot the other axis
     '''
-    if fig is None:
+    if ax is None:
         fig,ax = plt.subplots()
     if error_type == 'ci':
         mean = np.mean(data,axis=mean_axis)
