@@ -665,6 +665,8 @@ class AbstractGPLVMJump1D(ABC):
             if tuning is None:
                 tuning = self.tuning         
             rate=jnp.einsum('pn,tp->tn',tuning,post_latent_marg)
+            if isinstance(post_latent_marg,nap.TsdFrame):
+                rate = nap.TsdFrame(d=rate,t=post_latent_marg.t)
             return rate
         
 
