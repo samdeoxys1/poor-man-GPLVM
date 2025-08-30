@@ -49,7 +49,7 @@ def classify_latent(map_latent,position_tsdf,speed_tsd,speed_thresh=5,min_time_b
     for latent_i,occurance_index_per_speed_level in latent_occurance_index_per_speed_level.items():
         
         latent_run_index=occurance_index_per_speed_level[0]
-        import pdb; pdb.set_trace()
+        
         if len(latent_run_index)>min_time_bin:
             tocluster=position_tsdf[latent_run_index]['x','y'].d
             core_samples, labels=dbscan(tocluster,eps=10,metric='euclidean',)
