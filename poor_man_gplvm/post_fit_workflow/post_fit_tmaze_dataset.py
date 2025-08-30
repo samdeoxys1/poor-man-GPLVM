@@ -62,8 +62,8 @@ def classify_latent(map_latent,position_tsdf,speed_tsd,speed_thresh=5,min_time_b
             is_spatial_all_latent[latent_i] = False
     is_spatial_all_latent=pd.Series(is_spatial_all_latent)
 
-    position_latent = is_spatial_all_latent.loc[is_spatial_all_latent]
-    nonposition_latent=is_spatial_all_latent.loc[np.logical_not(is_spatial_all_latent)]
+    position_latent = is_spatial_all_latent.loc[is_spatial_all_latent].index
+    nonposition_latent=is_spatial_all_latent.loc[np.logical_not(is_spatial_all_latent)].index
 
-    latent_classify_res = {'position_latent':position_latent,'nonposition_latent':nonposition_latent,'cluster_label_per_time_all_latent':cluster_label_per_time_all_latent,'latent_occurance_index_per_speed_level':latent_occurance_index_per_speed_level}
+    latent_classify_res = {'position_latent':position_latent,'nonposition_latent':nonposition_latent,'is_spatial_all_latent':is_spatial_all_latent,'cluster_label_per_time_all_latent':cluster_label_per_time_all_latent,'latent_occurance_index_per_speed_level':latent_occurance_index_per_speed_level}
     return latent_classify_res
