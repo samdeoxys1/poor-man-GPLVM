@@ -212,24 +212,25 @@ def get_latent_field_properties(latent_occurance_index_per_speed_level,cluster_l
     properties_d_all = {}
     for latent_i,occurance_index_per_speed_level in latent_occurance_index_per_speed_level.items():
         properties_d ={}
-        time_sel=occurance_index_per_speed_level[1][cluster_label_per_time_all_latent[latent_i]==0]
+        if latent_i in cluster_label_per_time_all_latent: # to be clustered the occurences must be above some number, in classify_latent, this is set to 10
+            time_sel=occurance_index_per_speed_level[1][cluster_label_per_time_all_latent[latent_i]==0]
 
-        position_sub = position_label[time_sel]
-        mean = position_sub.mean(axis=0)
-        std = position_sub.std(axis=0)
-        properties_d['mean'] = mean
-        properties_d['std'] = std
+            position_sub = position_label[time_sel]
+            mean = position_sub.mean(axis=0)
+            std = position_sub.std(axis=0)
+            properties_d['mean'] = mean
+            properties_d['std'] = std
 
-        if trial_intervals is not None:
-            position_mean_sub_trials = {}
-            for k,trials_sub in trials_sub_k.items():
-                position_mean_sub_trials[k] = position_label.restrict(trials_sub).mean()
-                properties_d[f'{k}_mean'] = position_mean_sub_trials[k]
-            position_mean_sub_trials['diff']=position_mean_sub_trials['late'] - position_mean_sub_trials['early']
-            properties_d[f'diff'] = position_mean_sub_trials['diff']
-        
-        properties_d = pd.Series(properties_d)
-        
-        properties_d_all[latent_i] = properties_d
+            if trial_intervals is not None:
+                position_mean_sub_trials = {}
+                for k,trials_sub in trials_sub_k.items():
+                    position_mean_sub_trials[k] = position_label.restrict(trials_sub).mean()
+                    properties_d[f'{k}_mean'] = position_mean_sub_trials[k]
+                position_mean_sub_trials['diff']=position_mean_sub_trials['late'] - position_mean_sub_trials['early']
+                properties_d[f'diff'] = position_mean_sub_trials['diff']
+            
+            properties_d = pd.Series(properties_d)
+            
+            properties_d_all[latent_i] = properties_d
     properties_d_all = pd.DataFrame(properties_d_all)
     return properties_d_all
