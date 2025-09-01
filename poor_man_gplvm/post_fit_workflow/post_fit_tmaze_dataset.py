@@ -193,7 +193,7 @@ def plot_state_list_vs_position(state_l, map_state,behavior_tsdf,pos_col=['x','y
 
     return to_return
 
-def get_latent_field_properties(latent_occurance_index_per_speed_level,cluster_label_per_time_all_latent,position_label,trial_intervals=None,trial_range_to_compare={'early':(2,12),'late':(-11,-1)}):
+def get_latent_field_properties(latent_occurance_index_per_speed_level,cluster_label_per_time_all_latent,position_label,trial_intervals=None,trial_range_to_compare={'early':(2,12),'late':(-11,-1)}, do_circular_stat=False):
     '''
     get field center, width, change in trial, etc.
 
@@ -204,6 +204,73 @@ def get_latent_field_properties(latent_occurance_index_per_speed_level,cluster_l
     assume the indices are aligned for position_label and latent_occurance_index_per_speed_level
     '''
     trials_sub_k = {}
+    
+    # Helper functions for circular statistics on a linear variable wrapped between data_min and data_max
+    def _extract_values_1d(obj):
+        """Return a 1D numpy array of data values from supported inputs (nap objects, pandas, numpy)."""
+        if hasattr(obj, 'd'):
+            vals = obj.d
+        elif isinstance(obj, (pd.Series, np.ndarray, list)):
+            vals = np.asarray(obj)
+        else:
+            # Fallback: try numpy conversion
+            vals = np.asarray(obj)
+        # Squeeze to 1D if possible (assuming circular stats are only for 1D)
+        return np.ravel(vals)
+
+    def _compute_data_bounds_for_circular(variable_obj):
+        vals_all = _extract_values_1d(variable_obj)
+        data_min_ = np.nanmin(vals_all)
+        data_max_ = np.nanmax(vals_all)
+        return data_min_, data_max_
+
+    def _circular_mean(values_1d, a, b):
+        vals = _extract_values_1d(values_1d)
+        if vals.size == 0:
+            return np.nan
+        period = b - a
+        if not np.isfinite(period) or period == 0:
+            return np.nan
+        theta = 2 * np.pi * (vals - a) / period
+        C = np.nanmean(np.cos(theta))
+        S = np.nanmean(np.sin(theta))
+        if not np.isfinite(C) or not np.isfinite(S):
+            return np.nan
+        mean_ang = np.arctan2(S, C) % (2 * np.pi)
+        mean_val = a + (period * mean_ang) / (2 * np.pi)
+        return mean_val
+
+    def _circular_std(values_1d, a, b):
+        vals = _extract_values_1d(values_1d)
+        if vals.size == 0:
+            return np.nan
+        period = b - a
+        if not np.isfinite(period) or period == 0:
+            return np.nan
+        theta = 2 * np.pi * (vals - a) / period
+        C = np.nanmean(np.cos(theta))
+        S = np.nanmean(np.sin(theta))
+        R = np.hypot(C, S)
+        if R <= 0 or not np.isfinite(R):
+            return np.nan
+        std_rad = np.sqrt(-2 * np.log(R))
+        std_val = std_rad * period / (2 * np.pi)
+        return std_val
+
+    def _circular_diff(late_val, early_val, a, b):
+        period = b - a
+        if not np.isfinite(period) or period == 0:
+            return np.nan
+        # Convert to angles
+        late_ang = 2 * np.pi * (late_val - a) / period
+        early_ang = 2 * np.pi * (early_val - a) / period
+        # Wrap difference to [-pi, pi]
+        d_ang = (late_ang - early_ang + np.pi) % (2 * np.pi) - np.pi
+        return d_ang * period / (2 * np.pi)
+
+    # Pre-compute bounds if doing circular stats
+    if do_circular_stat:
+        data_min, data_max = _compute_data_bounds_for_circular(position_label)
     if trial_intervals is not None:
         for k,val in trial_range_to_compare.items():
             trials_sub = trial_intervals[val[0]:val[1]]
@@ -216,17 +283,28 @@ def get_latent_field_properties(latent_occurance_index_per_speed_level,cluster_l
             time_sel=occurance_index_per_speed_level[1][cluster_label_per_time_all_latent[latent_i]==0]
 
             position_sub = position_label[time_sel]
-            mean = position_sub.mean(axis=0)
-            std = position_sub.std(axis=0)
+            if not do_circular_stat:
+                mean = position_sub.mean(axis=0)
+                std = position_sub.std(axis=0)
+            else:
+                # Assume 1D when circular stats are requested
+                mean = _circular_mean(position_sub, data_min, data_max)
+                std = _circular_std(position_sub, data_min, data_max)
             properties_d['mean'] = mean
             properties_d['std'] = std
 
             if trial_intervals is not None:
                 position_mean_sub_trials = {}
                 for k,trials_sub in trials_sub_k.items():
-                    position_mean_sub_trials[k] = position_sub.restrict(trials_sub).mean()
+                    if not do_circular_stat:
+                        position_mean_sub_trials[k] = position_sub.restrict(trials_sub).mean()
+                    else:
+                        position_mean_sub_trials[k] = _circular_mean(position_sub.restrict(trials_sub), data_min, data_max)
                     properties_d[f'{k}_mean'] = position_mean_sub_trials[k]
-                position_mean_sub_trials['diff']=position_mean_sub_trials['late'] - position_mean_sub_trials['early']
+                if not do_circular_stat:
+                    position_mean_sub_trials['diff']=position_mean_sub_trials['late'] - position_mean_sub_trials['early']
+                else:
+                    position_mean_sub_trials['diff'] = _circular_diff(position_mean_sub_trials['late'], position_mean_sub_trials['early'], data_min, data_max)
                 properties_d[f'diff'] = position_mean_sub_trials['diff']
             
             properties_d = pd.Series(properties_d)
