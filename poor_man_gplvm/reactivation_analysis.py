@@ -16,16 +16,19 @@ two types of shuffling:
     - test whether the pre-post difference is just random noise (in terms of having this boundary), so just relabel posterior as from pre/post, no need to redecode 
 '''
 
-def decode_pre_post(model,spk_mat_d,pre_post_epoch_d=None,decoder_type='naive_bayes'):
+def decode_pre_post(model,spk_mat_d,pre_post_epoch_d=None,decoder_type='naive_bayes',common_ep=None):
     '''
     decode the latent using the model, for each pre/post epoch
     spk_mat_d: dict, key is pre/post, value is spk_mat; or nap.TsdFrame, in which case we need pre_post_epoch_d to restrict the spk_mat
     pre_post_epoch_d: dict, key is pre/post, value is nap.IntervalSet
+    common_ep: e.g. NREM, further restrict both pre/post to this epoch
     '''
 
     if (pre_post_epoch_d is not None) and isinstance(spk_mat_d,nap.TsdFrame):
         assert ('pre' in pre_post_epoch_d) and ('post' in pre_post_epoch_d)
         spk_mat_d = {pre_post:spk_mat_d.restrict(ep) for pre_post,ep in pre_post_epoch_d.items()}
+        if common_ep is not None:
+            spk_mat_d = {pre_post:spk_mat_d[pre_post].restrict(common_ep) for pre_post in spk_mat_d.keys()}
     else:
         assert ('pre' in spk_mat_d) and ('post' in spk_mat_d)
 
