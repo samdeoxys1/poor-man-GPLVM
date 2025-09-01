@@ -89,3 +89,31 @@ def circular_shuffle_column_independently(spk_mat,min_shift=5):
     for j in range(n_neuron):
         spk_mat_shuffled[:,j] = np.roll(spk_mat[:,j],np.random.randint(min_shift,n_time-min_shift))
     return spk_mat_shuffled
+
+def random_reassign_prepost_latent_difference(posterior_latent_d,n_shuffle=100):
+    '''
+    random reassign the pre/post; compute mean and difference
+    '''
+    post_concat = np.concatenate(posterior_latent_d.values,axis=0)
+    pre_post_l = np.array(list(posterior_latent_d.keys()))
+    labal_l =[]
+    for k,val in posterior_latent_d.items():
+        labal_l.append(np.array([k]*len(val)))
+    labal_l = np.concatenate(labal_l)
+    post_latent_mean_d_shuffled_l = {}
+    for i in tqdm.trange(n_shuffle):
+        label_l_shuffled = np.random.permutation(labal_l)   
+        post_concat_shuffled = post_concat[label_l_shuffled]
+        post_concat_shuffled_d = {k:post_concat_shuffled[label_l_shuffled==k] for k in pre_post_l}
+        post_latent_mean_d_shuffled = {}
+        for k,val in post_concat_shuffled_d.items():
+            mean = val.mean(axis=0)
+            post_latent_mean_d_shuffled[k] = mean
+        post_latent_mean_d_shuffled['diff'] = post_latent_mean_d_shuffled['post'] - post_latent_mean_d_shuffled['pre']
+        post_latent_mean_d_shuffled_l[i] = post_latent_mean_d_shuffled
+    post_latent_mean_d_shuffled_l = pd.concat(post_latent_mean_d_shuffled_l,axis=0)
+    return post_latent_mean_d_shuffled_l
+
+
+
+    
