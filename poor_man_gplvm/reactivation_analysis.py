@@ -103,8 +103,8 @@ def random_reassign_prepost_latent_difference(posterior_latent_d,n_shuffle=100):
     post_latent_mean_d_shuffled_l = {}
     for i in tqdm.trange(n_shuffle):
         label_l_shuffled = np.random.permutation(labal_l)   
-        post_concat_shuffled = post_concat[label_l_shuffled]
-        post_concat_shuffled_d = {k:post_concat_shuffled[label_l_shuffled==k] for k in pre_post_l}
+        
+        post_concat_shuffled_d = {k:post_concat[label_l_shuffled==k] for k in pre_post_l}
         post_latent_mean_d_shuffled = {}
         for k,val in post_concat_shuffled_d.items():
             mean = val.mean(axis=0)
