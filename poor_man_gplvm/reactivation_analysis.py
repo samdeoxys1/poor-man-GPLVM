@@ -52,7 +52,7 @@ def decode_pre_post(model,spk_mat_d,pre_post_epoch_d=None,decoder_type='naive_ba
 
     return decode_res_pre_post
     
-def circular_shuffle_spikes_within_epoch_and_decode(model,spk_mat,pre_post_epoch_d,decoder_type='naive_bayes',n_shuffle=100):
+def circular_shuffle_spikes_within_epoch_and_decode(model,spk_mat,pre_post_epoch_d,decoder_type='naive_bayes',common_ep=None,n_shuffle=100):
     '''
     within pre/post epoch, circularly shuffle spikes within each neuron independently
     decode the latent
@@ -61,6 +61,8 @@ def circular_shuffle_spikes_within_epoch_and_decode(model,spk_mat,pre_post_epoch
     spk_mat_d = {}
     for pre_post,ep in pre_post_epoch_d.items():
         spk_mat_sub = spk_mat.restrict(ep)
+        if common_ep is not None:
+            spk_mat_sub = spk_mat_sub.restrict(common_ep)
         spk_mat_d[pre_post] = spk_mat_sub.d
     
     
