@@ -8,6 +8,7 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 import jax.numpy as jnp
+import tqdm
 
 '''
 two types of shuffling: 
@@ -67,7 +68,7 @@ def circular_shuffle_spikes_within_epoch_and_decode(model,spk_mat,pre_post_epoch
     
     
     post_latent_mean_d_shuffled = {}
-    for i in range(n_shuffle):
+    for i in tqdm.trange(n_shuffle):
         spk_mat_shuffled_d = {}
         for pre_post,spk_mat_sub in spk_mat_d.items():
             spk_mat_sub_shuffled = circular_shuffle_column_independently(spk_mat_sub,min_shift=5)
