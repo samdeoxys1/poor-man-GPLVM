@@ -319,7 +319,7 @@ def _circular_diff(late_val, early_val, a, b):
     return d_ang * period / (2 * np.pi)
 
 
-def get_latent_in_position_range(latent_occurance_index_per_speed_level,position_label,trial_intervals,reward_lin_range=(109,113),speed_level = 0):
+def get_latent_in_position_range(latent_occurance_index_per_speed_level,position_label,trial_intervals,reward_lin_range=(109,113),speed_level = 0,correct_only=True):
     '''
     loop over latent, get the fraction of occurance and total occurance count in some position range (lin; e.g. reward); only look in the immobility/low speed state
     latent_occurance_index_per_speed_level: from classify_latent
@@ -330,7 +330,10 @@ def get_latent_in_position_range(latent_occurance_index_per_speed_level,position
 
     the counting is seperated for left and right trials
     '''
-    trial_intervals_correct=trial_intervals[(trial_intervals['choice']==1)] # only look at correct trials
+    if correct_only
+        trial_intervals_correct=trial_intervals[(trial_intervals['choice']==1)] # only look at correct trials
+    else:
+        trial_intervals_correct=  trial_intervals
     gpb=trial_intervals_correct.groupby('visitedArm')
     intv_d = {0:trial_intervals_correct[gpb[0]],1:trial_intervals_correct[gpb[1]]}
     
