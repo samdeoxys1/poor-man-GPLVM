@@ -110,6 +110,7 @@ def random_reassign_prepost_latent_difference(posterior_latent_d,n_shuffle=100):
             mean = val.mean(axis=0)
             post_latent_mean_d_shuffled[k] = mean
         post_latent_mean_d_shuffled['diff'] = post_latent_mean_d_shuffled['post'] - post_latent_mean_d_shuffled['pre']
+        post_latent_mean_d_shuffled = pd.DataFrame(post_latent_mean_d_shuffled,columns=['pre','post','diff'])
         post_latent_mean_d_shuffled_l[i] = post_latent_mean_d_shuffled
     post_latent_mean_d_shuffled_l = pd.concat(post_latent_mean_d_shuffled_l,axis=0)
     return post_latent_mean_d_shuffled_l
