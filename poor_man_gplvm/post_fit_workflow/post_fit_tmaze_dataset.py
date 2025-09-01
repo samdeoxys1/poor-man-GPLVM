@@ -207,9 +207,10 @@ def get_latent_field_properties(latent_occurance_index_per_speed_level,cluster_l
     
     
 
-    # Pre-compute bounds if doing circular stats
+    # Pre-compute bounds from full position_label if doing circular stats
     if do_circular_stat:
         data_min, data_max = _compute_data_bounds_for_circular(position_label)
+    
     if trial_intervals is not None:
         for k,val in trial_range_to_compare.items():
             trials_sub = trial_intervals[val[0]:val[1]]
@@ -226,7 +227,7 @@ def get_latent_field_properties(latent_occurance_index_per_speed_level,cluster_l
                 mean = position_sub.mean(axis=0)
                 std = position_sub.std(axis=0)
             else:
-                # Assume 1D when circular stats are requested
+                # Assume 1D when circular stats are requested, use bounds from full position_label
                 mean = _circular_mean(position_sub, data_min, data_max)
                 std = _circular_std(position_sub, data_min, data_max)
             properties_d['mean'] = mean
@@ -238,11 +239,13 @@ def get_latent_field_properties(latent_occurance_index_per_speed_level,cluster_l
                     if not do_circular_stat:
                         position_mean_sub_trials[k] = position_sub.restrict(trials_sub).mean()
                     else:
+                        # Use same bounds for all trial-restricted subsets
                         position_mean_sub_trials[k] = _circular_mean(position_sub.restrict(trials_sub), data_min, data_max)
                     properties_d[f'{k}_mean'] = position_mean_sub_trials[k]
                 if not do_circular_stat:
                     position_mean_sub_trials['diff']=position_mean_sub_trials['late'] - position_mean_sub_trials['early']
                 else:
+                    # Use same bounds for circular difference
                     position_mean_sub_trials['diff'] = _circular_diff(position_mean_sub_trials['late'], position_mean_sub_trials['early'], data_min, data_max)
                 properties_d[f'diff'] = position_mean_sub_trials['diff']
             
