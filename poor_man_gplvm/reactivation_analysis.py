@@ -44,7 +44,7 @@ def decode_pre_post(model,spk_mat_d,pre_post_epoch_d=None,decoder_type='naive_ba
         post_latent_d[pre_post] = post_latent_marg
         post_latent_mean_d[pre_post] = post_latent_marg.mean(axis=0)
     post_latent_mean_d['diff'] = post_latent_mean_d['post'] - post_latent_mean_d['pre']
-    post_latent_mean_d = pd.DataFrame(post_latent_mean_d,index=['pre','post','diff']).T
+    post_latent_mean_d = pd.DataFrame(post_latent_mean_d,columns=['pre','post','diff'])
     decode_res_pre_post = {'post_latent_d':post_latent_d,'post_latent_mean_d':post_latent_mean_d}
 
     return decode_res_pre_post
