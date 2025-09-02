@@ -409,3 +409,15 @@ def plot_multiple_latent_spatial_map(latent_ind_l,posterior_latent_map,behavior_
         ax=to_return[1]
         ax.set_title(f'state {i}')
     return fig,axs
+
+def plot_multiple_latent_posterior_in_time(posterior_latent,**kwargs):
+    
+    nplots=posterior_latent.shape[1]
+    fig,axs=ph.subplots_wrapper(nplots,**kwargs)
+    for latent_ind in range(nplots):
+        ax=axs.ravel()[latent_ind]
+        ax.plot(posterior_latent[:,latent_ind])
+        ax.set_title(f'latent {latent_ind}')
+    plt.tight_layout()
+
+    return fig,axs
