@@ -95,16 +95,26 @@ def evaluate_model_one_config(model_fit_l,y_test,key=jr.PRNGKey(1),n_time_per_ch
         
 
     if 'jump_consensus' in metric_type_l:
-        model_eval_result['jump_consensus'] = {'value_per_fit':[],'best_value':None,'best_index':None}
-        jump_p_all_chain = []
-        for decoding_res in decoding_res_l:
-            jump_p = decoding_res['posterior_dynamics_marg'][:,jump_dynamics_index]
-            jump_p_all_chain.append(jump_p)
-        jump_p_all_chain = np.array(jump_p_all_chain).T # n_time x n_chain
-        for jump_p in jump_p_all_chain.T:
-            frac_consensus,_,_ = get_jump_consensus(jump_p,jump_p_all_chain,window_size=jump_consensus_window_size,jump_p_thresh = jump_consensus_jump_p_thresh,consensus_thresh=jump_consensus_consensus_thresh)
-            model_eval_result['jump_consensus']['value_per_fit'].append(frac_consensus)
-        model_eval_result['jump_consensus']['value_per_fit'] = np.array(model_eval_result['jump_consensus']['value_per_fit'])
+        if isinstance(jump_consensus_window_size,int):
+            model_eval_result['jump_consensus'] = {'value_per_fit':[],'best_value':None,'best_index':None}
+            jump_p_all_chain = []
+            for decoding_res in decoding_res_l:
+                jump_p = decoding_res['posterior_dynamics_marg'][:,jump_dynamics_index]
+                jump_p_all_chain.append(jump_p)
+            jump_p_all_chain = np.array(jump_p_all_chain).T # n_time x n_chain
+            for jump_p in jump_p_all_chain.T:
+                frac_consensus,_,_ = get_jump_consensus(jump_p,jump_p_all_chain,window_size=jump_consensus_window_size,jump_p_thresh = jump_consensus_jump_p_thresh,consensus_thresh=jump_consensus_consensus_thresh)
+                model_eval_result['jump_consensus']['value_per_fit'].append(frac_consensus)
+            model_eval_result['jump_consensus']['value_per_fit'] = np.array(model_eval_result['jump_consensus']['value_per_fit'])
+        elif isinstance(jump_consensus_window_size,list):
+            for window_size in jump_consensus_window_size:
+                model_eval_result['jump_consensus_'+str(window_size)] = {'value_per_fit':[],'best_value':None,'best_index':None}
+                for decoding_res in decoding_res_l:
+                    jump_p = decoding_res['posterior_dynamics_marg'][:,jump_dynamics_index]
+                    jump_p_all_chain.append(jump_p)
+            jump_p_all_chain = np.array(jump_p_all_chain).T # n_time x n_chain
+        else:
+            print(f"jump_consensus_window_size {jump_consensus_window_size} is not supported")
 
     # metric_overall
     model_eval_result['metric_overall'] = {'value_per_fit':[],'best_value':None,'best_index':None}
