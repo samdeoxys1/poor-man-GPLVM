@@ -557,6 +557,8 @@ class AbstractGPLVMJump1D(ABC):
         fit the model using 
         after fitting EM with new hyperparam, also update the class attributes, so that post hoc analysis is simpler
         '''
+        if isinstance(y,nap.TsdFrame):
+            y_ =y.d
 
         # use existing or update ingredients for fitting
         tuning_lengthscale = hyperparam.get('tuning_lengthscale',self.tuning_lengthscale)
@@ -604,7 +606,7 @@ class AbstractGPLVMJump1D(ABC):
         for i in tqdm.trange(n_iter):
             
             # M-step with optimizer state continuity
-            m_res = self.m_step(params, y, log_posterior_curr, tuning_basis, hyperparam, opt_state_curr=opt_state_curr)
+            m_res = self.m_step(params, y_, log_posterior_curr, tuning_basis, hyperparam, opt_state_curr=opt_state_curr)
             if i==0:
                 m_step_res_l = {k:[] for k in m_res.keys()}
             for k in m_res.keys():
