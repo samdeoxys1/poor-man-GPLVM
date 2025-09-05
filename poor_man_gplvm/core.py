@@ -646,7 +646,9 @@ class AbstractGPLVMJump1D(ABC):
         posterior = np.exp(log_posterior_all) # n_time x n_dynamics x n_latent
         posterior_latent_marg = posterior.sum(axis=1)
         posterior_dynamics_marg = posterior.sum(axis=2)
-        
+        if isinstance(y,nap.TsdFrame):
+            posterior_latent_marg = nap.TsdFrame(d=posterior_latent_marg,t=y.t)
+            posterior_dynamics_marg = nap.TsdFrame(d=posterior_dynamics_marg,t=y.t)
         
 
         em_res = {'log_posterior_all_saved':log_posterior_all_saved,
