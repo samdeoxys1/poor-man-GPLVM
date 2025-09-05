@@ -429,3 +429,18 @@ def get_time_of_arrival_based_one_position(position_tsdf,lin_range=(109,113)):
     lin_sub=position_tsdf['lin'].threshold(lin_range[0],method='aboveequal').threshold(lin_range[1],method='belowequal')
     arrival_times =nap.Ts(t=lin_sub.time_support[:,0])
     return arrival_times
+
+def find_all_index_per_latent_pair(latent_pair_l,posterior_latent_map):
+    '''
+    find the index within posterior_latent_map where the pre index is pair[0] and index is pair[1] (i.e. index = jump index)
+    return: array of array of indices
+    '''
+    if isinstance(posterior_latent_map,nap.Tsd):
+        posterior_latent_map = posterior_latent_map.d
+    ind_l = []
+    for pair in latent_pair_l:
+        ind = np.nonzero(posterior_latent_map[1:]==pair[1] & posterior_latent_map[:-1]==pair[0])[0]
+        ind = ind + 1
+        ind_l.append(ind)
+    ind_l=np.array(ind_l)
+    return ind_l
