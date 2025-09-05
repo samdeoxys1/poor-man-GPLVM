@@ -58,6 +58,7 @@ def generate_basis(lengthscale,n_latent_bin,explained_variance_threshold_basis =
         tuning_basis,sing_val,_ = jnp.linalg.svd(custom_kernel)
         # filter out basis for numerical instability
         n_basis = (jnp.cumsum(sing_val / sing_val.sum()) < explained_variance_threshold_basis).sum() + 1 # first dimension that cross the thresh, n below + 1
+        sqrt_eigval=jnp.sqrt(jnp.sqrt(sing_val))
         tuning_basis = tuning_basis[:,:n_basis] * sqrt_eigval[:n_basis][None,:] 
         
 
