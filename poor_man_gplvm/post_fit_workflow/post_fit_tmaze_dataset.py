@@ -447,7 +447,7 @@ def find_all_index_per_latent_pair(latent_pair_l,posterior_latent_map):
         ind_l.append(ind)
     ind_l=np.array(ind_l,dtype=object)
     if t_l is not None:
-        ind_ts_l = [nap.Ts(t_l[ind]) for ind in ind_l]
+        ind_ts_l = np.array([nap.Ts(t_l[ind]) for ind in ind_l])
     else:
         ind_ts_l=None
 
