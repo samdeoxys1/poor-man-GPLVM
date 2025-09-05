@@ -558,7 +558,9 @@ class AbstractGPLVMJump1D(ABC):
         after fitting EM with new hyperparam, also update the class attributes, so that post hoc analysis is simpler
         '''
         if isinstance(y,nap.TsdFrame):
-            y_ =y.d
+            y_ =jnp.array(y.d)
+        else:
+            y_ =jnp.array(y)
 
         # use existing or update ingredients for fitting
         tuning_lengthscale = hyperparam.get('tuning_lengthscale',self.tuning_lengthscale)
@@ -619,7 +621,7 @@ class AbstractGPLVMJump1D(ABC):
             
             tuning = self.get_tuning(params,hyperparam,tuning_basis)
             # E-step
-            log_posterior_all,log_marginal_final,log_causal_posterior_all,log_one_step_predictive_marginals_allchunk,log_accumulated_joint_total,log_likelihood_all = self._decode_latent(y,tuning,hyperparam,log_latent_transition_kernel_l,log_dynamics_transition_kernel,ma_neuron,ma_latent,likelihood_scale=likelihood_scale,n_time_per_chunk=n_time_per_chunk)
+            log_posterior_all,log_marginal_final,log_causal_posterior_all,log_one_step_predictive_marginals_allchunk,log_accumulated_joint_total,log_likelihood_all = self._decode_latent(y_,tuning,hyperparam,log_latent_transition_kernel_l,log_dynamics_transition_kernel,ma_neuron,ma_latent,likelihood_scale=likelihood_scale,n_time_per_chunk=n_time_per_chunk)
 
             log_posterior_curr = logsumexp(log_posterior_all,axis=1) # sum over the dynamics dimension; get log posterior over latent
             log_marginal_l.append(log_marginal_final)
