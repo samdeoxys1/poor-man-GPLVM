@@ -80,6 +80,12 @@ decode_res['posterior_latent_marginal']
 # dynamics posterior
 decode_res['posterior_dynamics_marginal']
 
+# after fitting one can also decode without temporal dynamics, using Naive Bayes
+
+decode_res_nb = model.decode_latent_naive_bayes(y)
+
+# NB latent posterior
+decode_res_nb['posterior_latent']
 
 
 ```
