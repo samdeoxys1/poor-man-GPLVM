@@ -49,21 +49,41 @@ Here's a quick example of how to use the package:
 
 ```python
 import numpy as np
-from poor_man_gplvm.core import GPLVM
+import jax.numpy as jnp
+import jax.random as jr
+import poor_man_gplvm as pmg
 
-# Generate some random high-dimensional data
-Y = np.random.randn(100, 10)
+# initialize model
+n_neuron = 100
+model=pmg.PoissonGPLVMJump1D(n_neuron,movement_variance=1,tuning_lengthscale=10.)
 
-# Initialize and fit the GPLVM model
-model = GPLVM(latent_dim=2)
-model.fit(Y)
+# simulate some data
 
-# Access the latent variables
-X = model.X
+T = 10000
+state_l, spk = model.sample(T)
+y = spk # data for fitting is n_time x n_neuron 
+em_res=model.fit_em(y,key=jax.random.PRNGKey(3),
+                    n_iter=20,
+                      posterior_init=None,ma_neuron=None,ma_latent=None,n_time_per_chunk=10000,dt=1.,likelihood_scale=1.,
+                      save_every=None,m_step_tol=1e-10,
+                    posterior_init_kwargs={'random_scale':1}
+                   )
 
-# Transform new data
-Y_new = np.random.randn(5, 10)
-X_new = model.transform(Y_new)
+# to decode (potentially) new data
+decode_res = model.decode_latent(y)
+
+# useful properties:
+
+# tuning curves
+model.tuning_fit
+
+# latent posterior
+decode_res['posterior_latent_marginal']
+# dynamics posterior
+decode_res['posterior_dynamics_marginal']
+
+
+
 ```
 
 ## Features
