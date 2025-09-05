@@ -435,12 +435,20 @@ def find_all_index_per_latent_pair(latent_pair_l,posterior_latent_map):
     find the index within posterior_latent_map where the pre index is pair[0] and index is pair[1] (i.e. index = jump index)
     return: array of array of indices
     '''
+    t_l =None
     if isinstance(posterior_latent_map,nap.Tsd):
+        t_l = posterior_latent_map.t
         posterior_latent_map = posterior_latent_map.d
+    
     ind_l = []
     for pair in latent_pair_l:
         ind = np.nonzero((posterior_latent_map[1:]==pair[1]) & (posterior_latent_map[:-1]==pair[0]))[0]
         ind = ind + 1
         ind_l.append(ind)
     ind_l=np.array(ind_l,dtype=object)
-    return ind_l
+    if t_l is not None:
+        ind_ts_l = [nap.Ts(ind) for ind in ind_l]
+    else:
+        ind_ts_l=None
+
+    return ind_l,ind_ts_l
