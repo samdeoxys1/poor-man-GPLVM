@@ -45,7 +45,10 @@ def fit_model_one_config(config,y_train,key=jr.PRNGKey(0),fit_kwargs=default_fit
         raise ValueError(f"Invalid model class: {model_class_str}")
     model_class = model_class_dict[model_class_str]
     em_res_l = []
-    key_l = jr.split(key,n_repeat)
+    if isinstance(key,list): # can specify a list of jr keys for more control
+        key_l = key
+    else:
+        key_l = jr.split(key,n_repeat)
     for key in key_l:
         model_fit = model_class(n_neuron=y_train.shape[1],**config)
         em_res=model_fit.fit_em(y_train,hyperparam={},key=key,**fit_kwargs) # hyperparam is empty because it is already in the initialization
