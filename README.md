@@ -62,7 +62,7 @@ model=pmg.PoissonGPLVMJump1D(n_neuron,movement_variance=1,tuning_lengthscale=10.
 T = 10000
 state_l, spk = model.sample(T)
 y = spk # data for fitting is n_time x n_neuron 
-em_res=model.fit_em(y,key=jax.random.PRNGKey(3),
+em_res=model.fit_em(y,key=jr.PRNGKey(3),
                     n_iter=20,
                       posterior_init=None,ma_neuron=None,ma_latent=None,n_time_per_chunk=10000
                    )
@@ -73,12 +73,12 @@ decode_res = model.decode_latent(y)
 # useful properties:
 
 # tuning curves
-model.tuning_fit
+model.tuning
 
 # latent posterior
-decode_res['posterior_latent_marginal']
+decode_res['posterior_latent_marg']
 # dynamics posterior
-decode_res['posterior_dynamics_marginal']
+decode_res['posterior_dynamics_marg']
 
 # after fitting one can also decode without temporal dynamics, using Naive Bayes
 
@@ -108,11 +108,6 @@ cd poor-man-GPLVM
 pip install -e ".[dev]"
 ```
 
-### Running tests
-
-```bash
-pytest
-```
 
 ## License
 
