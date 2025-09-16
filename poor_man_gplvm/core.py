@@ -29,6 +29,8 @@ fix lenscale, so eigenvalue and eigenvectors are fixed; but allow a latent mask 
 
 Notice for tuning_lengthscale and movement_variance, their values divided by n_latent_bin are the effective values; 
 Currently smoothness penalty for bspline is only supposed for Poisson models
+
+ma_neuron can either be n_neuron, or n_time x n_neuron, which is useful for subselecting samples
 '''
 
 # TODO:
