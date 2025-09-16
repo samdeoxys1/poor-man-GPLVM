@@ -50,7 +50,7 @@ def fit_model_one_config(config,y_train,key=jr.PRNGKey(0),fit_kwargs=default_fit
     else:
         key_l = jr.split(key,n_repeat)
     for key in key_l:
-        import pdb; pdb.set_trace()
+        
         model_fit = model_class(n_neuron=y_train.shape[1],**config)
         em_res=model_fit.fit_em(y_train,hyperparam={},key=key,**fit_kwargs) # hyperparam is empty because it is already in the initialization
         em_res_l.append(em_res)

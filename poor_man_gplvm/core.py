@@ -290,7 +290,7 @@ class AbstractGPLVM1D(ABC):
         m_step_res_l = {}
         params = self.params
         
-        
+        pdb.set_trace()
         for i in tqdm.trange(n_iter):
             # M-step with optimizer state continuity
             
