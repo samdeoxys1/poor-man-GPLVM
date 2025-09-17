@@ -34,7 +34,7 @@ def get_latent_occurance_index_per_speed_level(map_latent,speed_tsd,speed_thresh
     return latent_occurance_index_per_speed_level
 
 
-def classify_latent(map_latent,position_tsdf,speed_tsd,speed_thresh=5,min_time_bin=10):
+def classify_latent(map_latent,position_tsdf,speed_tsd,speed_thresh=5,min_time_bin=10,eps=1):
     '''
     classify the latent into spatial and non-spatial
         spatial -- during run, one cluster
@@ -58,7 +58,7 @@ def classify_latent(map_latent,position_tsdf,speed_tsd,speed_thresh=5,min_time_b
         
         if len(latent_run_index)>min_time_bin:
             tocluster=position_tsdf[latent_run_index]['x','y'].d
-            core_samples, labels=dbscan(tocluster,eps=10,metric='euclidean',)
+            core_samples, labels=dbscan(tocluster,eps=eps,metric='euclidean',)
             cluster_label_per_time_all_latent[latent_i] = labels
             if set(labels)== set([-1,0]) or set(labels)== set([0]): # spatial only if one cluster /+ noise
                 is_spatial_all_latent[latent_i] = True
