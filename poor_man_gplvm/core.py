@@ -251,6 +251,10 @@ class AbstractGPLVM1D(ABC):
         '''
         fit the model using EM
         '''
+        if isinstance(y,nap.TsdFrame):
+            y_ =jnp.array(y.d)
+        else:
+            y_ =jnp.array(y)
         
         # use existing or update ingredients for fitting
         tuning_lengthscale = hyperparam.get('tuning_lengthscale', self.tuning_lengthscale)
@@ -284,7 +288,7 @@ class AbstractGPLVM1D(ABC):
             tuning_basis = self.tuning_basis
         
         if log_posterior_init is None:
-            log_posterior_init, posterior_init = self.init_latent_posterior(y.shape[0], key, 
+            log_posterior_init, posterior_init = self.init_latent_posterior(y_.shape[0], key, 
                                                                           **posterior_init_kwargs)
             key, _ = jax.random.split(key, 2)
         
@@ -297,7 +301,7 @@ class AbstractGPLVM1D(ABC):
         for i in tqdm.trange(n_iter):
             # M-step with optimizer state continuity
             
-            m_res = self.m_step(params, y, log_posterior_curr, tuning_basis, hyperparam, 
+            m_res = self.m_step(params, y_, log_posterior_curr, tuning_basis, hyperparam, 
                               opt_state_curr=opt_state_curr)
             if i == 0:
                 m_step_res_l = {k: [] for k in m_res.keys()}
@@ -312,7 +316,7 @@ class AbstractGPLVM1D(ABC):
             tuning = self.get_tuning(params, hyperparam, tuning_basis)
             # E-step
             log_posterior_all, log_marginal_final, log_causal_posterior_all, log_one_step_predictive_marginals_allchunk, log_accumulated_joint_total, log_likelihood_all = self._decode_latent(
-                y, tuning, hyperparam, log_latent_transition_kernel, ma_neuron, ma_latent, 
+                y_, tuning, hyperparam, log_latent_transition_kernel, ma_neuron, ma_latent, 
                 likelihood_scale=likelihood_scale, n_time_per_chunk=n_time_per_chunk)
 
             log_posterior_curr = log_posterior_all  # no need to sum over dynamics dimension
