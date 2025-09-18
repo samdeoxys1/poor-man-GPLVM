@@ -398,7 +398,7 @@ def plot_multiple_latent_spatial_map(latent_ind_l,posterior_latent_map,behavior_
         ax=axs.ravel()[ii]
         # state_l = np.arange(10)
         latent_l =[i]
-        to_return=plot_latent_list_vs_position(state_l, posterior_latent_map,behavior_tsdf,pos_col=['x','y'],fig=fig,ax=ax,
+        to_return=plot_latent_list_vs_position(latent_l, posterior_latent_map,behavior_tsdf,pos_col=['x','y'],fig=fig,ax=ax,
                                         speed_col='speed_gauss',
                                         speed_category_thresh = [speed_thresh], # use this to categorize running and immobility
                                         cmap_name='Spectral_r',
