@@ -1007,6 +1007,8 @@ def shade_intervals(axs, intervals, *, sort_bounds=True, unique=True, **kwargs):
 def pre_post_1d_timeseries_plot(tsd,pre_ep,post_ep,fig=None,ax=None):
     '''
     plot 1d timeseries in time; mark pre post with verticle lines and ticks
+    pre_ep,post_ep: nap.IntervalSet
+    tsd: nap.Tsd
     '''
     if ax is None:
         fig,ax=plt.subplots()
