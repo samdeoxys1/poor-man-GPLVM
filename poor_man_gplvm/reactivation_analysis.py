@@ -116,5 +116,33 @@ def random_reassign_prepost_latent_difference(posterior_latent_d,n_shuffle=100):
     return post_latent_mean_d_shuffled_l
 
 
+def generate_homogeneous_poisson_surrogate_data(spk_times,intv_per_ep,count_bin=0.02,n_repeat=10):
+    '''
+    generate homogeneous poisson surrogate data for each epoch
+    intv_per_ep: dict of intervalsets (eg. pre ripples, post ripples), marking epochs to compute FR seperately
+    need the time bin for each epoch
+    generate spikes
+    concatenate
+    '''
+
+    nbins_per_ep = {}
+    rate_per_ep = {}
+    for k,intv in intv_per_ep.items():
+        spk_times_restricted=spk_times.restrict(intv)
+        nbins = spk_times_restricted.count(count_bin).shape[0]
+        rate = spk_times_restricted.rate
+        rate_per_ep[k] = rate
+        nbins_per_ep[k] = nbins
+
+    spk_surr_l_allshuffle=[]
+    for i in tqdm.trange(n_repeat):
+        spk_surr_l = []
+        for k in rate_per_ep.keys():
+            spk_surr=np.random.poisson(rate_per_ep[k]*count_bin,size=(nbins_per_ep[k],rate_per_ep[k].shape[0]))
+            spk_surr_l.append(spk_surr)
+        spk_surr_l = np.concatenate(spk_surr_l,axis=0)
+        spk_surr_l_allshuffle.append(spk_surr_l)
+
+    return spk_surr_l_allshuffle,rate_per_ep,nbins_per_ep
 
     
