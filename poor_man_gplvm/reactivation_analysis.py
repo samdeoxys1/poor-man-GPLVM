@@ -149,4 +149,27 @@ def generate_homogeneous_poisson_surrogate_data(spk_times,intv_per_ep,count_bin=
 
     return spk_surr_l_allshuffle,rate_per_ep,nbins_per_ep,t_l_shuffle
 
-    
+def aggregate_within_ripple_per_epoch(posterior_latent,ripple_intv_per_ep,)
+    '''
+    posterior_latent: tsdframe:n_time x n_latent or   tsdtensor: n_time x n_latent x n_shuffle (for shuffle)
+    max within ripple, mean across ripple within epoch
+    '''
+    if posterior_latent.ndim == 2:
+        dims = ['time','latent']
+    else:
+        dims = ['time','latent','shuffle']
+        
+        
+    post_agg_within_ripple_mean_ep_d = {}
+    for ep,intv in ripple_intv_per_ep.items():
+        posterior_latent_ep = posterior_latent.restrict(intv)
+        coords ={'time':tsdtensor.t}
+        rip_label = intv.in_interval(posterior_latent_ep)
+        posterior_latent_ep_xr = xr.DataArray(posterior_latent_ep.d,dims=dims,coords=coords)
+        posterior_latent_ep_xr = posterior_latent_ep_xr.assign_coords(ripple_label=('time',rip_label))
+        gpb = posterior_latent_ep_xr.groupby('ripple_label')
+        post_agg_within_ripple =  gpb.max() # can make this flexible if needed
+        post_agg_within_ripple_mean_ep = post_agg_within_ripple.mean(axis=0) # can make this flexible if needed
+        post_agg_within_ripple_mean_ep_d[ep] = post_agg_within_ripple_mean_ep
+
+    return post_agg_within_ripple_mean_ep_d
