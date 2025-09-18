@@ -1021,3 +1021,14 @@ def pre_post_1d_timeseries_plot(tsd,pre_ep,post_ep,fig=None,ax=None):
     ax.set_xticks([pre_mid,behavior_mid,post_mid])
     ax.set_xticklabels(['PRE','Behavior','POST'])
     return fig,ax
+
+def median_plot(**kwargs):
+    kwargs_hide=dict(
+            boxprops=dict(visible=False),
+            whiskerprops=dict(visible=False),
+            capprops=dict(visible=False),
+            flierprops=dict(visible=False)
+            )
+    kwargs.update(kwargs_hide)
+    g=sns.boxplot(**kwargs)
+    return g
