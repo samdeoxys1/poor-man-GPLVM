@@ -1003,3 +1003,19 @@ def shade_intervals(axs, intervals, *, sort_bounds=True, unique=True, **kwargs):
         spans_all.append(spans)
 
     return spans_all
+
+def pre_post_1d_timeseries_plot(tsd,pre_ep,post_ep,fig=None,ax=None):
+    '''
+    plot 1d timeseries in time; mark pre post with verticle lines and ticks
+    '''
+    if ax is None:
+        fig,ax=plt.subplots()
+    ax.plot(tsd.t,tsd.d)
+    ax.axvline(pre_ep.end[0],color='k',linestyle=':')
+    ax.axvline(post_ep.start[0],color='k',linestyle=':')
+    pre_mid = (pre_ep.end[0] + pre_ep.start[0]) / 2
+    post_mid = (post_ep.end[0] + post_ep.start[0]) / 2
+    behavior_mid = (pre_ep.end[0]+post_ep.start[0])/2
+    ax.set_xticks([pre_mid,behavior_mid,post_mid])
+    ax.set_xticklabels(['PRE','Behavior','POST'])
+    return fig,ax
