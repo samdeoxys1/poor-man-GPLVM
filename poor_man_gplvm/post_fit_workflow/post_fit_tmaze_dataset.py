@@ -44,7 +44,7 @@ def get_dist_to_maze(xy_l,xy_sampled_all):
     
     return dist
 
-def classify_latent(map_latent,position_tsdf,speed_tsd,tmaze_xy_sampled_all,speed_thresh=5,dist_to_maze_thresh=5,min_run_time=10,min_off_maze_time=10):
+def classify_latent(map_latent,position_tsdf,speed_tsd,tmaze_xy_sampled_all,speed_thresh=5,dist_to_maze_thresh=5,min_total_time=30,min_run_time=10,min_off_maze_time=10):
     '''
     classsify into: spatial-running, immobility, off-maze
         
@@ -52,6 +52,7 @@ def classify_latent(map_latent,position_tsdf,speed_tsd,tmaze_xy_sampled_all,spee
         immobility: not enough running time; 
         off-maze: certain amount of high speed time outside the maze
         get rid of off-maze from spatial-running
+        
     so if both spatial and immobility, count as spatial; this is a generous defitiion for spatial but stringent for non-spatial
     there will be edge cases, ignore for now (e.g. some off maze, some immobility; sporadic; ignore for now)
     time threshold here are in time bin same as map_latent, usually 100ms, need to adjust accordingly
@@ -64,12 +65,18 @@ def classify_latent(map_latent,position_tsdf,speed_tsd,tmaze_xy_sampled_all,spee
     is_spatial_all_latent = {}
     is_immobility_all_latent = {}
     is_off_maze_all_latent = {}
+    is_low_occurence_all_latent = {}
     cluster_label_per_time_all_latent={}
+    latent_total_time_all_latent={}
+    
     # possible_latent = np.unique(map_latent)
     latent_occurance_index_per_speed_level = get_latent_occurance_index_per_speed_level(map_latent,speed_tsd,[speed_thresh])
     for latent_i,occurance_index_per_speed_level in latent_occurance_index_per_speed_level.items():
         latent_run_index=occurance_index_per_speed_level[1]
         latent_immobility_index=occurance_index_per_speed_level[0]
+        latent_total_time = len(latent_run_index) + len(latent_immobility_index)
+        latent_total_time_all_latent[latent_i] = latent_total_time
+        
         latent_immobility_fraction = (len(latent_immobility_index) / (len(latent_immobility_index) + len(latent_run_index)))
         
         
@@ -99,7 +106,12 @@ def classify_latent(map_latent,position_tsdf,speed_tsd,tmaze_xy_sampled_all,spee
     immobility_latent = is_immobility_all_latent.loc[is_immobility_all_latent].index
     off_maze_latent = is_off_maze_all_latent.loc[is_off_maze_all_latent].index
     nonspatial_latent=is_spatial_all_latent.loc[np.logical_not(is_spatial_all_latent)].index
-    latent_classify_res = {'spatial_latent':spatial_latent,'nonspatial_latent':nonspatial_latent,'immobility_latent':immobility_latent,'off_maze_latent':off_maze_latent,'is_spatial_all_latent':is_spatial_all_latent,'is_immobility_all_latent':is_immobility_all_latent,'is_off_maze_all_latent':is_off_maze_all_latent,'latent_occurance_index_per_speed_level':latent_occurance_index_per_speed_level}
+    cateogry_all_latent=np.zeros(len(is_spatial_all_latent))
+    cateogry_all_latent[is_spatial_all_latent] = 'spatial'
+    cateogry_all_latent[is_immobility_all_latent] = 'immobility'
+    cateogry_all_latent[is_off_maze_all_latent] = 'off_maze'
+
+    latent_classify_res = {'spatial_latent':spatial_latent,'nonspatial_latent':nonspatial_latent,'immobility_latent':immobility_latent,'off_maze_latent':off_maze_latent,'is_spatial_all_latent':is_spatial_all_latent,'is_immobility_all_latent':is_immobility_all_latent,'is_off_maze_all_latent':is_off_maze_all_latent,'latent_occurance_index_per_speed_level':latent_occurance_index_per_speed_level,'cateogry_all_latent':cateogry_all_latent,'latent_total_time_all_latent':latent_total_time_all_latent}
     return latent_classify_res
 
 
