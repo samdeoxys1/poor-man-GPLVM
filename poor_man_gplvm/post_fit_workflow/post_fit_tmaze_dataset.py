@@ -54,6 +54,7 @@ def classify_latent(map_latent,position_tsdf,speed_tsd,tmaze_xy_sampled_all,spee
         get rid of off-maze from spatial-running
     so if both spatial and immobility, count as spatial; this is a generous defitiion for spatial but stringent for non-spatial
     there will be edge cases, ignore for now (e.g. some off maze, some immobility; sporadic; ignore for now)
+    time threshold here are in time bin same as map_latent, usually 100ms, need to adjust accordingly
     '''
     speed_tsd = speed_tsd.interpolate(map_latent)
     # maze_coord_df,xy_sampled_all = preprt.get_tmaze_xy_sample(position_tsdf,place_bin_size=1.,do_plot=False)
@@ -71,15 +72,15 @@ def classify_latent(map_latent,position_tsdf,speed_tsd,tmaze_xy_sampled_all,spee
         latent_immobility_index=occurance_index_per_speed_level[0]
         latent_immobility_fraction = (len(latent_immobility_index) / (len(latent_immobility_index) + len(latent_run_index)))
         
-        else: 
-            is_immobility_all_latent[latent_i] = False
-            if len(latent_run_index)>min_run_time:
-                is_spatial_all_latent[latent_i] = True
-            else:
-                is_spatial_all_latent[latent_i] = False
-                is_immobility_all_latent[latent_i] = True
-                is_off_maze_all_latent[latent_i] = False
-            
+        
+        is_immobility_all_latent[latent_i] = False
+        if len(latent_run_index)>min_run_time:
+            is_spatial_all_latent[latent_i] = True
+        else:
+            is_spatial_all_latent[latent_i] = False
+            is_immobility_all_latent[latent_i] = True
+            is_off_maze_all_latent[latent_i] = False
+        
         xy_l = position_tsdf[latent_run_index]['x','y'].d
         dist_to_maze=get_dist_to_maze(xy_l,tmaze_xy_sampled_all)
         n_off_maze_time = (dist_to_maze >dist_to_maze_thresh).sum()
