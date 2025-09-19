@@ -44,7 +44,7 @@ def get_dist_to_maze(xy_l,xy_sampled_all):
     
     return dist
 
-def classify_latent(map_latent,position_tsdf,speed_tsd,tmaze_xy_sampled_all,speed_thresh=5,min_run_time=10,min_off_maze_time=10):
+def classify_latent(map_latent,position_tsdf,speed_tsd,tmaze_xy_sampled_all,speed_thresh=5,dist_to_maze_thresh=5,min_run_time=10,min_off_maze_time=10):
     '''
     classsify into: spatial-running, immobility, off-maze
         spatial-running: during high speed, more time bin than min_time_bin
