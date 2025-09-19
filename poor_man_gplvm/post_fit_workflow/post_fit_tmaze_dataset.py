@@ -33,7 +33,7 @@ def get_latent_occurance_index_per_speed_level(map_latent,speed_tsd,speed_thresh
             latent_run_ma = np.logical_and(latent_ma,speed_ma)
             latent_occurance_index_per_speed_level[latent_i][i] = np.nonzero(latent_run_ma)[0]
     return latent_occurance_index_per_speed_level
-
+from scipy.spatial.distance import cdist
 def get_dist_to_maze(xy_l,xy_sampled_all):
     '''
     idea, first find closest sample points, then find the segment and line direction of them, 
