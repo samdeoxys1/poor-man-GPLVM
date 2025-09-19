@@ -87,6 +87,8 @@ def classify_latent(map_latent,position_tsdf,speed_tsd,tmaze_xy_sampled_all,spee
         if n_off_maze_time > min_off_maze_time:
             is_off_maze_all_latent[latent_i] = True
             is_spatial_all_latent[latent_i] = False
+        else:
+            is_off_maze_all_latent[latent_i] = False
     
         
 
