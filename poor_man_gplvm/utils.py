@@ -55,6 +55,7 @@ def post_fit_sort_neuron(fit_res,spk=None,do_norm='max',method='tuning_peak',t_l
 
     else:
         raise ValueError(f"Invalid method: {method}")
+    to_return = {}
     if spk is not None:
         if do_norm == 'max':
             spk_to_plot = spk / spk.max(axis=0,keepdims=True)
@@ -69,10 +70,10 @@ def post_fit_sort_neuron(fit_res,spk=None,do_norm='max',method='tuning_peak',t_l
         if t_l is not None: 
             spk_to_plot = nap.TsdFrame(d=spk_to_plot,t=t_l)
             spk_no_sort = nap.TsdFrame(d=spk_no_sort,t=t_l)
+        to_return['spk_to_plot'] = spk_to_plot
+        to_return['spk_no_sort'] = spk_no_sort
 
-    to_return = {}
-    to_return['spk_to_plot'] = spk_to_plot
-    to_return['spk_no_sort'] = spk_no_sort
+    
     to_return['argsort'] = argsort
     return to_return
 
