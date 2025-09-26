@@ -695,23 +695,23 @@ class AbstractGPLVMJump1D(ABC):
 
     
     def predict_expected_rate(self,post_latent_marg,tuning=None): #[[careful about multiD]]
-            '''
-            predict expected firing rate, expectation over latent posterior
-            post_latent_marg: n_time x n_latent
-            tuning: n_latent x n_neuron
-            return: n_time x n_neuron
-            '''
-            if tuning is None:
-                tuning = self.tuning         
-            
-            if isinstance(post_latent_marg,nap.TsdFrame):
-                post_latent_marg_val = post_latent_marg.d
-            else:
-                post_latent_marg_val = post_latent_marg
-            rate=jnp.einsum('pn,tp->tn',tuning,post_latent_marg_val)
-            if isinstance(post_latent_marg,nap.TsdFrame):
-                rate = nap.TsdFrame(d=rate,t=post_latent_marg.t)
-            return rate
+        '''
+        predict expected firing rate, expectation over latent posterior
+        post_latent_marg: n_time x n_latent
+        tuning: n_latent x n_neuron
+        return: n_time x n_neuron
+        '''
+        if tuning is None:
+            tuning = self.tuning         
+        
+        if isinstance(post_latent_marg,nap.TsdFrame):
+            post_latent_marg_val = post_latent_marg.d
+        else:
+            post_latent_marg_val = post_latent_marg
+        rate=jnp.einsum('pn,tp->tn',tuning,post_latent_marg_val)
+        if isinstance(post_latent_marg,nap.TsdFrame):
+            rate = nap.TsdFrame(d=rate,t=post_latent_marg.t)
+        return rate
         
 
             
