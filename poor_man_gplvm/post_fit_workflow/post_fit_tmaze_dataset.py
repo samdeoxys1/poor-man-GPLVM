@@ -326,6 +326,7 @@ def get_latent_field_properties(latent_occurance_index_per_speed_level,cluster_l
                     std = _circular_std(position_sub, data_min, data_max)
                 properties_d['mean'] = mean
                 properties_d['std'] = std
+                properties_d['n_occurance'] = len(time_sel)
 
                 if trial_intervals is not None:
                     position_mean_sub_trials = {}
