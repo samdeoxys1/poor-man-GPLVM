@@ -310,38 +310,41 @@ def get_latent_field_properties(latent_occurance_index_per_speed_level,cluster_l
     for latent_i,occurance_index_per_speed_level in latent_occurance_index_per_speed_level.items():
         properties_d ={}
         if latent_i in cluster_label_per_time_all_latent: # to be clustered the occurences must be above some number, in classify_latent, this is set to 10
-            time_sel=occurance_index_per_speed_level[1][cluster_label_per_time_all_latent[latent_i]==0]
+            for cluster_i in np.unique(cluster_label_per_time_all_latent[latent_i]):
+                if cluster_i==-1:
+                    continue
+                time_sel=occurance_index_per_speed_level[1][cluster_label_per_time_all_latent[latent_i]==cluster_i]
 
-            position_sub = position_label[time_sel]
-            if not do_circular_stat:
-                mean = position_sub.mean(axis=0)
-                std = position_sub.std(axis=0)
-            else:
-                # Assume 1D when circular stats are requested, use bounds from full position_label
-                mean = _circular_mean(position_sub, data_min, data_max)
-                std = _circular_std(position_sub, data_min, data_max)
-            properties_d['mean'] = mean
-            properties_d['std'] = std
-
-            if trial_intervals is not None:
-                position_mean_sub_trials = {}
-                for k,trials_sub in trials_sub_k.items():
-                    if not do_circular_stat:
-                        position_mean_sub_trials[k] = position_sub.restrict(trials_sub).mean()
-                    else:
-                        # Use same bounds for all trial-restricted subsets
-                        position_mean_sub_trials[k] = _circular_mean(position_sub.restrict(trials_sub), data_min, data_max)
-                    properties_d[f'{k}_mean'] = position_mean_sub_trials[k]
+                position_sub = position_label[time_sel]
                 if not do_circular_stat:
-                    position_mean_sub_trials['diff']=position_mean_sub_trials['late'] - position_mean_sub_trials['early']
+                    mean = position_sub.mean(axis=0)
+                    std = position_sub.std(axis=0)
                 else:
-                    # Use same bounds for circular difference
-                    position_mean_sub_trials['diff'] = _circular_diff(position_mean_sub_trials['late'], position_mean_sub_trials['early'], data_min, data_max)
-                properties_d[f'diff'] = position_mean_sub_trials['diff']
-            
-            properties_d = pd.Series(properties_d)
-            
-            properties_d_all[latent_i] = properties_d
+                    # Assume 1D when circular stats are requested, use bounds from full position_label
+                    mean = _circular_mean(position_sub, data_min, data_max)
+                    std = _circular_std(position_sub, data_min, data_max)
+                properties_d['mean'] = mean
+                properties_d['std'] = std
+
+                if trial_intervals is not None:
+                    position_mean_sub_trials = {}
+                    for k,trials_sub in trials_sub_k.items():
+                        if not do_circular_stat:
+                            position_mean_sub_trials[k] = position_sub.restrict(trials_sub).mean()
+                        else:
+                            # Use same bounds for all trial-restricted subsets
+                            position_mean_sub_trials[k] = _circular_mean(position_sub.restrict(trials_sub), data_min, data_max)
+                        properties_d[f'{k}_mean'] = position_mean_sub_trials[k]
+                    if not do_circular_stat:
+                        position_mean_sub_trials['diff']=position_mean_sub_trials['late'] - position_mean_sub_trials['early']
+                    else:
+                        # Use same bounds for circular difference
+                        position_mean_sub_trials['diff'] = _circular_diff(position_mean_sub_trials['late'], position_mean_sub_trials['early'], data_min, data_max)
+                    properties_d[f'diff'] = position_mean_sub_trials['diff']
+                
+                properties_d = pd.Series(properties_d)
+                
+                properties_d_all[latent_i,cluster_i] = properties_d
     properties_d_all = pd.DataFrame(properties_d_all)
     return properties_d_all
 
