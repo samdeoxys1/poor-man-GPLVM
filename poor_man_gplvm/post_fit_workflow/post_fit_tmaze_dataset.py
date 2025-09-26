@@ -83,6 +83,7 @@ def classify_latent(map_latent,position_tsdf,speed_tsd,tmaze_xy_sampled_all,spee
         is_immobility_all_latent[latent_i] = False
         if len(latent_run_index)>min_run_time:
             is_spatial_all_latent[latent_i] = True
+
         else:
             is_spatial_all_latent[latent_i] = False
             is_immobility_all_latent[latent_i] = True
@@ -96,7 +97,11 @@ def classify_latent(map_latent,position_tsdf,speed_tsd,tmaze_xy_sampled_all,spee
             is_spatial_all_latent[latent_i] = False
         else:
             is_off_maze_all_latent[latent_i] = False
-    
+        
+        if is_spatial_all_latent[latent_i]:
+            tocluster=position_tsdf[latent_run_index]['x','y'].d
+            core_samples, labels=dbscan(tocluster,eps=eps,metric='euclidean',)
+            cluster_label_per_time_all_latent[latent_i] = labels
         
 
     is_spatial_all_latent=pd.Series(is_spatial_all_latent)
@@ -111,7 +116,7 @@ def classify_latent(map_latent,position_tsdf,speed_tsd,tmaze_xy_sampled_all,spee
     cateogry_all_latent[is_immobility_all_latent] = 'immobility'
     cateogry_all_latent[is_off_maze_all_latent] = 'off_maze'
 
-    latent_classify_res = {'spatial_latent':spatial_latent,'nonspatial_latent':nonspatial_latent,'immobility_latent':immobility_latent,'off_maze_latent':off_maze_latent,'is_spatial_all_latent':is_spatial_all_latent,'is_immobility_all_latent':is_immobility_all_latent,'is_off_maze_all_latent':is_off_maze_all_latent,'latent_occurance_index_per_speed_level':latent_occurance_index_per_speed_level,'cateogry_all_latent':cateogry_all_latent,'latent_total_time_all_latent':latent_total_time_all_latent}
+    latent_classify_res = {'spatial_latent':spatial_latent,'nonspatial_latent':nonspatial_latent,'immobility_latent':immobility_latent,'off_maze_latent':off_maze_latent,'is_spatial_all_latent':is_spatial_all_latent,'is_immobility_all_latent':is_immobility_all_latent,'is_off_maze_all_latent':is_off_maze_all_latent,'latent_occurance_index_per_speed_level':latent_occurance_index_per_speed_level,'cateogry_all_latent':cateogry_all_latent,'latent_total_time_all_latent':latent_total_time_all_latent,'cluster_label_per_time_all_latent':cluster_label_per_time_all_latent}
     return latent_classify_res
 
 
