@@ -313,7 +313,8 @@ def get_latent_field_properties(latent_occurance_index_per_speed_level,cluster_l
             for cluster_i in np.unique(cluster_label_per_time_all_latent[latent_i]):
                 if cluster_i==-1:
                     continue
-                time_sel=occurance_index_per_speed_level[1][cluster_label_per_time_all_latent[latent_i]==cluster_i]
+                import pdb; pdb.set_trace()
+                time_sel=occurance_index_per_speed_level[1][cluster_label_per_time_all_latent[latent_i]==cluster_i] # 1 selects ruing; 
 
                 position_sub = position_label[time_sel]
                 if not do_circular_stat:
