@@ -346,7 +346,7 @@ def get_latent_field_properties(latent_occurance_index_per_speed_level,cluster_l
                 properties_d = pd.Series(properties_d)
                 
                 properties_d_all[latent_i,cluster_i] = properties_d
-    properties_d_all = pd.DataFrame(properties_d_all)
+    properties_d_all = pd.DataFrame(properties_d_all).T # (latent, cluster) x properties
     return properties_d_all
 
 # Helper functions for circular statistics on a linear variable wrapped between data_min and data_max
