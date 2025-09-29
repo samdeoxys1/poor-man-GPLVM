@@ -384,12 +384,12 @@ def get_jump_consensus_shuffle(jump_p, jump_p_all_chain, chain_index, n_shuffle=
             window_data = shuffled_all_chains[:, start_idx:end_idx, :]
             
             # Check if each chain has any jump in the window for each shuffle
-            # Shape: (n_shuffle, n_chains)
-            chain_has_jump = jnp.any(window_data > jump_p_thresh, axis=1)
+            # Shape: (n_shuffle, n_chains) - True if chain has jump in window
+            chain_has_jump = jnp.any(window_data > jump_p_thresh, axis=1)  # axis=1 is window time dimension
             
             # Calculate consensus fraction for each shuffle
-            # Shape: (n_shuffle,)
-            consensus_fractions = jnp.mean(chain_has_jump, axis=1)
+            # Shape: (n_shuffle,) - fraction of chains with jumps in window
+            consensus_fractions = jnp.mean(chain_has_jump, axis=1)  # axis=1 is chain dimension
             
             # Check if consensus threshold is met for each shuffle
             # Shape: (n_shuffle,)
