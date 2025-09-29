@@ -639,6 +639,7 @@ def analyze_peri_transition_jump_consensus(behavior_tsdf_aligned, trial_interval
         print(f"Computing shuffles for window size {win_size}...")
         shuffle_fractions[win_size] = compute_shuffle_consensus_fractions(
             jump_binary_consensus, transition_ts, win, win_size, n_shuffle)
+    shuffle_fractions = pd.DataFrame(shuffle_fractions)
     
     return {
         'transition_ts': transition_ts,
