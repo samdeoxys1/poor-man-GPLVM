@@ -293,6 +293,89 @@ def get_jump_consensus(jump_p,jump_p_all_chain,window_size=5,jump_p_thresh = 0.4
     return frac_consensus,is_jump_filtered,whether_consensus_ma
 
 
+def get_jump_consensus_shuffle(jump_p, jump_p_all_chain, chain_index, n_shuffle=1000, window_size=5, jump_p_thresh=0.4, consensus_thresh=0.8, key=jr.PRNGKey(42)):
+    '''
+    Shuffle test version of get_jump_consensus.
+    
+    jump_p: jump probability of the best fit, n_time
+    jump_p_all_chain: jump probability of all fits, n_time x n_chain
+    chain_index: index of the chain corresponding to jump_p within jump_p_all_chain
+    n_shuffle: number of shuffle iterations
+    window_size: window size to check for consistency
+    jump_p_thresh: threshold for a jump
+    consensus_thresh: threshold for consensus (will be adjusted for excluding the reference chain)
+    key: random key for shuffling
+    
+    Returns:
+        dict with keys:
+        - 'frac_consensus_distribution': array of frac_consensus values from shuffles
+        - 'percentile_2_5': 2.5th percentile of the distribution
+        - 'percentile_97_5': 97.5th percentile of the distribution
+        - 'mean': mean of the distribution
+        - 'std': standard deviation of the distribution
+    '''
+    
+    # Remove the reference chain from jump_p_all_chain for shuffling
+    other_chains_mask = np.arange(jump_p_all_chain.shape[1]) != chain_index
+    jump_p_other_chains = jump_p_all_chain[:, other_chains_mask]
+    
+    # Adjust consensus threshold since we're excluding the reference chain
+    # Original: consensus_thresh * n_total_chains
+    # New: consensus_thresh * (n_total_chains - 1) since reference chain is excluded
+    n_other_chains = jump_p_other_chains.shape[1]
+    adjusted_consensus_thresh = consensus_thresh
+    
+    frac_consensus_distribution = []
+    key_list = jr.split(key, n_shuffle)
+    
+    for i in range(n_shuffle):
+        # Circularly shift each chain independently
+        shuffled_chains = []
+        chain_keys = jr.split(key_list[i], n_other_chains)
+        
+        for j in range(n_other_chains):
+            # Generate random shift amount for this chain
+            shift_amount = jr.randint(chain_keys[j], shape=(), minval=0, maxval=jump_p_other_chains.shape[0])
+            # Circularly shift the chain
+            shifted_chain = jnp.roll(jump_p_other_chains[:, j], shift_amount)
+            shuffled_chains.append(shifted_chain)
+        
+        # Stack the shuffled chains back
+        shuffled_jump_p_other_chains = jnp.stack(shuffled_chains, axis=1)
+        
+        # Reconstruct full jump_p_all_chain with shuffled other chains
+        shuffled_jump_p_all_chain = jnp.zeros_like(jump_p_all_chain)
+        shuffled_jump_p_all_chain = shuffled_jump_p_all_chain.at[:, chain_index].set(jump_p)
+        shuffled_jump_p_all_chain = shuffled_jump_p_all_chain.at[:, other_chains_mask].set(shuffled_jump_p_other_chains)
+        
+        # Compute consensus for this shuffle (only need frac_consensus)
+        frac_consensus, _, _ = get_jump_consensus(
+            jump_p, 
+            shuffled_jump_p_all_chain, 
+            window_size=window_size, 
+            jump_p_thresh=jump_p_thresh, 
+            consensus_thresh=adjusted_consensus_thresh
+        )
+        
+        frac_consensus_distribution.append(frac_consensus)
+    
+    frac_consensus_distribution = np.array(frac_consensus_distribution)
+    
+    # Calculate statistics
+    percentile_2_5 = np.percentile(frac_consensus_distribution, 2.5)
+    percentile_97_5 = np.percentile(frac_consensus_distribution, 97.5)
+    mean_val = np.mean(frac_consensus_distribution)
+    std_val = np.std(frac_consensus_distribution)
+    
+    return {
+        'frac_consensus_distribution': frac_consensus_distribution,
+        'percentile_2_5': percentile_2_5,
+        'percentile_97_5': percentile_97_5,
+        'mean': mean_val,
+        'std': std_val
+    }
+
+
 
 def get_lml_test_history(y_test,model,tuning_saved,do_nb=True,ma_temporal=None):
     '''
