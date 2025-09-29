@@ -362,7 +362,7 @@ def get_jump_consensus_shuffle(jump_p, jump_p_all_chain, chain_index, n_shuffle=
     # Set shuffled other chains
     shuffled_all_chains = shuffled_all_chains.at[:, :, other_chains_mask].set(shuffled_other_chains)
     
-    # Fully vectorized consensus calculation using JAX operations
+    # Efficient consensus calculation - vectorized but avoiding dynamic slicing issues
     # Find jump time points for the reference chain
     is_jump = jump_p >= jump_p_thresh  # shape: (n_time,)
     jump_time_indices = jnp.where(is_jump)[0]
@@ -372,14 +372,14 @@ def get_jump_consensus_shuffle(jump_p, jump_p_all_chain, chain_index, n_shuffle=
         # No jumps found, return zero consensus for all shuffles
         frac_consensus_distribution = jnp.zeros(n_shuffle)
     else:
-        # Pre-compute window bounds for all jumps
-        # Shape: (n_jumps,)
-        window_starts = jnp.maximum(0, jump_time_indices - window_size)
-        window_ends = jnp.minimum(n_time, jump_time_indices + window_size + 1)
+        # Process each jump separately but vectorize across shuffles
+        consensus_results_per_jump = []
         
-        # Create a function to check consensus for one jump across all shuffles
-        def check_consensus_for_jump(start_idx, end_idx):
-            """Check consensus for a single jump across all shuffles"""
+        for jump_idx in jump_time_indices:
+            # Define window bounds (now these are static)
+            start_idx = max(0, int(jump_idx) - window_size)
+            end_idx = min(n_time, int(jump_idx) + window_size + 1)
+            
             # Extract window data for all shuffles: shape (n_shuffle, window_length, n_chains)
             window_data = shuffled_all_chains[:, start_idx:end_idx, :]
             
@@ -394,17 +394,11 @@ def get_jump_consensus_shuffle(jump_p, jump_p_all_chain, chain_index, n_shuffle=
             # Check if consensus threshold is met for each shuffle
             # Shape: (n_shuffle,)
             has_consensus = consensus_fractions >= consensus_thresh
-            
-            return has_consensus
+            consensus_results_per_jump.append(has_consensus)
         
-        # Vectorize the consensus check over all jumps using vmap
-        vmap_check_consensus = jax.vmap(check_consensus_for_jump, in_axes=(0, 0), out_axes=0)
-        
-        # Apply to all jumps at once: shape (n_jumps, n_shuffle)
-        all_consensus_results = vmap_check_consensus(window_starts, window_ends)
-        
-        # Calculate the fraction of jumps with consensus for each shuffle
-        # Shape: (n_shuffle,)
+        # Stack results and calculate mean consensus across jumps
+        # Shape: (n_jumps, n_shuffle) -> (n_shuffle,)
+        all_consensus_results = jnp.stack(consensus_results_per_jump, axis=0)
         frac_consensus_distribution = jnp.mean(all_consensus_results, axis=0)
     
     # Calculate statistics
