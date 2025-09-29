@@ -554,3 +554,115 @@ def find_all_index_per_latent_pair(latent_pair_l,posterior_latent_map,merge_late
         ind_ts_l=None
 
     return ind_l,ind_ts_l
+
+
+
+def find_transition_times(behavior_tsdf_aligned, trial_intervals, lin_pt=115, 
+                         transition_type='arrival', tolerance=10):
+    """Find transition times when animal crosses a linear position threshold."""
+    transition_ts = []
+    
+    for tr_win in trial_intervals:
+        lin_per_trial = behavior_tsdf_aligned['lin'].restrict(tr_win)
+        
+        pre_cross = (lin_per_trial.d <= lin_pt) & (lin_per_trial.d >= lin_pt - tolerance)
+        post_cross = (lin_per_trial.d > lin_pt) & (lin_per_trial.d <= lin_pt + tolerance)
+        
+        transition_indices = np.nonzero(pre_cross[:-1] & post_cross[1:])[0]
+        if len(transition_indices) == 0:
+            continue
+            
+        if transition_type == 'arrival':
+            transition_ind = transition_indices[0]  # first
+        elif transition_type == 'departure':
+            transition_ind = transition_indices[-1]  # last
+            
+        transition_time = lin_per_trial.t[transition_ind]
+        transition_ts.append(transition_time)
+    
+    return nap.Ts(transition_ts)
+
+
+def compute_consensus_fractions_by_window(peri_transition_matrix, max_window_size=10):
+    """Compute fraction of transitions with consensus for different window sizes."""
+    mid_ind = peri_transition_matrix.shape[0] // 2
+    frac_d = {}
+    
+    for win_size_int in range(1, max_window_size + 1):
+        frac = peri_transition_matrix[mid_ind-win_size_int:mid_ind+win_size_int].any(axis=0).mean()
+        frac_d[win_size_int] = frac
+        
+    return pd.Series(frac_d)
+
+
+def compute_shuffle_consensus_fractions(jump_binary_consensus, transition_ts, win=1, 
+                                      win_size_int=1, n_shuffle=1000):
+    """Compute shuffle control for consensus fractions around transitions."""
+    frac_sh_l = []
+    
+    for i in tqdm.trange(n_shuffle):
+        shift = np.random.randint(0, len(jump_binary_consensus))
+        jump_binary_consensus_sh = np.roll(jump_binary_consensus, shift)
+        peri_transition_has_jump_consensus_sh = nap.compute_perievent_continuous(
+            jump_binary_consensus_sh, transition_ts, win)
+        
+        mid_ind = peri_transition_has_jump_consensus_sh.shape[0] // 2
+        frac_sh = peri_transition_has_jump_consensus_sh[mid_ind-win_size_int:mid_ind+win_size_int].any(axis=0).mean()
+        frac_sh_l.append(frac_sh)
+        
+    return frac_sh_l
+
+
+def analyze_peri_transition_jump_consensus(behavior_tsdf_aligned, trial_intervals, jump_binary_consensus,
+                               lin_pt=115, transition_type='arrival', win=1, max_window_size=10, n_shuffle=100):
+    """Complete analysis of jump consensus around behavioral transitions."""
+    '''
+    win: window size in second for peri event
+    max_window_size: max bin number to sweep; window for combining the resulting peri event
+    '''
+    
+    # Find transition times
+    transition_ts = find_transition_times(behavior_tsdf_aligned, trial_intervals, 
+                                        lin_pt, transition_type)
+    
+    # Compute peri-transition consensus
+    peri_transition_has_jump_consensus = nap.compute_perievent_continuous(
+        jump_binary_consensus, transition_ts, win)
+    
+    # Compute consensus fractions by window size
+    frac_d = compute_consensus_fractions_by_window(peri_transition_has_jump_consensus, max_window_size)
+    
+    # Compute shuffle controls for each window size
+    shuffle_fractions = {}
+    for win_size in range(1, max_window_size + 1):
+        print(f"Computing shuffles for window size {win_size}...")
+        shuffle_fractions[win_size] = compute_shuffle_consensus_fractions(
+            jump_binary_consensus, transition_ts, win, win_size, n_shuffle)
+    
+    return {
+        'transition_ts': transition_ts,
+        'peri_transition_matrix': peri_transition_has_jump_consensus,
+        'consensus_fractions': frac_d,
+        'shuffle_fractions': shuffle_fractions
+    }
+
+
+# Example usage - replace your original code with:
+# results = analyze_transition_consensus(behavior_tsdf_aligned, trial_intervals, jump_binary_consensus, 
+#                                      lin_pt=115, transition_type='arrival', win=1, n_shuffle=10)
+# transition_ts = results['transition_ts']
+# frac_d = results['consensus_fractions'] 
+# frac_sh_l = results['shuffle_fractions'][1]  # for win_size_int=1
+
+# Original code (now organized):
+lin_pt = 115
+win = 1
+transition_type = 'arrival'
+
+transition_ts = find_transition_times(behavior_tsdf_aligned, trial_intervals, lin_pt, transition_type)
+peri_transition_has_jump_consensus = nap.compute_perievent_continuous(jump_binary_consensus, transition_ts, win)
+frac_d = compute_consensus_fractions_by_window(peri_transition_has_jump_consensus)
+
+n_shuffle = 10
+win_size_int = 1
+frac_sh_l = compute_shuffle_consensus_fractions(jump_binary_consensus, transition_ts, win, win_size_int, n_shuffle)
