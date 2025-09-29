@@ -8,6 +8,7 @@ from poor_man_gplvm import PoissonGPLVMJump1D,GaussianGPLVMJump1D,PoissonGPLVM1D
 import jax.random as jr 
 import numpy as np
 import jax.numpy as jnp
+import tqdm
 
 model_class_dict = {'poisson':PoissonGPLVMJump1D,'gaussian':GaussianGPLVMJump1D,'poisson_latentonly':PoissonGPLVM1D,'gaussian_latentonly':GaussianGPLVM1D}
 
