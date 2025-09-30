@@ -352,6 +352,7 @@ def get_sequence_occurence(sequence,post_latent_map,latent_distance_thresh=1,):
     seq_occurence_t: nap.Ts, time points when the sequence occurs
     seq_occurence_ind: array, indices when the sequence occurs
     '''
+    sequence = np.array(sequence)
     seq_len = len(sequence)
     seq_occurence_ind = []
     for i in range(len(post_latent_map)-seq_len+1):
