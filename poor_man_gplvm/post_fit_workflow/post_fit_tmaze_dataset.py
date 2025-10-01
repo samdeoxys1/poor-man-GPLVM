@@ -730,7 +730,7 @@ def get_null_contrastive_projection(spk_mat,tuning_fit,posterior_latent_map,jump
         time_get_seq += time.time() - t0
         
         t0 = time.time()
-        proj_sh,contrast_axis_sh=vlj.get_contrast_axis_and_proj(spk_mat,tuning_fit,posterior_latent_map[si-1],posterior_latent_map[si],map_state_win=0)
+        proj_sh,contrast_axis_sh=vlj.get_contrast_axis_and_proj(spk_mat,tuning_fit,posterior_latent_map[si-1],posterior_latent_map[si],map_state_win=contrast_axis_latent_window)
         time_contrast_axis += time.time() - t0
         
         t0 = time.time()
