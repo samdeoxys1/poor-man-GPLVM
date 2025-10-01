@@ -678,7 +678,7 @@ def latent_jump_triggered_analysis(posterior_latent_map,behavior_tsdf,spk_mat,tu
     
     # get the peri event of contrastive axis projection
     proj,contrast_axis=vlj.get_contrast_axis_and_proj(spk_mat,tuning_fit,seq[0],seq[1],map_state_win=contrast_axis_latent_window)
-    peri_event_d['contrastive_projection'] = nap.compute_perievent_continuous(contrast_axis,seq_occurence_t,peri_event_win)
+    peri_event_d['contrastive_projection'] = nap.compute_perievent_continuous(proj,seq_occurence_t,peri_event_win)
 
     return peri_event_d
         
