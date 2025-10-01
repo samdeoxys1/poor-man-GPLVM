@@ -1123,7 +1123,8 @@ def plot_data_shuffle_time_series(data, shuffle, align_at='middle', fig=None, ax
     ax.legend(bbox_to_anchor=[1.05,1],frameon=False)
     ax.set_xlabel('Time')
     ax.set_ylabel('Value')
-    ax.set_xticks(t_l[0],t_l[mid_idx],t_l[-1])
+    set_symmetric_ticks(ax,apply_to='x')
+    
     sns.despine(ax=ax)
     
     return fig, ax
