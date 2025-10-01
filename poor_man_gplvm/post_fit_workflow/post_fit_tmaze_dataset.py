@@ -713,7 +713,7 @@ def get_null_contrastive_projection(spk_mat,tuning_fit,posterior_latent_map,jump
     ind_to_select_from = ind_all[ma]
 
     sh_ind = np.random.choice(ind_to_select_from,n_shuffle)
-    print(f"Setup and index selection: {time.time() - t_start:.3f}s")
+    
 
     proj_sh_peri_event_l = []
     
