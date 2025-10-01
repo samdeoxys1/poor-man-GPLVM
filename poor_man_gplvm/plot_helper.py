@@ -1134,7 +1134,7 @@ def add_scalebar(ax, x, y, length, label=None,
                  orientation='horizontal', 
                  linewidth=2, color='k', fontsize=10, 
                  zorder=10, text_offset=None, 
-                 coord_system='data', **kwargs):
+                 coord_system='axes', **kwargs):
     """
     Add a scale bar to a matplotlib Axes.
 
