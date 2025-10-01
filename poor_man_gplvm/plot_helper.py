@@ -1121,7 +1121,7 @@ def plot_data_shuffle_time_series(data, shuffle, align_at='middle', fig=None, ax
     ax.plot(time_axis, data, color=data_color, linewidth=data_lw, label=data_label,marker=marker,markersize=marker_size)
     
     ax.legend(bbox_to_anchor=[1.05,1],frameon=False)
-    ax.set_xlabel('Time')
+    ax.set_xlabel('Time (s)')
     ax.set_ylabel('Value')
     set_symmetric_ticks(ax,apply_to='x',do_int=True,)
     
