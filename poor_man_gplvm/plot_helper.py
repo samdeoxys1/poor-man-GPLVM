@@ -1035,7 +1035,7 @@ def median_plot(**kwargs):
     return g
 
 
-def plot_trajectories_on_maze_mark_events(position_tsdf,x_peri_jump,y_peri_jump,fig=None,ax=None,ds=5,start_marker='s',end_marker='c',midpoint_marker='x',start_color='C0',end_color='C1',midpoint_color='red',trajectory_color='C0',trajectory_alpha=0.4):
+def plot_trajectories_on_maze_mark_events(position_tsdf,x_peri_jump,y_peri_jump,fig=None,ax=None,ds=5,start_marker='s',end_marker='O',midpoint_marker='x',start_color='C0',end_color='C1',midpoint_color='red',trajectory_color='C0',trajectory_alpha=0.4):
     '''
     position_tsdf: nap.TsdFrame, contain x and y columns
     x_peri_jump,y_peri_jump: array, shape (n_time,n_trajectory)
