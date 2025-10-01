@@ -1044,7 +1044,7 @@ def plot_trajectories_on_maze_mark_events(position_tsdf,x_peri_jump,y_peri_jump,
     '''
     if ax is None:
         fig,ax=plt.subplots()
-    fig,ax=plot_maze_background(position_tsdf,ds=ds)
+    fig,ax=plot_maze_background(position_tsdf,ds=ds,fig=fig,ax=ax)
     
     for ind in range(x_peri_jump.shape[1]):
 
