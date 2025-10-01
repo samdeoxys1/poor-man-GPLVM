@@ -17,7 +17,7 @@ import seaborn as sns
 plt.rcParams['font.family'] = 'sans-serif'
 plt.rcParams['svg.fonttype'] = 'none'
 
-def save_fig(fig,fig_name,fig_dir='./figs',fig_format=['png','svg'],dpi=300):
+def save_fig(fig,fig_name,fig_dir='./figs',fig_format=['png','svg'],dpi=300,do_close=False):
     '''
     save figure to fig_dir
     '''
@@ -29,7 +29,8 @@ def save_fig(fig,fig_name,fig_dir='./figs',fig_format=['png','svg'],dpi=300):
     for fmt in fig_format:
         fig.savefig(os.path.join(fig_dir,fig_name+f'.{fmt}'),dpi=dpi,bbox_inches='tight')
         print(f'saved {fig_name}.{fmt} to {fig_dir}')
-    plt.close(fig)
+    if do_close:
+        plt.close(fig)
 
 def save_fig_plotly(fig,fig_name,fig_dir='./figs',fig_format=['png','svg'],scale_png=10,scale_svg=0.15):
     '''
