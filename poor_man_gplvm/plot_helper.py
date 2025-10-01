@@ -1071,3 +1071,46 @@ def plot_maze_background(spk_beh_df,ds=10,fig=None,ax=None,mode='line',**kwargs)
     ax.set_xlabel('x')
     ax.set_ylabel('y')
     return fig,ax
+
+def plot_data_shuffle_time_series(data, shuffle, align_at='middle', fig=None, ax=None, figsize=(6, 4), data_label='data', shuffle_label='shuffle', data_color='C0', shuffle_color='C0', shuffle_alpha=0.3, data_lw=2):
+    '''
+    plot data and shuffle time series; data is a line and shuffle is a filled area for middle 95% quantile
+    data: n_time
+    shuffle: n_time x n_shuffle
+
+    align_at: if not None: if 'middle', align the shuffle mean and data at the middle time point
+    '''
+    if ax is None:
+        fig, ax = plt.subplots(figsize=figsize)
+    
+    data = np.asarray(data)
+    shuffle = np.asarray(shuffle)
+    
+    # Calculate shuffle quantiles and mean
+    shuffle_mean = np.nanmean(shuffle, axis=1)
+    shuffle_lower = np.nanquantile(shuffle, 0.025, axis=1)
+    shuffle_upper = np.nanquantile(shuffle, 0.975, axis=1)
+    
+    # Align if requested
+    if align_at == 'middle':
+        mid_idx = len(data) // 2
+        offset = data[mid_idx] - shuffle_mean[mid_idx]
+        shuffle_mean += offset
+        shuffle_lower += offset
+        shuffle_upper += offset
+    
+    # Time axis
+    time_axis = np.arange(len(data))
+    
+    # Plot shuffle as filled area
+    ax.fill_between(time_axis, shuffle_lower, shuffle_upper, 
+                     alpha=shuffle_alpha, color=shuffle_color, label=shuffle_label)
+    
+    # Plot data as line
+    ax.plot(time_axis, data, color=data_color, linewidth=data_lw, label=data_label)
+    
+    ax.legend()
+    ax.set_xlabel('Time')
+    ax.set_ylabel('Value')
+    
+    return fig, ax
