@@ -682,3 +682,15 @@ def latent_jump_triggered_analysis(posterior_latent_map,behavior_tsdf,spk_mat,tu
 
     return peri_event_d
         
+def plot_maze_background(spk_beh_df,ds=10,fig=None,ax=None,mode='line',**kwargs):
+    kwargs_ = dict(c='grey',alpha=0.5)
+    kwargs_.update(kwargs)
+    if ax is None:
+        fig,ax=plt.subplots()
+    if mode=='line':
+        ax.plot(spk_beh_df['x'].values[::ds],spk_beh_df['y'].values[::ds],**kwargs_)
+    elif mode=='scatter':
+        ax.scatter(spk_beh_df['x'].values[::ds],spk_beh_df['y'].values[::ds],s=1,**kwargs_)
+    ax.set_xlabel('x')
+    ax.set_ylabel('y')
+    return fig,ax

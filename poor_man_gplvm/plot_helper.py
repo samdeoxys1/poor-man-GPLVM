@@ -1032,3 +1032,22 @@ def median_plot(**kwargs):
     kwargs.update(kwargs_hide)
     g=sns.boxplot(**kwargs)
     return g
+
+
+def plot_trajectories_on_maze_mark_events(behavior_tsdf_aligned,x_peri_jump,y_peri_jump,fig=None,ax=None,ds=5):
+    '''
+    behavior_tsdf_aligned: nap.TsdFrame, behavior data
+    x_peri_jump,y_peri_jump: array, shape (n_time,n_trajectory)
+    '''
+    if ax is None:
+        fig,ax=plt.subplots()
+    fig,ax=pftd.plot_maze_background(behavior_tsdf_aligned,ds=ds)
+    
+    for ind in range(x_peri_jump.shape[1]):
+
+        midpt = x_peri_jump.shape[0]//2
+        ax.plot(x_peri_jump[:,ind],y_peri_jump[:,ind],c='C0',alpha=0.4)
+        st = x_peri_jump[0,ind],y_peri_jump[0,ind]
+        ax.scatter([st[0]],[st[1]],marker='s',c='C0')
+        ax.scatter([x_peri_jump[-1,ind]],[y_peri_jump[-1,ind]],marker='s',c='C1')
+        ax.scatter([x_peri_jump[midpt,ind]],[y_peri_jump[midpt,ind]],marker='x',c='red',zorder=3)
