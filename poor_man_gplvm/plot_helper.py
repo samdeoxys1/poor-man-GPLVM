@@ -13,6 +13,7 @@ from plotly.subplots import make_subplots
 from scipy.stats import wilcoxon
 import seaborn as sns
 
+
 plt.rcParams['font.family'] = 'sans-serif'
 plt.rcParams['svg.fonttype'] = 'none'
 
@@ -1034,20 +1035,37 @@ def median_plot(**kwargs):
     return g
 
 
-def plot_trajectories_on_maze_mark_events(behavior_tsdf_aligned,x_peri_jump,y_peri_jump,fig=None,ax=None,ds=5):
+def plot_trajectories_on_maze_mark_events(position_tsdf,x_peri_jump,y_peri_jump,fig=None,ax=None,ds=5,start_marker='s',end_marker='c',midpoint_marker='x',start_color='C0',end_color='C1',midpoint_color='red',trajectory_color='C0',trajectory_alpha=0.4):
     '''
-    behavior_tsdf_aligned: nap.TsdFrame, behavior data
+    position_tsdf: nap.TsdFrame, contain x and y columns
     x_peri_jump,y_peri_jump: array, shape (n_time,n_trajectory)
+
+    mark start, end, midpoint
     '''
     if ax is None:
         fig,ax=plt.subplots()
-    fig,ax=pftd.plot_maze_background(behavior_tsdf_aligned,ds=ds)
+    fig,ax=plot_maze_background(position_tsdf,ds=ds)
     
     for ind in range(x_peri_jump.shape[1]):
 
         midpt = x_peri_jump.shape[0]//2
-        ax.plot(x_peri_jump[:,ind],y_peri_jump[:,ind],c='C0',alpha=0.4)
+        ax.plot(x_peri_jump[:,ind],y_peri_jump[:,ind],c=trajectory_color,alpha=trajectory_alpha)
         st = x_peri_jump[0,ind],y_peri_jump[0,ind]
-        ax.scatter([st[0]],[st[1]],marker='s',c='C0')
-        ax.scatter([x_peri_jump[-1,ind]],[y_peri_jump[-1,ind]],marker='s',c='C1')
-        ax.scatter([x_peri_jump[midpt,ind]],[y_peri_jump[midpt,ind]],marker='x',c='red',zorder=3)
+        ax.scatter([st[0]],[st[1]],marker=start_marker,c=start_color)
+        ax.scatter([x_peri_jump[-1,ind]],[y_peri_jump[-1,ind]],marker=end_marker,c=end_color)
+        ax.scatter([x_peri_jump[midpt,ind]],[y_peri_jump[midpt,ind]],marker=midpoint_marker,c=midpoint_color,zorder=3)
+    
+    return fig,ax
+
+def plot_maze_background(spk_beh_df,ds=10,fig=None,ax=None,mode='line',**kwargs):
+    kwargs_ = dict(c='grey',alpha=0.5)
+    kwargs_.update(kwargs)
+    if ax is None:
+        fig,ax=plt.subplots()
+    if mode=='line':
+        ax.plot(spk_beh_df['x'].values[::ds],spk_beh_df['y'].values[::ds],**kwargs_)
+    elif mode=='scatter':
+        ax.scatter(spk_beh_df['x'].values[::ds],spk_beh_df['y'].values[::ds],s=1,**kwargs_)
+    ax.set_xlabel('x')
+    ax.set_ylabel('y')
+    return fig,ax
