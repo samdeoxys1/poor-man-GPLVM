@@ -1132,7 +1132,8 @@ def plot_data_shuffle_time_series(data, shuffle, align_at='middle', fig=None, ax
 
 def add_scalebar(ax, x, y, length, label=None, 
                  orientation='horizontal', 
-                 linewidth=2, color='k', fontsize=10, **kwargs):
+                 linewidth=2, color='k', fontsize=10, 
+                 zorder=10, text_offset=None, **kwargs):
     """
     Add a scale bar to a matplotlib Axes.
 
@@ -1154,16 +1155,74 @@ def add_scalebar(ax, x, y, length, label=None,
         Line and text color.
     fontsize : int
         Size of the label text.
+    zorder : int
+        Drawing order (higher values are drawn on top).
+    text_offset : float, optional
+        Custom offset for text positioning. If None, uses adaptive offset.
     kwargs : dict
         Passed to ax.plot (for extra styling).
     """
+    # Set default zorder to ensure visibility
+    kwargs.setdefault('zorder', zorder)
+    
+    # Calculate adaptive text offset if not provided
+    if text_offset is None:
+        # Use axis range to determine appropriate offset
+        if orientation == 'horizontal':
+            axis_range = ax.get_ylim()[1] - ax.get_ylim()[0]
+            text_offset = 0.02 * axis_range  # 2% of y-axis range
+        else:
+            axis_range = ax.get_xlim()[1] - ax.get_xlim()[0]
+            text_offset = 0.02 * axis_range  # 2% of x-axis range
+    
     if orientation == 'horizontal':
+        # Draw the scale bar line
         ax.plot([x, x+length], [y, y], color=color, linewidth=linewidth, **kwargs)
         if label:
-            ax.text(x + length/2, y - 0.05*length, label,
-                    ha='center', va='top', color=color, fontsize=fontsize)
-    else:
+            # Position text below the line
+            ax.text(x + length/2, y - text_offset, label,
+                    ha='center', va='top', color=color, fontsize=fontsize,
+                    zorder=zorder)
+    else:  # vertical
+        # Draw the scale bar line
         ax.plot([x, x], [y, y+length], color=color, linewidth=linewidth, **kwargs)
         if label:
-            ax.text(x - 0.05*length, y + length/2, label,
-                    ha='right', va='center', color=color, fontsize=fontsize)
+            # Position text to the left of the line
+            ax.text(x - text_offset, y + length/2, label,
+                    ha='right', va='center', color=color, fontsize=fontsize,
+                    zorder=zorder)
+
+def add_scalebar_debug(ax, x, y, length, label=None, 
+                       orientation='horizontal', 
+                       linewidth=2, color='k', fontsize=10, 
+                       zorder=10, text_offset=None, debug=True, **kwargs):
+    """
+    Debug version of add_scalebar that prints diagnostic information.
+    
+    Same parameters as add_scalebar, plus:
+    debug : bool
+        If True, prints diagnostic information about positioning.
+    """
+    if debug:
+        xlim = ax.get_xlim()
+        ylim = ax.get_ylim()
+        print(f"DEBUG: Axis limits - X: {xlim}, Y: {ylim}")
+        print(f"DEBUG: Scale bar position: ({x}, {y})")
+        print(f"DEBUG: Scale bar length: {length}")
+        print(f"DEBUG: Orientation: {orientation}")
+        
+        # Check if position is within axis limits
+        if orientation == 'horizontal':
+            if x < xlim[0] or x + length > xlim[1]:
+                print(f"WARNING: Horizontal scale bar may be outside X limits!")
+            if y < ylim[0] or y > ylim[1]:
+                print(f"WARNING: Scale bar Y position may be outside Y limits!")
+        else:
+            if x < xlim[0] or x > xlim[1]:
+                print(f"WARNING: Scale bar X position may be outside X limits!")
+            if y < ylim[0] or y + length > ylim[1]:
+                print(f"WARNING: Vertical scale bar may be outside Y limits!")
+    
+    # Call the regular add_scalebar function
+    add_scalebar(ax, x, y, length, label, orientation, linewidth, color, 
+                 fontsize, zorder, text_offset, **kwargs)
