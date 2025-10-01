@@ -1133,7 +1133,8 @@ def plot_data_shuffle_time_series(data, shuffle, align_at='middle', fig=None, ax
 def add_scalebar(ax, x, y, length, label=None, 
                  orientation='horizontal', 
                  linewidth=2, color='k', fontsize=10, 
-                 zorder=10, text_offset=None, **kwargs):
+                 zorder=10, text_offset=None, 
+                 coord_system='data', **kwargs):
     """
     Add a scale bar to a matplotlib Axes.
 
@@ -1142,9 +1143,9 @@ def add_scalebar(ax, x, y, length, label=None,
     ax : matplotlib Axes
         The axes to draw on.
     x, y : float
-        Starting location (data coordinates).
+        Starting location. Interpretation depends on coord_system.
     length : float
-        Length of the scale bar (data units).
+        Length of the scale bar. Interpretation depends on coord_system.
     label : str, optional
         Text label for the bar.
     orientation : str, 'horizontal' or 'vertical'
@@ -1159,43 +1160,86 @@ def add_scalebar(ax, x, y, length, label=None,
         Drawing order (higher values are drawn on top).
     text_offset : float, optional
         Custom offset for text positioning. If None, uses adaptive offset.
+        For 'axes' coord_system, this should be in axes fraction (0-1).
+        For 'data' coord_system, this should be in data units.
+    coord_system : str, 'data' or 'axes'
+        Coordinate system to use:
+        - 'data': x, y, length in data coordinates (default)
+        - 'axes': x, y, length as fractions of axes (0-1)
     kwargs : dict
         Passed to ax.plot (for extra styling).
     """
     # Set default zorder to ensure visibility
     kwargs.setdefault('zorder', zorder)
     
-    # Calculate adaptive text offset if not provided
-    if text_offset is None:
-        # Use axis range to determine appropriate offset
+    # Convert coordinates based on coord_system
+    if coord_system == 'axes':
+        # Convert from axes fraction (0-1) to data coordinates
+        xlim = ax.get_xlim()
+        ylim = ax.get_ylim()
+        
+        x_data = xlim[0] + x * (xlim[1] - xlim[0])
+        y_data = ylim[0] + y * (ylim[1] - ylim[0])
+        
         if orientation == 'horizontal':
-            axis_range = ax.get_ylim()[1] - ax.get_ylim()[0]
-            text_offset = 0.02 * axis_range  # 2% of y-axis range
+            length_data = length * (xlim[1] - xlim[0])
+        else:  # vertical
+            length_data = length * (ylim[1] - ylim[0])
+            
+        # Calculate adaptive text offset if not provided
+        if text_offset is None:
+            if orientation == 'horizontal':
+                text_offset = 0.02 * (ylim[1] - ylim[0])  # 2% of y-axis range
+            else:
+                text_offset = 0.02 * (xlim[1] - xlim[0])  # 2% of x-axis range
         else:
-            axis_range = ax.get_xlim()[1] - ax.get_xlim()[0]
-            text_offset = 0.02 * axis_range  # 2% of x-axis range
+            # Convert text_offset from axes fraction to data coordinates
+            if orientation == 'horizontal':
+                text_offset = text_offset * (ylim[1] - ylim[0])
+            else:
+                text_offset = text_offset * (xlim[1] - xlim[0])
+                
+    elif coord_system == 'data':
+        # Use coordinates as-is (original behavior)
+        x_data = x
+        y_data = y
+        length_data = length
+        
+        # Calculate adaptive text offset if not provided
+        if text_offset is None:
+            if orientation == 'horizontal':
+                axis_range = ax.get_ylim()[1] - ax.get_ylim()[0]
+                text_offset = 0.02 * axis_range  # 2% of y-axis range
+            else:
+                axis_range = ax.get_xlim()[1] - ax.get_xlim()[0]
+                text_offset = 0.02 * axis_range  # 2% of x-axis range
+    else:
+        raise ValueError(f"coord_system must be 'data' or 'axes', got '{coord_system}'")
     
     if orientation == 'horizontal':
         # Draw the scale bar line
-        ax.plot([x, x+length], [y, y], color=color, linewidth=linewidth, **kwargs)
+        ax.plot([x_data, x_data + length_data], [y_data, y_data], 
+                color=color, linewidth=linewidth, **kwargs)
         if label:
             # Position text below the line
-            ax.text(x + length/2, y - text_offset, label,
+            ax.text(x_data + length_data/2, y_data - text_offset, label,
                     ha='center', va='top', color=color, fontsize=fontsize,
                     zorder=zorder)
     else:  # vertical
         # Draw the scale bar line
-        ax.plot([x, x], [y, y+length], color=color, linewidth=linewidth, **kwargs)
+        ax.plot([x_data, x_data], [y_data, y_data + length_data], 
+                color=color, linewidth=linewidth, **kwargs)
         if label:
             # Position text to the left of the line
-            ax.text(x - text_offset, y + length/2, label,
+            ax.text(x_data - text_offset, y_data + length_data/2, label,
                     ha='right', va='center', color=color, fontsize=fontsize,
                     zorder=zorder)
 
 def add_scalebar_debug(ax, x, y, length, label=None, 
                        orientation='horizontal', 
                        linewidth=2, color='k', fontsize=10, 
-                       zorder=10, text_offset=None, debug=True, **kwargs):
+                       zorder=10, text_offset=None, coord_system='data',
+                       debug=True, **kwargs):
     """
     Debug version of add_scalebar that prints diagnostic information.
     
@@ -1210,19 +1254,28 @@ def add_scalebar_debug(ax, x, y, length, label=None,
         print(f"DEBUG: Scale bar position: ({x}, {y})")
         print(f"DEBUG: Scale bar length: {length}")
         print(f"DEBUG: Orientation: {orientation}")
+        print(f"DEBUG: Coordinate system: {coord_system}")
         
-        # Check if position is within axis limits
-        if orientation == 'horizontal':
-            if x < xlim[0] or x + length > xlim[1]:
-                print(f"WARNING: Horizontal scale bar may be outside X limits!")
-            if y < ylim[0] or y > ylim[1]:
-                print(f"WARNING: Scale bar Y position may be outside Y limits!")
-        else:
-            if x < xlim[0] or x > xlim[1]:
-                print(f"WARNING: Scale bar X position may be outside X limits!")
-            if y < ylim[0] or y + length > ylim[1]:
-                print(f"WARNING: Vertical scale bar may be outside Y limits!")
+        # Check if position is within limits based on coordinate system
+        if coord_system == 'axes':
+            # For axes coordinates, values should be between 0 and 1
+            if not (0 <= x <= 1) or not (0 <= y <= 1):
+                print(f"WARNING: Axes coordinates should be between 0 and 1!")
+            if not (0 <= length <= 1):
+                print(f"WARNING: Scale bar length in axes coordinates should be between 0 and 1!")
+        elif coord_system == 'data':
+            # Check if position is within axis limits (data coordinates)
+            if orientation == 'horizontal':
+                if x < xlim[0] or x + length > xlim[1]:
+                    print(f"WARNING: Horizontal scale bar may be outside X limits!")
+                if y < ylim[0] or y > ylim[1]:
+                    print(f"WARNING: Scale bar Y position may be outside Y limits!")
+            else:
+                if x < xlim[0] or x > xlim[1]:
+                    print(f"WARNING: Scale bar X position may be outside X limits!")
+                if y < ylim[0] or y + length > ylim[1]:
+                    print(f"WARNING: Vertical scale bar may be outside Y limits!")
     
     # Call the regular add_scalebar function
     add_scalebar(ax, x, y, length, label, orientation, linewidth, color, 
-                 fontsize, zorder, text_offset, **kwargs)
+                 fontsize, zorder, text_offset, coord_system, **kwargs)
