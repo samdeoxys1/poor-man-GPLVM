@@ -1129,7 +1129,8 @@ def plot_data_shuffle_time_series(data, shuffle, align_at='middle', fig=None, ax
     sns.despine(ax=ax)
     
     return fig, ax
-
+    
+from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 def add_scalebar(ax, x, y, length, label=None, 
                  orientation='horizontal', 
                  linewidth=2, color='k', fontsize=10, 
@@ -1169,113 +1170,86 @@ def add_scalebar(ax, x, y, length, label=None,
     kwargs : dict
         Passed to ax.plot (for extra styling).
     """
-    # Set default zorder to ensure visibility
-    kwargs.setdefault('zorder', zorder)
-    
-    # Convert coordinates based on coord_system
+    # Determine transform based on coord_system
     if coord_system == 'axes':
-        # Convert from axes fraction (0-1) to data coordinates
-        xlim = ax.get_xlim()
-        ylim = ax.get_ylim()
-        
-        x_data = xlim[0] + x * (xlim[1] - xlim[0])
-        y_data = ylim[0] + y * (ylim[1] - ylim[0])
-        
-        if orientation == 'horizontal':
-            length_data = length * (xlim[1] - xlim[0])
-        else:  # vertical
-            length_data = length * (ylim[1] - ylim[0])
-            
-        # Calculate adaptive text offset if not provided
-        if text_offset is None:
-            if orientation == 'horizontal':
-                text_offset = 0.02 * (ylim[1] - ylim[0])  # 2% of y-axis range
-            else:
-                text_offset = 0.02 * (xlim[1] - xlim[0])  # 2% of x-axis range
-        else:
-            # Convert text_offset from axes fraction to data coordinates
-            if orientation == 'horizontal':
-                text_offset = text_offset * (ylim[1] - ylim[0])
-            else:
-                text_offset = text_offset * (xlim[1] - xlim[0])
-                
+        transform = ax.transAxes
     elif coord_system == 'data':
-        # Use coordinates as-is (original behavior)
-        x_data = x
-        y_data = y
-        length_data = length
-        
-        # Calculate adaptive text offset if not provided
-        if text_offset is None:
-            if orientation == 'horizontal':
-                axis_range = ax.get_ylim()[1] - ax.get_ylim()[0]
-                text_offset = 0.02 * axis_range  # 2% of y-axis range
-            else:
-                axis_range = ax.get_xlim()[1] - ax.get_xlim()[0]
-                text_offset = 0.02 * axis_range  # 2% of x-axis range
+        transform = ax.transData
     else:
-        raise ValueError(f"coord_system must be 'data' or 'axes', got '{coord_system}'")
+        raise ValueError(f"coord_system must be 'axes' or 'data', got {coord_system}")
     
-    if orientation == 'horizontal':
-        # Draw the scale bar line
-        ax.plot([x_data, x_data + length_data], [y_data, y_data], 
-                color=color, linewidth=linewidth, **kwargs)
-        if label:
-            # Position text below the line
-            ax.text(x_data + length_data/2, y_data - text_offset, label,
-                    ha='center', va='top', color=color, fontsize=fontsize,
-                    zorder=zorder)
-    else:  # vertical
-        # Draw the scale bar line
-        ax.plot([x_data, x_data], [y_data, y_data + length_data], 
-                color=color, linewidth=linewidth, **kwargs)
-        if label:
-            # Position text to the left of the line
-            ax.text(x_data - text_offset, y_data + length_data/2, label,
-                    ha='right', va='center', color=color, fontsize=fontsize,
-                    zorder=zorder)
-
-def add_scalebar_debug(ax, x, y, length, label=None, 
-                       orientation='horizontal', 
-                       linewidth=2, color='k', fontsize=10, 
-                       zorder=10, text_offset=None, coord_system='data',
-                       debug=True, **kwargs):
-    """
-    Debug version of add_scalebar that prints diagnostic information.
-    
-    Same parameters as add_scalebar, plus:
-    debug : bool
-        If True, prints diagnostic information about positioning.
-    """
-    if debug:
-        xlim = ax.get_xlim()
-        ylim = ax.get_ylim()
-        print(f"DEBUG: Axis limits - X: {xlim}, Y: {ylim}")
-        print(f"DEBUG: Scale bar position: ({x}, {y})")
-        print(f"DEBUG: Scale bar length: {length}")
-        print(f"DEBUG: Orientation: {orientation}")
-        print(f"DEBUG: Coordinate system: {coord_system}")
-        
-        # Check if position is within limits based on coordinate system
-        if coord_system == 'axes':
-            # For axes coordinates, values should be between 0 and 1
-            if not (0 <= x <= 1) or not (0 <= y <= 1):
-                print(f"WARNING: Axes coordinates should be between 0 and 1!")
-            if not (0 <= length <= 1):
-                print(f"WARNING: Scale bar length in axes coordinates should be between 0 and 1!")
-        elif coord_system == 'data':
-            # Check if position is within axis limits (data coordinates)
-            if orientation == 'horizontal':
-                if x < xlim[0] or x + length > xlim[1]:
-                    print(f"WARNING: Horizontal scale bar may be outside X limits!")
-                if y < ylim[0] or y > ylim[1]:
-                    print(f"WARNING: Scale bar Y position may be outside Y limits!")
+    # Convert (x, y) to a location string for AnchoredSizeBar
+    # Map approximate positions to location codes
+    # Note: AnchoredSizeBar uses preset locations, not arbitrary (x, y)
+    # We'll use a simple heuristic to map x, y to the nearest location
+    if coord_system == 'axes':
+        if y < 0.33:
+            if x < 0.33:
+                loc = 'lower left'
+            elif x > 0.67:
+                loc = 'lower right'
             else:
-                if x < xlim[0] or x > xlim[1]:
-                    print(f"WARNING: Scale bar X position may be outside X limits!")
-                if y < ylim[0] or y + length > ylim[1]:
-                    print(f"WARNING: Vertical scale bar may be outside Y limits!")
+                loc = 'lower center'
+        elif y > 0.67:
+            if x < 0.33:
+                loc = 'upper left'
+            elif x > 0.67:
+                loc = 'upper right'
+            else:
+                loc = 'upper center'
+        else:
+            if x < 0.33:
+                loc = 'center left'
+            elif x > 0.67:
+                loc = 'center right'
+            else:
+                loc = 'center'
+    else:
+        # For data coordinates, default to lower center
+        loc = 'lower center'
     
-    # Call the regular add_scalebar function
-    add_scalebar(ax, x, y, length, label, orientation, linewidth, color, 
-                 fontsize, zorder, text_offset, coord_system, **kwargs)
+    # Handle orientation - AnchoredSizeBar is horizontal by default
+    # For vertical bars, swap size and size_vertical
+    if orientation == 'horizontal':
+        size_horizontal = length
+        size_vertical_val = linewidth / 100.0  # Small vertical thickness
+    elif orientation == 'vertical':
+        size_horizontal = linewidth / 100.0  # Small horizontal thickness
+        size_vertical_val = length
+    else:
+        raise ValueError(f"orientation must be 'horizontal' or 'vertical', got {orientation}")
+    
+    # Create font properties for label
+    import matplotlib.font_manager as fm
+    fontprops = fm.FontProperties(size=fontsize)
+    
+    # Determine label position (top or bottom of bar)
+    label_top = (orientation == 'horizontal' and text_offset is not None and text_offset > 0) or False
+    
+    # Set up keyword arguments for AnchoredSizeBar
+    asb_kwargs = {
+        'pad': 0.1,
+        'borderpad': 0.1,
+        'sep': text_offset if text_offset is not None else 2,
+        'frameon': False,
+        'size_vertical': size_vertical_val,
+        'color': color,
+        'label_top': label_top,
+        'fontproperties': fontprops,
+    }
+    # Merge with any additional kwargs
+    asb_kwargs.update(kwargs)
+    
+    # Create the AnchoredSizeBar
+    scalebar = AnchoredSizeBar(
+        transform,
+        size_horizontal,
+        label if label is not None else '',
+        loc,
+        **asb_kwargs
+    )
+    
+    # Add to axes
+    ax.add_artist(scalebar)
+    
+    return scalebar
