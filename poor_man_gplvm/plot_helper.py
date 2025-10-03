@@ -852,7 +852,7 @@ def plot_pynapple_data_mpl(data_dict,  height_per_plot=3,width_per_plot=6,height
         height_ratios = [1] * n_plots
     
     # Create figure and subplots with gridspec for flexible heights
-    fig = plt.figure(figsize=(width_per_plot,height_per_plot*n_plots))
+    fig = plt.figure(figsize=(width_per_plot,height_per_plot*n_plots),constrained_layout=True)
     gs = gridspec.GridSpec(n_plots, 1, height_ratios=height_ratios)
     
     axs = []
