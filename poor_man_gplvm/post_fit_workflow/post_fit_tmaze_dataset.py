@@ -90,8 +90,10 @@ def classify_latent(map_latent,position_tsdf,speed_tsd,tmaze_xy_sampled_all,spee
             is_spatial_all_latent[latent_i] = False
             is_immobility_all_latent[latent_i] = True
             is_off_maze_all_latent[latent_i] = False
-        import pdb; pdb.set_trace()
-        xy_l = position_tsdf[latent_run_index]['x','y'].d
+        try:
+            xy_l = position_tsdf[latent_run_index]['x','y'].d
+        except Exception as e:
+            import pdb; pdb.set_trace()
         dist_to_maze=get_dist_to_maze(xy_l,tmaze_xy_sampled_all)
         n_off_maze_time = (dist_to_maze >dist_to_maze_thresh).sum()
         if n_off_maze_time > min_off_maze_time:
