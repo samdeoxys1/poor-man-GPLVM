@@ -17,7 +17,8 @@ import seaborn as sns
 plt.rcParams['font.family'] = 'sans-serif'
 plt.rcParams['svg.fonttype'] = 'none'
 plt.rcParams['pdf.fonttype'] = 42
-
+plt.rcParams['font.sans-serif'] = ['Arial']
+plt.rcParams['text.usetex'] = False
 
 
 def save_fig(fig,fig_name,fig_dir='./figs',fig_format=['png','pdf'],dpi=300,do_close=False,bbox_inches=None):
