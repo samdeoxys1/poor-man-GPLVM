@@ -370,29 +370,16 @@ def add_vertical_shades(fig,intvl_l,ep=None,*,exclude=None,fillcolor="red",opaci
     if ep is None:
         intvl_l_sub = intvl_l
     else:
-        ma = (intvl_l['start'] >= ep['start'][0]) & (intvl_l['end'] <= ep['end'][0])
+        ma = (intvl_l['start'] >= ep['start'][0]) & (intvl_l['end'] <= ep['end'][-1]) # careful ep can have multiple rows!!!
         intvl_l_sub = intvl_l[ma]
-
-    try:
-        print(f"[add_vertical_shades] ep_provided={ep is not None}; n_intervals_total={len(intvl_l)}; n_after_restrict={len(intvl_l_sub)}")
-        if ep is not None:
-            print(f"[add_vertical_shades] ep_start={float(ep['start'][0]):.6f}, ep_end={float(ep['end'][0]):.6f}")
-    except Exception as _e:
-        print(f"[add_vertical_shades] debug-info error: {_e}")
 
     # infer subplot grid shape
     row_l,col_l = fig._get_subplot_rows_columns() # ranges
-    try:
-        print(f"[add_vertical_shades] subplot_rows={list(row_l)}, subplot_cols={list(col_l)}")
-    except Exception:
-        pass
 
     # normalize exclude list into a set of tuples
     exclude_set = set()
     if exclude is not None:
         exclude_set = { (int(rc[0]), int(rc[1])) for rc in exclude }
-    if exclude_set:
-        print(f"[add_vertical_shades] exclude_set={sorted(list(exclude_set))}")
 
     # draw a vrect per interval on subplots not in exclude_set
     for intv in intvl_l_sub:
@@ -413,10 +400,6 @@ def add_vertical_shades(fig,intvl_l,ep=None,*,exclude=None,fillcolor="red",opaci
                 if line_dash is not None:
                     args['line_dash'] = line_dash
                 args.update(vrect_kwargs)
-                try:
-                    print(f"[add_vertical_shades] adding vrect row={i}, col={j}, x0={float(args['x0']):.6f}, x1={float(args['x1']):.6f}, opacity={opacity}, line_width={line_width}")
-                except Exception:
-                    pass
                 fig.add_vrect(**args)
     return fig
 
@@ -438,15 +421,8 @@ def add_vertical_shades_mpl(fig,intvl_l,ep=None,*,exclude=None,color="red",alpha
     if ep is None:
         intvl_l_sub = intvl_l
     else:
-        ma = (intvl_l['start'] >= ep['start'][0]) & (intvl_l['end'] <= ep['end'][0])
+        ma = (intvl_l['start'] >= ep['start'][0]) & (intvl_l['end'] <= ep['end'][-1]) # careful ep can have multiple rows!!!
         intvl_l_sub = intvl_l[ma]
-
-    try:
-        print(f"[add_vertical_shades_mpl] ep_provided={ep is not None}; n_intervals_total={len(intvl_l)}; n_after_restrict={len(intvl_l_sub)}")
-        if ep is not None:
-            print(f"[add_vertical_shades_mpl] ep_start={float(ep['start'][0]):.6f}, ep_end={float(ep['end'][0]):.6f}")
-    except Exception as _e:
-        print(f"[add_vertical_shades_mpl] debug-info error: {_e}")
 
     # collect (x0, x1) pairs
     intervals = []
@@ -454,26 +430,15 @@ def add_vertical_shades_mpl(fig,intvl_l,ep=None,*,exclude=None,color="red",alpha
         x0 = float(intv['start'][0])
         x1 = float(intv['end'][0])
         intervals.append([x0, x1])
-    if len(intervals):
-        n_zero = sum(1 for x0,x1 in intervals if x0 == x1)
-        try:
-            print(f"[add_vertical_shades_mpl] collected {len(intervals)} intervals; zero_width={n_zero}; first3={intervals[:3]}")
-        except Exception:
-            pass
-    else:
-        print("[add_vertical_shades_mpl] no intervals after restriction")
 
     # normalize exclude list into a set of tuples
     exclude_set = set()
     if exclude is not None:
         exclude_set = { (int(rc[0]), int(rc[1])) for rc in exclude }
-    if exclude_set:
-        print(f"[add_vertical_shades_mpl] exclude_set={sorted(list(exclude_set))}")
 
     # find axes to shade; respect subplot positions when available
     axes_to_shade = []
     all_axes = fig.get_axes()
-    print(f"[add_vertical_shades_mpl] figure has {len(all_axes)} axes")
     for ax in all_axes:
         skip = False
         spec = getattr(ax, 'get_subplotspec', None)
@@ -483,10 +448,6 @@ def add_vertical_shades_mpl(fig,intvl_l,ep=None,*,exclude=None,color="red",alpha
                 # SubplotSpec spans [start, stop) in 0-based; convert to 1-based
                 rows = range(ss.rowspan.start + 1, ss.rowspan.stop + 1)
                 cols = range(ss.colspan.start + 1, ss.colspan.stop + 1)
-                try:
-                    print(f"[add_vertical_shades_mpl] ax subplotspec rows={list(rows)}, cols={list(cols)}")
-                except Exception:
-                    pass
                 for r in rows:
                     for c in cols:
                         if (r, c) in exclude_set:
@@ -497,21 +458,16 @@ def add_vertical_shades_mpl(fig,intvl_l,ep=None,*,exclude=None,color="red",alpha
         # If no subplotspec, fall back to including unless globally excluded (not applicable)
         if not skip:
             axes_to_shade.append(ax)
-        else:
-            print("[add_vertical_shades_mpl] skipping an axis due to exclude")
 
     if len(intervals) == 0 or len(axes_to_shade) == 0:
-        print(f"[add_vertical_shades_mpl] nothing to draw: n_intervals={len(intervals)}, n_axes_to_shade={len(axes_to_shade)}")
         return fig
 
     # draw spans on selected axes
     for ax in axes_to_shade:
         for x0, x1 in intervals:
             if x0 == x1:
-                print(f"[add_vertical_shades_mpl] axvline at x={x0:.6f}, alpha={alpha}, lw={max(1, linewidth or 1)}")
                 ax.axvline(x0, color=color, alpha=alpha, linewidth=max(1, linewidth or 1), linestyle=linestyle, zorder=zorder, **span_kwargs)
             else:
-                print(f"[add_vertical_shades_mpl] axvspan from {x0:.6f} to {x1:.6f}, alpha={alpha}, lw={linewidth}")
                 ax.axvspan(x0, x1, color=color, alpha=alpha, linewidth=linewidth, linestyle=linestyle, zorder=zorder, **span_kwargs)
 
     return fig
