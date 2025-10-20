@@ -374,10 +374,6 @@ def add_vertical_shades(fig,intvl_l,ep=None,*,exclude=None,fillcolor="red",opaci
         ma = np.logical_not(np.isnan(ep.in_interval(intv_ts)))
         intvl_l_sub = intvl_l[ma]
 
-        print(intv_ts)
-        print(ep)
-        print(ma)
-
     # infer subplot grid shape
     row_l,col_l = fig._get_subplot_rows_columns() # ranges
 
@@ -426,7 +422,8 @@ def add_vertical_shades_mpl(fig,intvl_l,ep=None,*,exclude=None,color="red",alpha
     if ep is None:
         intvl_l_sub = intvl_l
     else:
-        ma = (intvl_l['start'] >= ep['start'][0]) & (intvl_l['end'] <= ep['end'][-1]) # careful ep can have multiple rows!!!
+        intv_ts=nap.Ts(intvl_l['start'])
+        ma = np.logical_not(np.isnan(ep.in_interval(intv_ts))) # careful ep can have multiple rows!!!
         intvl_l_sub = intvl_l[ma]
 
     # collect (x0, x1) pairs
