@@ -370,7 +370,8 @@ def add_vertical_shades(fig,intvl_l,ep=None,*,exclude=None,fillcolor="red",opaci
     if ep is None:
         intvl_l_sub = intvl_l
     else:
-        ma = (intvl_l['start'] >= ep['start'][0]) & (intvl_l['end'] <= ep['end'][-1]) # careful ep can have multiple rows!!!
+        intv_ts=nap.Ts(intvl_l['start'])
+        ma = np.logical_not(np.isnan(ep.in_interval(intv_ts)))
         intvl_l_sub = intvl_l[ma]
 
     # infer subplot grid shape
