@@ -18,7 +18,7 @@ import tqdm
 from poor_man_gplvm.initializer import init_with_pca
 import poor_man_gplvm.decoder_latentonly as decoder_latent
 
-import nemos as nmo
+# import nemos as nmo
 import pynapple as nap
 
 '''
@@ -31,6 +31,8 @@ Notice for tuning_lengthscale and movement_variance, their values divided by n_l
 Currently smoothness penalty for bspline is only supposed for Poisson models
 
 ma_neuron can either be n_neuron, or n_time x n_neuron, which is useful for subselecting samples
+
+(currently removed bspline to make the package not dependent on nemos)
 '''
 
 # TODO:
@@ -52,9 +54,9 @@ def generate_basis(lengthscale,n_latent_bin,explained_variance_threshold_basis =
         n_basis = (jnp.cumsum(sing_val / sing_val.sum()) < explained_variance_threshold_basis).sum() + 1 # first dimension that cross the thresh, n below + 1
         sqrt_eigval=jnp.sqrt(jnp.sqrt(sing_val))
         tuning_basis = tuning_basis[:,:n_basis] * sqrt_eigval[:n_basis][None,:] 
-    elif basis_type == 'bspline':
-        _,basis_mat_bsp=nmo.basis.BSplineEval(n_basis).evaluate_on_grid(n_latent_bin)
-        tuning_basis = basis_mat_bsp
+    # elif basis_type == 'bspline':
+    #     _,basis_mat_bsp=nmo.basis.BSplineEval(n_basis).evaluate_on_grid(n_latent_bin)
+        # tuning_basis = basis_mat_bsp
     elif basis_type == 'custom_kernel':
         assert custom_kernel is not None, "custom_kernel must be provided when basis_type is custom_kernel"
         tuning_basis,sing_val,_ = jnp.linalg.svd(custom_kernel)
