@@ -173,6 +173,10 @@ def model_selection_one_split(y,hyperparam_dict,train_index=None,test_index=None
     
     T,n_neuron = y.shape
     
+    # if latent only, remove jump related metrics
+    if  'latentonly' in model_class_str:
+        metric_type_l = [m for m in metric_type_l if 'jump' not in m]
+
     # by default split the data in two contiguous chunks; TODO: make decoder more flexible to take other splits
     if train_index is None:
         train_index = slice(0,int(T*(1-test_frac)))
