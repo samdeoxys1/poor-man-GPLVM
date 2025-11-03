@@ -923,6 +923,8 @@ def plot_pynapple_data_mpl(data_dict,  height_per_plot=3,width_per_plot=6,height
             data_dict[key] = (tind,uind,c_l)
     
     n_plots = len(data_dict)
+    if isinstance(add_scatter_to_heatmap,bool):
+        add_scatter_to_heatmap = {key:add_scatter_to_heatmap for key in data_dict.keys()}
     
     # Set up height ratios if not provided
     if height_ratios is None:
