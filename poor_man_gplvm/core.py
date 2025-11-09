@@ -135,6 +135,13 @@ class AbstractGPLVM1D(ABC):
 
     def decode_latent(self, y, tuning=None, hyperparam={}, ma_neuron=None, ma_latent=None, 
                      likelihood_scale=1., n_time_per_chunk=10000,t_l=None):
+        '''
+        y: n_time x n_neuron, can be np array or TsdFrame. Its .t overrides t_l if TsdFrame
+        if t_l is provided, then return TsdFrame
+        '''
+        if isinstance(y,nap.TsdFrame):
+            t_l = y.t
+            y = y.d
         if tuning is None:
             tuning = self.tuning
         if ma_neuron is None:
@@ -174,6 +181,9 @@ class AbstractGPLVM1D(ABC):
         '''
         decode the latent using naive bayes, not temporal smoothing
         '''
+        if isinstance(y,nap.TsdFrame):
+            t_l = y.t
+            y = y.d
         if ma_neuron is None:
             ma_neuron = self.ma_neuron_default
         if ma_latent is None:
@@ -443,9 +453,12 @@ class AbstractGPLVMJump1D(ABC):
     # this is a more convenient call after fitting; hyperparam is used when available, if not then use the self.xxx
     def decode_latent(self,y,tuning=None,hyperparam={},ma_neuron=None,ma_latent=None,likelihood_scale=1.,n_time_per_chunk=10000,t_l=None):
         '''
-        y: n_time x n_neuron, 
+        y: n_time x n_neuron, can be np array or TsdFrame. Its .t overrides t_l if TsdFrame
         if t_l is provided, then return TsdFrame
         '''
+        if isinstance(y,nap.TsdFrame):
+            t_l = y.t
+            y = y.d
         if tuning is None:
             tuning = self.tuning
         if ma_neuron is None:
@@ -485,8 +498,12 @@ class AbstractGPLVMJump1D(ABC):
 
     def decode_latent_naive_bayes(self,y,tuning=None,hyperparam={},ma_neuron=None,ma_latent=None,likelihood_scale=1.,n_time_per_chunk=10000,dt_l=1.,observation_model=None,t_l=None):
         '''
+        y: n_time x n_neuron, can be np array or TsdFrame. Its .t overrides t_l if TsdFrame
         decode the latent using naive bayes, not temporal smoothing; wrapper of decoder.get_naive_bayes_ma_chunk, conveniently making many arguments optional
         '''
+        if isinstance(y,nap.TsdFrame):
+            t_l = y.t
+            y = y.d
         if ma_neuron is None:
             ma_neuron = self.ma_neuron_default
         if ma_latent is None:
