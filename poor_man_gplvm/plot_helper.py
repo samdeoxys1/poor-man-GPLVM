@@ -735,7 +735,7 @@ def plot_paired_line_median(
         raise ValueError('df must be a pandas DataFrame with exactly 2 columns')
 
     if ax is None:
-        fig, ax = plt.subplots(figsize=figsize)
+        fig, ax = plt.subplots(figsize=figsize,constrained_layout=True)
 
     # X positions for the two conditions
     x_positions = np.array([0.0, 1.0])
@@ -871,6 +871,7 @@ def plot_paired_line_median(
 
     sns.despine()
     set_two_ticks(ax,apply_to='y',do_int=False)
+    plt.tight_layout()
     return fig, ax, result
 
 
