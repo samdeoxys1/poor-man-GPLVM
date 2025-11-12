@@ -55,7 +55,7 @@ def save_fig_plotly(fig,fig_name,fig_dir='./figs',fig_format=['png','svg'],scale
         print(f'saved {fig_name}.{fmt} to {fig_dir}')
     return fig
 
-def plot_mean_error_plot(data,error_type='ci',mean_axis=0,fig=None,ax=None,**kwargs):
+def plot_mean_error_plot(data,error_type='std',mean_axis=0,fig=None,ax=None,**kwargs):
     '''
     plt the mean and error of the data
     data: pd.DataFrame or np.ndarray
