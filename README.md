@@ -6,9 +6,11 @@ A simplified implementation of Gaussian Process Latent Variable Models (GPLVM) t
 
 ### GPU Installation
 
+#### Non-editable installation
+
 ```bash
 # Create a new conda environment with all dependencies
-conda create -n pmgplvm -c conda-forge -c nvidia cuda-nvcc jaxlib=0.4.26=cuda120py312h4008524_201 jax=0.4.26 python=3.12.5 jaxopt=0.8.2 optax=0.2.2 numpy scipy tqdm=4.66.5 xarray=2024.3.0 matplotlib=3.9.2 plotly=5.24.1 seaborn=0.13.1 scikit-learn=1.5.2 pynapple=0.9.2 nemos=0.2.3 statsmodels=0.14.3
+conda create -n pmgplvm -c conda-forge -c nvidia cuda-nvcc jaxlib=0.4.26=cuda120py312h4008524_201 jax=0.4.26 python=3.12.5 jaxopt=0.8.2 optax=0.2.2 numpy scipy tqdm=4.66.5 xarray=2024.3.0 matplotlib=3.9.2 plotly=5.24.1 seaborn=0.13.1 scikit-learn=1.5.2 pynapple=0.9.2 statsmodels=0.14.3
 
 # Activate the environment
 conda activate pmgplvm
@@ -17,18 +19,34 @@ conda activate pmgplvm
 git clone https://github.com/samdeoxys1/poor-man-GPLVM.git
 cd poor-man-GPLVM
 
-# Install (non-editable)
+# Install
 pip install .
+```
 
-# OR install in editable mode for development
+#### Editable installation (for development)
+
+```bash
+# Create a new conda environment with all dependencies
+conda create -n pmgplvm -c conda-forge -c nvidia cuda-nvcc jaxlib=0.4.26=cuda120py312h4008524_201 jax=0.4.26 python=3.12.5 jaxopt=0.8.2 optax=0.2.2 numpy scipy tqdm=4.66.5 xarray=2024.3.0 matplotlib=3.9.2 plotly=5.24.1 seaborn=0.13.1 scikit-learn=1.5.2 pynapple=0.9.2 statsmodels=0.14.3
+
+# Activate the environment
+conda activate pmgplvm
+
+# Clone the repository
+git clone https://github.com/samdeoxys1/poor-man-GPLVM.git
+cd poor-man-GPLVM
+
+# Install in editable mode
 pip install -e .
 ```
 
 ### CPU-Only Installation
 
+#### Non-editable installation
+
 ```bash
 # Create a new conda environment with all dependencies
-conda create -n pmgplvm -c conda-forge python=3.12.5 jax=0.4.26 jaxlib=0.4.26 jaxopt=0.8.2 optax=0.2.2 numpy scipy tqdm=4.66.5 xarray=2024.3.0 matplotlib=3.9.2 plotly=5.24.1 seaborn=0.13.1 scikit-learn=1.5.2 pynapple=0.9.2 nemos=0.2.3 statsmodels=0.14.3
+conda create -n pmgplvm -c conda-forge python=3.12.5 jax=0.4.26 jaxlib=0.4.26 jaxopt=0.8.2 optax=0.2.2 numpy scipy tqdm=4.66.5 xarray=2024.3.0 matplotlib=3.9.2 plotly=5.24.1 seaborn=0.13.1 scikit-learn=1.5.2 pynapple=0.9.2 statsmodels=0.14.3
 
 # Activate the environment
 conda activate pmgplvm
@@ -37,10 +55,24 @@ conda activate pmgplvm
 git clone https://github.com/samdeoxys1/poor-man-GPLVM.git
 cd poor-man-GPLVM
 
-# Install (non-editable)
+# Install
 pip install .
+```
 
-# OR install in editable mode for development
+#### Editable installation (for development)
+
+```bash
+# Create a new conda environment with all dependencies
+conda create -n pmgplvm -c conda-forge python=3.12.5 jax=0.4.26 jaxlib=0.4.26 jaxopt=0.8.2 optax=0.2.2 numpy scipy tqdm=4.66.5 xarray=2024.3.0 matplotlib=3.9.2 plotly=5.24.1 seaborn=0.13.1 scikit-learn=1.5.2 pynapple=0.9.2 statsmodels=0.14.3
+
+# Activate the environment
+conda activate pmgplvm
+
+# Clone the repository
+git clone https://github.com/samdeoxys1/poor-man-GPLVM.git
+cd poor-man-GPLVM
+
+# Install in editable mode
 pip install -e .
 ```
 
