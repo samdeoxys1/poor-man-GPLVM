@@ -89,7 +89,7 @@ import matplotlib.pyplot as plt
 
 # initialize model
 n_neuron = 100
-model=pmg.PoissonGPLVMJump1D(n_neuron,movement_variance=1,tuning_lengthscale=10.)
+model=pmg.PoissonGPLVMJump1D(n_neuron,movement_variance=1,tuning_lengthscale=10.) # can modify the hyperparameters
 
 # simulate some data
 
