@@ -1346,3 +1346,24 @@ def add_scalebar(ax, x, y, length, label=None,
     ax.add_artist(scalebar)
     
     return scalebar
+
+def plot_brain_state_intervals(interval_dict,color_dict,order=['rem','nrem','awake'],gap=0.2,fig=None,ax=None):
+    '''
+    different brain state intervals are plotted as axvspan on different y coordinates and different colors
+    '''
+    if ax is None:
+        fig,ax=plt.subplots()
+    ymin=0
+    ymax=ymin+gap
+    for state,color in zip(order,color_dict):
+        interval = interval_dict[state]
+        for ii,intv in enumerate(interval):
+            if ii==0:
+                label=state
+            else:
+                label=None
+            ax.axvspan(intv['start'],intv['end'],ymin=ymin,ymax=ymax,color=color,alpha=0.3,label=label)
+            
+        ymin=ymin+gap
+        ymax=ymax+gap
+    return fig,ax
