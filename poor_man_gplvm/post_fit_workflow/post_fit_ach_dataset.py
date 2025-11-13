@@ -334,7 +334,7 @@ def prep_feature_d(prep_res,consec_pv_dist_metric='correlation',continuous_dynam
         feature_d['p_jump'] = p_jump
     return feature_d
 
-def turn_sleep_state_tsd_to_interval(sleep_state_index,sleep_state_label_d={'Wake':0,'NREM':2,'REM':4}):
+def turn_sleep_state_tsd_to_interval(sleep_state_index,sleep_state_label_d={'Awake':0,'NREM':2,'REM':4}):
     '''
     turn numerically coded sleep state time series to interval for each state
     sleep_state_index: Tsd, n_time, the sleep state index
