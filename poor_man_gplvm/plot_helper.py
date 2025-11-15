@@ -1380,3 +1380,73 @@ def plot_brain_state_intervals(interval_dict,color_dict={'REM':'magenta','NREM':
     ax.set_ylim(0,ymax)
     ax.tick_params(axis='y',length=0)
     return fig,ax
+
+from scipy.stats import ks_2samp
+
+def plot_cdf_and_ks_test(sample1, sample2, alpha=0.05,fig=None,ax=None,label1='sample1',label2='sample2',xlabel='Value',title=None,
+                        c_l  = ['C0','C1'],linestyle_l=['-','-'],alternative='two-sided',do_legend=True,
+                        bins='auto',
+                    ):
+    _,bin_edges = np.histogram(np.concatenate([np.array(sample1),np.array(sample2)]),bins=bins,density=True)
+    # Compute CDF for sample1
+    # hist1, bin_edges1 = np.histogram(sample1, bins='auto', density=True)
+    hist1, bin_edges1 = np.histogram(sample1, bins=bin_edges, density=True)
+    cdf1 = np.cumsum(hist1) / np.sum(hist1)
+    
+    # Compute CDF for sample2
+    # hist2, bin_edges2 = np.histogram(sample2, bins='auto', density=True)
+    hist2, bin_edges2 = np.histogram(sample2, bins=bin_edges, density=True)
+    cdf2 = np.cumsum(hist2) / np.sum(hist2)
+    if ax is None:
+        fig,ax=plt.subplots()
+    # Plot CDFs
+    ax.plot(bin_edges1[1:], cdf1, label=label1,c=c_l[0],linestyle=linestyle_l[0])
+    ax.plot(bin_edges2[1:], cdf2, label=label2,c=c_l[1],linestyle=linestyle_l[1])
+    
+    # KS test
+    ks_stat, p_value = ks_2samp(sample1, sample2,alternative=alternative)
+    
+    common_bins = np.union1d(bin_edges1, bin_edges2)
+    cdf1_interp = np.interp(common_bins, bin_edges1[1:], cdf1)
+    cdf2_interp = np.interp(common_bins, bin_edges2[1:], cdf2)
+    max_diff_idx = np.argmax(np.abs(cdf1_interp - cdf2_interp))
+    max_diff_x = common_bins[max_diff_idx]
+    max_diff_y = max(cdf1_interp[max_diff_idx], cdf2_interp[max_diff_idx])
+    
+    
+    if p_value < alpha:
+        title_ = f"KS Test: p-value = {p_value:.3f} *\nstat={ks_stat:.3f}"
+    else:
+        title_ = f"KS Test: p-value = {p_value:.3f}\nstat={ks_stat:.3f}"
+    
+    if title is None:
+        title=title_
+    ax.set_title(title)
+    
+    if p_value < alpha:
+        if 0.05 >= p_value > 0.01:
+            star = "*"
+        elif 0.01 >= p_value >0.001:
+            star="**"
+        elif 0.001 >= p_value >0.0001:
+            star = "***"
+        elif 0.0001 >= p_value:
+            star = "****"
+
+
+        # ax.annotate(f"* p={p_value:.3f}", (max_diff_x, max_diff_y + 0.05), 
+        #              ha='center', va='bottom', color='k')
+        ax.annotate(f"{star}", (max_diff_x, max_diff_y + 0.05), 
+                     ha='center', va='bottom', color='k')
+    else:
+        ax.annotate(f"n.s.", (max_diff_x, max_diff_y + 0.05), 
+                     ha='center', va='bottom', color='k')
+    if do_legend:
+        ax.legend(bbox_to_anchor=[1.05,1])
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel('CDF')
+    ax.grid(False)
+    sns.despine()
+#     plt.show()
+
+    return fig,ax
