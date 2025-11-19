@@ -98,7 +98,9 @@ model=pmg.PoissonGPLVMJump1D(n_neuron,movement_variance=1,tuning_lengthscale=10.
 
 T = 1000
 state_l, spk = model.sample(T)
-y = spk # data for fitting is n_time x n_neuron 
+y = spk # data for fitting is n_time x n_neuron; binned spike counts
+
+# fit the model 
 em_res=model.fit_em(y,key=jr.PRNGKey(3),
                     n_iter=20,
                       posterior_init=None,ma_neuron=None,ma_latent=None,n_time_per_chunk=10000
