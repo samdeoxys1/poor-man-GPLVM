@@ -177,7 +177,12 @@ def smooth_all_step_combined_ma_chunk_latent(y, tuning, hyperparam, log_latent_t
         sl = slice(n * n_time_per_chunk, (n+1) * n_time_per_chunk)
         slice_l.append(sl)
         y_chunk = y[sl]
-        ma_neuron_chunk = jnp.broadcast_to(ma_neuron, y_chunk.shape)
+        
+        # Handle both spatial-only and spatio-temporal masks
+        if ma_neuron.ndim == 2:  # spatio-temporal mask (n_time, n_neuron)
+            ma_neuron_chunk = ma_neuron[sl]
+        else:  # spatial-only mask (n_neuron,)
+            ma_neuron_chunk = jnp.broadcast_to(ma_neuron, y_chunk.shape)
         
         log_causal_posterior_all, log_marginal_final, log_causal_prior_all, log_one_step_predictive_marginals, log_likelihood_all = filter_all_step_combined_ma_latent(
             y_chunk, tuning, hyperparam, log_latent_transition_kernel,
