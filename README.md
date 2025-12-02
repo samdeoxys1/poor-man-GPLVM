@@ -133,10 +133,24 @@ decode_res['posterior_dynamics_marg'][:,1]
 # continuous probability = 1 - jump probability
 decode_res['posterior_dynamics_marg'][:,0]
 
+# posterior transition probability, p(x_k+1|x_k,O_1:T), x: latent or dynamics, O: observations (spikes)
+decode_res['p_transition_latent'] # n_latent_bin x n_latent_bin
+decode_res['p_transition_dynamics'] # n_dynamics x n_dynamics
+
 
 # after fitting one can also decode without temporal dynamics, using Naive Bayes
 decode_res_nb = model.decode_latent_naive_bayes(y)
 
 # NB latent posterior
 decode_res_nb['posterior_latent']
+
+# Order the neurons based on latent tuning
+import poor_man_gplvm.utils as ut
+sort_to_return = ut.post_fit_sort_neurons(em_res) # em_res is from model.fit_em, or constructed from: em_res = {'tuning':model_fit.tuning}
+argsort = sort_to_return[argsort] # this can be used to order the neurons for rasterplots
+
+
+
+
+
 ```
