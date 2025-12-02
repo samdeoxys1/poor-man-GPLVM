@@ -1,4 +1,4 @@
-# Poor Man's GPLVM
+# Poor Man's GPLVM (JumpLVM)
 
 An efficient Jax-based implementation of Gaussian Process Latent Variable Models (GPLVM) that also allows the inference of latent dynamics (continuous vs jump). Latent variables are low dimensional structure that governs neural covariability. This model learns: 
   1. smooth tuning curves of neurons with respect to the latent variables
@@ -78,6 +78,10 @@ cd poor-man-GPLVM
 # Install in editable mode
 pip install -e .
 ```
+
+### Troubleshoot for installation
+If environment creation is very slow or fails, try updating conda or installing a fresh conda.
+
 
 ## Usage
 
