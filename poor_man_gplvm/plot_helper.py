@@ -444,22 +444,25 @@ def add_vertical_shades_mpl(fig,intvl_l,ep=None,*,exclude=None,color="red",alpha
     axes_to_shade = []
     all_axes = fig.get_axes()
     for ax in all_axes:
-        skip = False
         spec = getattr(ax, 'get_subplotspec', None)
-        if callable(spec):
-            ss = ax.get_subplotspec()
-            if ss is not None:
-                # SubplotSpec spans [start, stop) in 0-based; convert to 1-based
-                rows = range(ss.rowspan.start + 1, ss.rowspan.stop + 1)
-                cols = range(ss.colspan.start + 1, ss.colspan.stop + 1)
-                for r in rows:
-                    for c in cols:
-                        if (r, c) in exclude_set:
-                            skip = True
-                            break
-                    if skip:
-                        break
-        # If no subplotspec, fall back to including unless globally excluded (not applicable)
+        if not callable(spec):
+            # No get_subplotspec method: skip (likely not a standard subplot)
+            continue
+        ss = ax.get_subplotspec()
+        if ss is None:
+            # No subplotspec: skip (likely colorbar or other auxiliary axis)
+            continue
+        # Check if this subplot is in the exclude set
+        rows = range(ss.rowspan.start + 1, ss.rowspan.stop + 1)
+        cols = range(ss.colspan.start + 1, ss.colspan.stop + 1)
+        skip = False
+        for r in rows:
+            for c in cols:
+                if (r, c) in exclude_set:
+                    skip = True
+                    break
+            if skip:
+                break
         if not skip:
             axes_to_shade.append(ax)
 
