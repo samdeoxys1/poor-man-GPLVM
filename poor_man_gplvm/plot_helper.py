@@ -23,7 +23,7 @@ plt.rcParams['image.interpolation'] = 'nearest'
 
 
 
-def save_fig(fig,fig_name,fig_dir='./figs',fig_format=['png','svg'],dpi=300,do_close=False,bbox_inches=None):
+def save_fig(fig,fig_name,fig_dir='./figs',fig_format=['png','svg'],dpi=300,do_close=False,bbox_inches=None, text_to_save=None):
     '''
     save figure to fig_dir
     '''
@@ -35,6 +35,17 @@ def save_fig(fig,fig_name,fig_dir='./figs',fig_format=['png','svg'],dpi=300,do_c
     for fmt in fig_format:
         fig.savefig(os.path.join(fig_dir,fig_name+f'.{fmt}'),dpi=dpi,bbox_inches=bbox_inches,transparent=False)
         print(f'saved {fig_name}.{fmt} to {fig_dir}')
+    if text_to_save is not None:
+        try:
+            if not isinstance(text_to_save, str):
+                import pprint
+                text_to_save = pprint.pformat(text_to_save, width=120, compact=False, sort_dicts=False)
+            txt_path = os.path.join(fig_dir, fig_name + '.txt')
+            with open(txt_path, 'w') as f:
+                f.write(text_to_save)
+            print(f'saved {fig_name}.txt to {fig_dir}')
+        except Exception as e:
+            print(f'failed to save {fig_name}.txt to {fig_dir}: {e}')
     if do_close:
         plt.close(fig)
 
