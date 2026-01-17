@@ -189,7 +189,7 @@ def transition_from_tuning_distance(tuning_fit,inverse_temperature=1.,metric='co
     inverse_temperature: inverse of temperature, lower temperature means more sharp transition
     '''
     
-    tuning_distance = scipy.spatial.distance.pdist(tuning_fit.T, metric=metric) 
+    tuning_distance = scipy.spatial.distance.pdist(tuning_fit, metric=metric) 
     tuning_distance = scipy.spatial.distance.squareform(tuning_distance) # n_latent_bin x n_latent_bin
     
     transition_matrix = np.exp(-tuning_distance * inverse_temperature)
