@@ -23,7 +23,7 @@ Example usage:
 import numpy as np
 import pynapple as nap
 from typing import Optional, List, Dict, Any, Union
-
+import scipy.spatial.distance
 # import jlvm_trial_decoding as jtd
 
 
@@ -180,6 +180,25 @@ def transition_by_epoch(
         name: transition_from_posterior_in_intervalset(post_lat_tsd, iset)
         for name, iset in epoch_dict.items()
     }
+
+def transition_from_tuning_distance(tuning_fit,inverse_temperature=1.,distance_type='cosine'):
+    '''
+    turn tuning similarity into transition matrix
+    distance (i.e. dis-similarity) as energy/cost; Gibbs distribution for transition
+    tuning_fit: n_latent_bin x n_neuron
+    inverse_temperature: inverse of temperature, lower temperature means more sharp transition
+    '''
+    if distance_type == 'cosine':
+        tuning_similarity = scipy.spatial.distance.cosine(tuning_fit, tuning_fit)
+    elif distance_type == 'euclidean':
+        tuning_similarity = np.linalg.norm(tuning_fit, axis=1)
+    elif distance_type == 'correlation':
+        tuning_similarity = 1 - np.corrcoef(tuning_fit)
+    else:
+        raise ValueError(f"Unknown distance type: {distance_type}")
+    transition_matrix = np.exp(-tuning_similarity * inverse_temperature)
+    transition_matrix = transition_matrix / transition_matrix.sum(axis=1,keepdims=True)
+    return transition_matrix
 
 
 # =============================================================================
