@@ -211,7 +211,8 @@ def select_inverse_temperature(tuning_fit,p_trans_target,inverse_temperature_l =
         loss_l[inverse_temperature] = rowwise_cross_entropy_loss(inverse_temperature,tuning_distance,p_trans_target).item()
     loss_l =pd.Series(loss_l)
     best_inverse_temperature = loss_l.idxmin()
-    return best_inverse_temperature,loss_l
+    transition_matrix,tuning_distance = transition_from_tuning_distance(tuning_fit,best_inverse_temperature,metric=metric)
+    return transition_matrix,best_inverse_temperature,loss_l
 
 #== helper for selecting inverse_temperature for transition_matrix from tuning_distance ==
 def rowwise_cross_entropy_loss(beta, S, P_star, w=None):
