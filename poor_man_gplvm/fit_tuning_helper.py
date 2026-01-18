@@ -42,6 +42,37 @@ def get_statistics(log_posterior_probs,y,):
     return y_weighted, t_weighted
 
 @jit
+def empirical_tuning_from_posterior(posterior_latent_marg, spk_mat, eps=1e-12):
+    '''
+    Empirical tuning curves from posterior marginal over latent.
+    posterior_latent_marg: n_time x n_latent
+    spk_mat: n_time x n_neuron
+    return:
+    tc: n_latent x n_neuron
+    '''
+    y_weighted = posterior_latent_marg.T @ spk_mat
+    t_weighted = posterior_latent_marg.sum(axis=0)
+    tc = y_weighted / (t_weighted[:, None] + eps)
+    return tc
+
+@jit
+def empirical_tuning_from_map(map_latent, spk_mat, n_latent=None, eps=1e-12):
+    '''
+    Empirical tuning curves from MAP latent sequence.
+    map_latent: n_time (int, 0..n_latent-1)
+    spk_mat: n_time x n_neuron
+    return:
+    tc: n_latent x n_neuron
+    '''
+    if n_latent is None:
+        n_latent = jnp.max(map_latent) + 1
+    one_hot = jax.nn.one_hot(map_latent, n_latent)
+    y_weighted = one_hot.T @ spk_mat
+    t_weighted = one_hot.sum(axis=0)
+    tc = y_weighted / (t_weighted[:, None] + eps)
+    return tc
+
+@jit
 def gaussian_m_step_analytic(hyperparam,basis_mat,y_weighted,t_weighted):
     '''
     basis_mat: n_latent x n_basis
