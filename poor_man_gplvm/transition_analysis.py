@@ -194,7 +194,7 @@ def transition_from_tuning_distance(tuning_fit,inverse_temperature=1.,metric='co
     
     transition_matrix = np.exp(-tuning_distance * inverse_temperature)
     transition_matrix = transition_matrix / transition_matrix.sum(axis=1,keepdims=True)
-    return transition_matrix
+    return transition_matrix,tuning_distance
 
 
 # =============================================================================
