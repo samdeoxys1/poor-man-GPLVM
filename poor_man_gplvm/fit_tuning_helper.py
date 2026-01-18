@@ -6,6 +6,7 @@ import jax
 import jax.numpy as jnp
 from jax import jit, vmap
 import jax.scipy as jscipy
+from functools import partial
 
 # new==
 @jit
@@ -55,8 +56,8 @@ def empirical_tuning_from_posterior(posterior_latent_marg, spk_mat, eps=1e-12):
     tc = y_weighted / (t_weighted[:, None] + eps)
     return tc
 
-@jit
-def empirical_tuning_from_map(map_latent, spk_mat, n_latent=None, eps=1e-12):
+@partial(jax.jit, static_argnames=('n_latent',))
+def empirical_tuning_from_map(map_latent, spk_mat, n_latent, eps=1e-12):
     '''
     Empirical tuning curves from MAP latent sequence.
     map_latent: n_time (int, 0..n_latent-1)
@@ -64,13 +65,18 @@ def empirical_tuning_from_map(map_latent, spk_mat, n_latent=None, eps=1e-12):
     return:
     tc: n_latent x n_neuron
     '''
-    if n_latent is None:
-        n_latent = jnp.max(map_latent) + 1
     one_hot = jax.nn.one_hot(map_latent, n_latent)
     y_weighted = one_hot.T @ spk_mat
     t_weighted = one_hot.sum(axis=0)
     tc = y_weighted / (t_weighted[:, None] + eps)
     return tc
+
+def empirical_tuning_from_map_auto(map_latent, spk_mat, eps=1e-12):
+    '''
+    Non-jit helper that infers n_latent from the MAP sequence.
+    '''
+    n_latent = int(jnp.max(map_latent)) + 1
+    return empirical_tuning_from_map(map_latent, spk_mat, n_latent=n_latent, eps=eps)
 
 @jit
 def gaussian_m_step_analytic(hyperparam,basis_mat,y_weighted,t_weighted):
