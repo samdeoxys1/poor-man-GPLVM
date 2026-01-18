@@ -23,7 +23,10 @@ Example usage:
 import numpy as np
 import pynapple as nap
 from typing import Optional, List, Dict, Any, Union
-import scipy.spatial.distance
+import scipy.spatial.
+import jax
+import jax.numpy as jnp
+import pandas as pd
 # import jlvm_trial_decoding as jtd
 
 
