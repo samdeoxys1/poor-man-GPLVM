@@ -196,6 +196,37 @@ def transition_from_tuning_distance(tuning_fit,inverse_temperature=1.,metric='co
     transition_matrix = transition_matrix / transition_matrix.sum(axis=1,keepdims=True)
     return transition_matrix,tuning_distance
 
+def select_inverse_temperature(tuning_fit,p_trans_target,inverse_temperature_l = np.arange(5,20),metric='cosine'):
+    '''
+    select inverse_temperature for transition_matrix, by matching the transition matrix to the target transition matrix
+    the best target is the posterior transition probability only under the continuous dynamics, i.e. p_transition_full[0,0] / p_transition_full[0,0].sum(axis=1,keepdims=True)
+    '''
+    transition_matrix,tuning_distance = transition_from_tuning_distance(tuning_fit,inverse_temperature_l[0],metric=metric)
+    loss_l = {}
+    for inverse_temperature in inverse_temperature_l:
+        transition_matrix,tuning_distance = transition_from_tuning_distance(tuning_fit,inverse_temperature,metric=metric)
+        loss_l[inverse_temperature] = rowwise_cross_entropy_loss(inverse_temperature,tuning_distance,p_trans_target).item()
+    loss_l =pd.Series(loss_l)
+    best_inverse_temperature = loss_l.idxmin()
+    return best_inverse_temperature,loss_l
+
+#== helper for selecting inverse_temperature for transition_matrix from tuning_distance ==
+def rowwise_cross_entropy_loss(beta, S, P_star, w=None):
+    """
+    beta: scalar
+    S: (K, K) distance matrix (lower => more likely)
+    P_star: (K, K) target transition probs (rows sum to 1)
+    w: optional (K,) row weights (e.g., stationary dist or row counts)
+    returns: scalar loss = sum_i w_i * H(P_star[i], P_beta[i])
+    """
+    logP_beta = jax.nn.log_softmax(-beta * S, axis=-1)  # (K, K)
+    row_ce = -jnp.sum(P_star * logP_beta, axis=-1)     # (K,)
+
+    if w is None:
+        return jnp.sum(row_ce)
+    w = w / jnp.sum(w)
+    return jnp.sum(w * row_ce)
+
 
 # =============================================================================
 # B) Decode under multiple transition kernels + compare marginal likelihood
