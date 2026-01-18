@@ -134,7 +134,8 @@ class AbstractGPLVM1D(ABC):
         pass
 
     def decode_latent(self, y, tuning=None, hyperparam={}, ma_neuron=None, ma_latent=None, 
-                     likelihood_scale=1., n_time_per_chunk=10000,t_l=None):
+                     likelihood_scale=1., n_time_per_chunk=10000, t_l=None,
+                     custom_transition_kernel=None):
         '''
         y: n_time x n_neuron, can be np array or TsdFrame. Its .t overrides t_l if TsdFrame
         if t_l is provided, then return TsdFrame
@@ -150,8 +151,9 @@ class AbstractGPLVM1D(ABC):
             ma_latent = self.ma_latent_default
         
         movement_variance = hyperparam.get('movement_variance', self.movement_variance)
+        custom_transition_kernel_ = self.custom_transition_kernel if custom_transition_kernel is None else custom_transition_kernel
         latent_transition_kernel, log_latent_transition_kernel = gpk.create_transition_prob_latent_1d(
-            self.possible_latent_bin, movement_variance, custom_kernel=self.custom_transition_kernel)
+            self.possible_latent_bin, movement_variance, custom_kernel=custom_transition_kernel_)
         
         log_posterior_all, log_marginal_final, log_causal_posterior_all, log_one_step_predictive_marginals_all, log_accumulated_joint_total, log_likelihood_all = self._decode_latent(
             y, tuning, hyperparam, log_latent_transition_kernel, ma_neuron, 
@@ -451,7 +453,9 @@ class AbstractGPLVMJump1D(ABC):
     
     
     # this is a more convenient call after fitting; hyperparam is used when available, if not then use the self.xxx
-    def decode_latent(self,y,tuning=None,hyperparam={},ma_neuron=None,ma_latent=None,likelihood_scale=1.,n_time_per_chunk=10000,t_l=None):
+    def decode_latent(self,y,tuning=None,hyperparam={},ma_neuron=None,ma_latent=None,
+                      likelihood_scale=1.,n_time_per_chunk=10000,t_l=None,
+                      custom_transition_kernel=None):
         '''
         y: n_time x n_neuron, can be np array or TsdFrame. Its .t overrides t_l if TsdFrame
         if t_l is provided, then return TsdFrame
@@ -469,7 +473,9 @@ class AbstractGPLVMJump1D(ABC):
         movement_variance = hyperparam.get('movement_variance',self.movement_variance)
         p_move_to_jump = hyperparam.get('p_move_to_jump',self.p_move_to_jump)
         p_jump_to_move = hyperparam.get('p_jump_to_move',self.p_jump_to_move)
-        latent_transition_kernel_l,log_latent_transition_kernel_l,dynamics_transition_kernel,log_dynamics_transition_kernel = gpk.create_transition_prob_1d(self.possible_latent_bin,self.possible_dynamics,movement_variance,p_move_to_jump,p_jump_to_move,custom_kernel=self.custom_transition_kernel)
+        custom_transition_kernel_ = self.custom_transition_kernel if custom_transition_kernel is None else custom_transition_kernel
+        latent_transition_kernel_l,log_latent_transition_kernel_l,dynamics_transition_kernel,log_dynamics_transition_kernel = gpk.create_transition_prob_1d(
+            self.possible_latent_bin,self.possible_dynamics,movement_variance,p_move_to_jump,p_jump_to_move,custom_kernel=custom_transition_kernel_)
         log_posterior_all,log_marginal_final,log_causal_posterior_all,log_one_step_predictive_marginals_all,log_accumulated_joint_total,log_likelihood_all= self._decode_latent(y,tuning,hyperparam,log_latent_transition_kernel_l,log_dynamics_transition_kernel,ma_neuron,ma_latent=ma_latent,likelihood_scale=likelihood_scale,n_time_per_chunk=n_time_per_chunk)
         
         posterior_all = np.exp(log_posterior_all)
@@ -876,10 +882,15 @@ class GaussianGPLVMJump1D(AbstractGPLVMJump1D):
         log_acausal_posterior_all,log_marginal_final,log_causal_posterior_all,log_one_step_predictive_marginals_allchunk,log_accumulated_joint_total,log_likelihood_all = decoder.smooth_all_step_combined_ma_chunk(y,tuning,hyperparam,log_latent_transition_kernel_l,log_dynamics_transition_kernel,ma_neuron,ma_latent,likelihood_scale=likelihood_scale,n_time_per_chunk=n_time_per_chunk,observation_model='gaussian')
         return log_acausal_posterior_all,log_marginal_final,log_causal_posterior_all,log_one_step_predictive_marginals_allchunk,log_accumulated_joint_total,log_likelihood_all
 
-    def decode_latent(self,y,tuning=None,hyperparam={},ma_neuron=None,ma_latent=None,likelihood_scale=1.,n_time_per_chunk=10000):
+    def decode_latent(self,y,tuning=None,hyperparam={},ma_neuron=None,ma_latent=None,
+                      likelihood_scale=1.,n_time_per_chunk=10000,
+                      custom_transition_kernel=None):
         hyperparam_ = hyperparam.copy() # don't mutate the original hyperparam otherwise weird things can happen
         hyperparam_['noise_std'] = hyperparam_.get('noise_std',self.noise_std)
-        return super(GaussianGPLVMJump1D,self).decode_latent(y,tuning=tuning,hyperparam=hyperparam_,ma_neuron=ma_neuron,ma_latent=ma_latent,likelihood_scale=likelihood_scale,n_time_per_chunk=n_time_per_chunk)
+        return super(GaussianGPLVMJump1D,self).decode_latent(
+            y,tuning=tuning,hyperparam=hyperparam_,ma_neuron=ma_neuron,ma_latent=ma_latent,
+            likelihood_scale=likelihood_scale,n_time_per_chunk=n_time_per_chunk,
+            custom_transition_kernel=custom_transition_kernel)
     
     def decode_latent_naive_bayes(self,y,tuning=None,hyperparam={},ma_neuron=None,ma_latent=None,likelihood_scale=1.,n_time_per_chunk=10000,dt_l=1.,t_l=None):
         hyperparam_ = hyperparam.copy() # don't mutate the original hyperparam otherwise weird things can happen
@@ -1047,12 +1058,14 @@ class GaussianGPLVM1D(AbstractGPLVM1D):
         return log_acausal_posterior_all, log_marginal_final, log_causal_posterior_all, log_one_step_predictive_marginals_allchunk, log_accumulated_joint_total, log_likelihood_all
 
     def decode_latent(self, y, tuning=None, hyperparam={}, ma_neuron=None, ma_latent=None, 
-                     likelihood_scale=1., n_time_per_chunk=10000):
+                     likelihood_scale=1., n_time_per_chunk=10000,
+                     custom_transition_kernel=None):
         hyperparam_ = hyperparam.copy() # don't mutate the original hyperparam otherwise weird things can happen
         hyperparam_['noise_std'] = hyperparam_.get('noise_std', self.noise_std)
         return super(GaussianGPLVM1D, self).decode_latent(
             y, tuning=tuning, hyperparam=hyperparam_, ma_neuron=ma_neuron, ma_latent=ma_latent, 
-            likelihood_scale=likelihood_scale, n_time_per_chunk=n_time_per_chunk)
+            likelihood_scale=likelihood_scale, n_time_per_chunk=n_time_per_chunk,
+            custom_transition_kernel=custom_transition_kernel)
     
     def decode_latent_naive_bayes(self, y, tuning=None, hyperparam={}, ma_neuron=None, ma_latent=None, 
                                  likelihood_scale=1., n_time_per_chunk=10000, dt_l=1.,t_l=None):
