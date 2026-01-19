@@ -98,6 +98,30 @@ def animate_pynapple_data_mpl(
     >>> from IPython.display import Video
     >>> Video(out['save_path'], embed=True)
     """
+    def _iter_time_sources(obj):
+        """
+        Yield pynapple-like objects that have `.t` for time bounds.
+        Supports:
+        - nap objects (Tsd/TsdFrame)
+        - raster tuple (tind, uind, c_l)
+        - dict specs:
+            - {'main': <nap>, 'twin': <nap>, ...}
+            - {'lines': {label: <nap>, ...}, ...}
+        """
+        if isinstance(obj, tuple):
+            yield obj
+            return
+        if isinstance(obj, dict):
+            if ('main' in obj) and ('twin' in obj):
+                yield obj['main']
+                yield obj['twin']
+                return
+            if 'lines' in obj:
+                for v in obj['lines'].values():
+                    yield v
+                return
+        yield obj
+
     # --- Default kwargs ---
     maze_kwargs = maze_kwargs or {}
     maze_kwargs.setdefault('color', '0.5')
@@ -128,16 +152,42 @@ def animate_pynapple_data_mpl(
 
     # --- Compute common interval from toplot (NOT including full position_tsdf) ---
     data_dict = dict(toplot)  # copy to avoid mutating input
-    min_times = [np.min(arr.t) for arr in data_dict.values() if not isinstance(arr, tuple)]
-    max_times = [np.max(arr.t) for arr in data_dict.values() if not isinstance(arr, tuple)]
+    min_times = []
+    max_times = []
+    for obj in data_dict.values():
+        for src in _iter_time_sources(obj):
+            if isinstance(src, tuple):
+                tind = src[0]
+                if len(tind):
+                    min_times.append(np.min(tind))
+                    max_times.append(np.max(tind))
+            else:
+                min_times.append(np.min(src.t))
+                max_times.append(np.max(src.t))
 
-    st = np.max(min_times)
-    ed = np.min(max_times)
+    st = float(np.max(min_times))
+    ed = float(np.min(max_times))
     common_interval = nap.IntervalSet([st, ed])
 
     # --- Restrict data to common interval ---
     for key, arr in data_dict.items():
-        if not isinstance(arr, tuple):
+        if isinstance(arr, dict):
+            if ('main' in arr) and ('twin' in arr):
+                arr = dict(arr)
+                arr['main'] = arr['main'].restrict(common_interval)
+                arr['twin'] = arr['twin'].restrict(common_interval)
+                data_dict[key] = arr
+            elif 'lines' in arr:
+                arr = dict(arr)
+                lines = {}
+                for lk, lv in arr['lines'].items():
+                    lines[lk] = lv.restrict(common_interval)
+                arr['lines'] = lines
+                data_dict[key] = arr
+            else:
+                # unknown dict spec; leave as-is
+                data_dict[key] = arr
+        elif not isinstance(arr, tuple):
             data_dict[key] = arr.restrict(common_interval)
         else:
             tind, uind, c_l = arr
@@ -231,7 +281,68 @@ def animate_pynapple_data_mpl(
         ax = axs_right[i]
         info = {'key': key, 'ax': ax}
 
-        if isinstance(arr, tuple):
+        if isinstance(arr, dict):
+            # Dict specs: twin y-axis or multi-line 1D
+            if ('main' in arr) and ('twin' in arr):
+                main = arr['main']
+                twin = arr['twin']
+                main_color = arr.get('main_color', 'C0')
+                twin_color = arr.get('twin_color', 'C3')
+                main_label = arr.get('main_label', None)
+                twin_label = arr.get('twin_label', None)
+                main_ylabel = arr.get('main_ylabel', None)
+                twin_ylabel = arr.get('twin_ylabel', None)
+
+                info['type'] = 'twin1d'
+                info['t_main'] = main.t
+                info['d_main'] = main.d
+                info['t_twin'] = twin.t
+                info['d_twin'] = twin.d
+
+                (line_main,) = ax.plot([], [], color=main_color, label=main_label, **line_kwargs)
+                ax2 = ax.twinx()
+                (line_twin,) = ax2.plot([], [], color=twin_color, label=twin_label, **line_kwargs)
+
+                if main_ylabel is not None:
+                    ax.set_ylabel(main_ylabel, color=main_color)
+                    ax.tick_params(axis='y', colors=main_color)
+                if twin_ylabel is not None:
+                    ax2.set_ylabel(twin_ylabel, color=twin_color)
+                    ax2.tick_params(axis='y', colors=twin_color)
+
+                info['artist_main'] = line_main
+                info['artist_twin'] = line_twin
+                info['ax_twin'] = ax2
+
+                # legend (merge handles from both axes)
+                if main_label or twin_label:
+                    h1, l1 = ax.get_legend_handles_labels()
+                    h2, l2 = ax2.get_legend_handles_labels()
+                    ax.legend(h1 + h2, l1 + l2, frameon=False, loc='upper right')
+
+                ax.set_xlim(st, ed)
+
+            elif 'lines' in arr:
+                lines_dict = arr['lines']
+                ylabel = arr.get('ylabel', None)
+
+                info['type'] = 'multi1d'
+                info['lines'] = []
+                for lk, lv in lines_dict.items():
+                    t = lv.t
+                    d = lv.d
+                    (ln,) = ax.plot([], [], label=str(lk), **line_kwargs)
+                    info['lines'].append({'label': lk, 't': t, 'd': d, 'artist': ln})
+                if ylabel is not None:
+                    ax.set_ylabel(ylabel)
+                ax.legend(frameon=False, loc='upper right')
+                ax.set_xlim(st, ed)
+            else:
+                info['type'] = 'unsupported'
+                ax.text(0.5, 0.5, "Unsupported dict spec",
+                        ha='center', va='center', transform=ax.transAxes)
+
+        elif isinstance(arr, tuple):
             # Raster plot
             tind, uind, c_l = arr
             info['type'] = 'raster'
@@ -320,7 +431,25 @@ def animate_pynapple_data_mpl(
         for info in artists_info:
             atype = info.get('type')
 
-            if atype == 'raster':
+            if atype == 'twin1d':
+                t = info['t_main']
+                d = info['d_main']
+                mask = t <= t_now
+                info['artist_main'].set_data(t[mask], d[mask])
+
+                t2 = info['t_twin']
+                d2 = info['d_twin']
+                mask2 = t2 <= t_now
+                info['artist_twin'].set_data(t2[mask2], d2[mask2])
+
+            elif atype == 'multi1d':
+                for li in info['lines']:
+                    t = li['t']
+                    d = li['d']
+                    mask = t <= t_now
+                    li['artist'].set_data(t[mask], d[mask])
+
+            elif atype == 'raster':
                 tind = info['tind']
                 uind = info['uind']
                 c_l = info['c_l']
@@ -348,7 +477,15 @@ def animate_pynapple_data_mpl(
                     info['artist'].set_data(d_plot[:, :k])
                     info['artist'].set_extent([t[0], t[k - 1], 0, n_rows])
 
-        return [traj_line, pos_marker] + [info.get('artist') for info in artists_info if info.get('artist')]
+        artists = [traj_line, pos_marker]
+        for info in artists_info:
+            if info.get('type') == 'twin1d':
+                artists.extend([info.get('artist_main'), info.get('artist_twin')])
+            elif info.get('type') == 'multi1d':
+                artists.extend([li.get('artist') for li in info.get('lines', [])])
+            else:
+                artists.append(info.get('artist'))
+        return [a for a in artists if a is not None]
 
     # --- Create animation ---
     anim = FuncAnimation(fig, update, frames=n_frames, interval=1000 / fps, blit=True)
