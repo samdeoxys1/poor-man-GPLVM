@@ -239,7 +239,8 @@ def _weighted_quantile_1d(x, w, q):
 
 def select_inverse_temperature_match_step(
     tuning_fit,
-    p_trans_latent,
+    p_joint_latent,
+    p_latent,
     *,
     tail_quantile=0.9,
     inverse_temperature_l=np.arange(5, 20),
@@ -248,8 +249,9 @@ def select_inverse_temperature_match_step(
     """
     Select inverse_temperature by matching a *bulk* step statistic (trimmed by tail_quantile).
 
-    Given posterior latent pair weights P_post(i,j) proportional to expected transition counts
-    (e.g. from model_fit.decode_latent), define a step metric g_ij from tuning_fit (pairwise
+    Given posterior latent pair weights P_post(i,j) proportional to expected joint occupancy
+    across adjacent time bins (e.g. from model_fit.decode_latent), define a step metric g_ij
+    from tuning_fit (pairwise
     distances under `metric`). Let tau be the weighted quantile of {g_ij} under P_post, then
     compute the bulk conditional mean:
 
@@ -257,13 +259,14 @@ def select_inverse_temperature_match_step(
 
     For each beta in inverse_temperature_l, define a Gibbs transition kernel
         K_beta(j|i) ∝ exp(-beta * g_ij),
-    and the model-induced pair weights
-        Q_beta(i,j) = pi_i * K_beta(j|i),  where pi_i = sum_j P_post(i,j).
+    then row-normalize K_beta, and form a proposed joint with the provided stationary dist:
+        Q_beta(i,j) = pi_i * K_beta(j|i),  where pi = p_latent.
 
     Choose beta that best matches m(beta) to m* under the same bulk truncation (g<=tau).
 
     Returns dict with:
-        p_trans_latent_clean : (K,K) normalized pair weights (sum=1)
+        p_joint_latent_clean : (K,K) normalized pair weights (sum=1)
+        p_latent_clean : (K,) normalized stationary dist (sum=1)
         best_inverse_temperature : scalar
         loss_l : pd.Series indexed by beta
         metric_mat : (K,K) pairwise distance matrix g_ij
@@ -272,30 +275,38 @@ def select_inverse_temperature_match_step(
     metric_vec = scipy.spatial.distance.pdist(tuning_fit, metric=metric)
     metric_mat = scipy.spatial.distance.squareform(metric_vec)  # (K,K)
 
-    P = np.asarray(p_trans_latent, dtype=float)
+    P = np.asarray(p_joint_latent, dtype=float)
     P = np.nan_to_num(P, nan=0.0, posinf=0.0, neginf=0.0)
     P[P < 0] = 0.0
     Z = P.sum()
     if Z <= 0:
-        raise ValueError("[select_inverse_temperature_match_step] p_trans_latent has zero total mass")
-    p_trans_latent_clean = P / Z  # (K,K), sum=1
+        raise ValueError("[select_inverse_temperature_match_step] p_joint_latent has zero total mass")
+    p_joint_latent_clean = P / Z  # (K,K), sum=1
+
+    pi = np.asarray(p_latent, dtype=float)
+    pi = np.nan_to_num(pi, nan=0.0, posinf=0.0, neginf=0.0)
+    pi[pi < 0] = 0.0
+    pi_Z = pi.sum()
+    if pi_Z <= 0:
+        raise ValueError("[select_inverse_temperature_match_step] p_latent has zero total mass")
+    p_latent_clean = pi / pi_Z
 
     g = metric_mat.ravel()
-    w = p_trans_latent_clean.ravel()
+    w = p_joint_latent_clean.ravel()
     metric_at_quantile = _weighted_quantile_1d(g, w, tail_quantile)
     bulk_mask = metric_mat <= metric_at_quantile
 
-    denom_star = float((p_trans_latent_clean * bulk_mask).sum())
+    denom_star = float((p_joint_latent_clean * bulk_mask).sum())
     if denom_star <= 0:
         raise ValueError("[select_inverse_temperature_match_step] no mass in bulk (check tail_quantile / metric)")
-    m_star = float((p_trans_latent_clean * metric_mat * bulk_mask).sum() / denom_star)
+    m_star = float((p_joint_latent_clean * metric_mat * bulk_mask).sum() / denom_star)
 
-    pi = p_trans_latent_clean.sum(axis=1)  # (K,)
     loss_d = {}
     for beta in inverse_temperature_l:
         K_beta = np.exp(-metric_mat * float(beta))
-        K_beta = K_beta / K_beta.sum(axis=1, keepdims=True)
-        Q_beta = pi[:, None] * K_beta
+        K_beta = K_beta / K_beta.sum(axis=1, keepdims=True)  # transition matrix, row-normalized
+        Q_beta = p_latent_clean[:, None] * K_beta            # proposed joint
+        Q_beta = Q_beta / Q_beta.sum()                       # normalize joint (safety)
         denom = float((Q_beta * bulk_mask).sum())
         if denom <= 0:
             loss_d[beta] = np.nan
@@ -307,7 +318,8 @@ def select_inverse_temperature_match_step(
     best_inverse_temperature = loss_l.idxmin()
 
     return {
-        "p_trans_latent_clean": p_trans_latent_clean,
+        "p_joint_latent_clean": p_joint_latent_clean,
+        "p_latent_clean": p_latent_clean,
         "best_inverse_temperature": best_inverse_temperature,
         "loss_l": loss_l,
         "metric_mat": metric_mat,
