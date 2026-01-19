@@ -173,16 +173,18 @@ def animate_pynapple_data_mpl(
     if suptitle:
         fig.suptitle(suptitle, fontsize=12)
 
-    # Left column: maze axis (spans only the first row, but make it square-ish)
-    ax_maze = fig.add_subplot(gs[0, 0])
+    # Left column: maze axis spanning multiple rows for larger size
+    # Use ~60% of rows for maze, rest for annotation
+    maze_rows = max(1, int(n_plots * 0.6))
+    ax_maze = fig.add_subplot(gs[:maze_rows, 0])
     ax_maze.set_aspect('equal', adjustable='datalim')
-    ax_maze.set_xlabel('x')
-    ax_maze.set_ylabel('y')
+    # Hide box/spines
+    ax_maze.axis('off')
 
-    # Create annotation axis spanning remaining left-column rows (if n_plots > 1)
+    # Create annotation axis spanning remaining left-column rows
     ax_annot = None
-    if n_plots > 1:
-        ax_annot = fig.add_subplot(gs[1:, 0])
+    if maze_rows < n_plots:
+        ax_annot = fig.add_subplot(gs[maze_rows:, 0])
         ax_annot.axis('off')
         if annotation_text:
             ax_annot.text(
@@ -192,12 +194,13 @@ def animate_pynapple_data_mpl(
                 family='monospace'
             )
     elif annotation_text:
-        # If only 1 plot, put annotation below maze
+        # If maze spans all rows, put annotation inside maze plot
         ax_maze.text(
-            0.05, -0.15, annotation_text,
+            0.05, 0.05, annotation_text,
             transform=ax_maze.transAxes,
-            fontsize=10, va='top', ha='left',
-            family='monospace'
+            fontsize=9, va='bottom', ha='left',
+            family='monospace',
+            bbox=dict(boxstyle='round', facecolor='white', alpha=0.8)
         )
 
     # Right column: stacked subplots
