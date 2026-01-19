@@ -224,6 +224,9 @@ def _weighted_quantile_1d(x, w, q):
     """
     x = np.asarray(x)
     w = np.asarray(w)
+    finite = np.isfinite(x) & np.isfinite(w)
+    x = x[finite]
+    w = w[finite]
     order = np.argsort(x)
     x_sorted = x[order]
     w_sorted = w[order]
@@ -265,7 +268,7 @@ def select_inverse_temperature_match_step(
     Choose beta that best matches m(beta) to m* under the same bulk truncation (g<=tau).
 
     Returns dict with:
-        p_trans_latent_clean : (K,K) posterior transition matrix (rows normalized)
+        p_trans_latent_clean : (K,K) Gibbs transition matrix at best beta (rows normalized)
         best_inverse_temperature : scalar
         loss_l : pd.Series indexed by beta
         metric_mat : (K,K) pairwise distance matrix g_ij
@@ -290,18 +293,12 @@ def select_inverse_temperature_match_step(
         raise ValueError("[select_inverse_temperature_match_step] p_latent has zero total mass")
     p_latent_clean = pi / pi_Z
 
-    # posterior transition (clean), derived from provided joint + stationary
-    p_trans_latent_clean = np.zeros_like(p_joint_latent_clean)
-    nonzero = p_latent_clean > 0
-    p_trans_latent_clean[nonzero] = p_joint_latent_clean[nonzero] / p_latent_clean[nonzero, None]
-    row_sum = p_trans_latent_clean.sum(axis=1, keepdims=True)
-    nonzero_row = row_sum[:, 0] > 0
-    p_trans_latent_clean[nonzero_row] = p_trans_latent_clean[nonzero_row] / row_sum[nonzero_row]
-
-    g = metric_mat.ravel()
-    w = p_joint_latent_clean.ravel()
+    # "step" should exclude self-transitions (diagonal), otherwise tau is often 0
+    offdiag = ~np.eye(metric_mat.shape[0], dtype=bool)
+    g = metric_mat[offdiag].ravel()
+    w = p_joint_latent_clean[offdiag].ravel()
     metric_at_quantile = _weighted_quantile_1d(g, w, tail_quantile)
-    bulk_mask = metric_mat <= metric_at_quantile
+    bulk_mask = (metric_mat <= metric_at_quantile) & offdiag
 
     denom_star = float((p_joint_latent_clean * bulk_mask).sum())
     if denom_star <= 0:
@@ -323,6 +320,10 @@ def select_inverse_temperature_match_step(
 
     loss_l = pd.Series(loss_d)
     best_inverse_temperature = loss_l.idxmin()
+
+    # final "clean" transition = Gibbs transition at best beta
+    p_trans_latent_clean = np.exp(-metric_mat * float(best_inverse_temperature))
+    p_trans_latent_clean = p_trans_latent_clean / p_trans_latent_clean.sum(axis=1, keepdims=True)
 
     return {
         "p_trans_latent_clean": p_trans_latent_clean,
