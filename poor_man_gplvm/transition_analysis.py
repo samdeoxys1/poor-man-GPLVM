@@ -265,8 +265,7 @@ def select_inverse_temperature_match_step(
     Choose beta that best matches m(beta) to m* under the same bulk truncation (g<=tau).
 
     Returns dict with:
-        p_joint_latent_clean : (K,K) normalized pair weights (sum=1)
-        p_latent_clean : (K,) normalized stationary dist (sum=1)
+        p_trans_latent_clean : (K,K) posterior transition matrix (rows normalized)
         best_inverse_temperature : scalar
         loss_l : pd.Series indexed by beta
         metric_mat : (K,K) pairwise distance matrix g_ij
@@ -290,6 +289,14 @@ def select_inverse_temperature_match_step(
     if pi_Z <= 0:
         raise ValueError("[select_inverse_temperature_match_step] p_latent has zero total mass")
     p_latent_clean = pi / pi_Z
+
+    # posterior transition (clean), derived from provided joint + stationary
+    p_trans_latent_clean = np.zeros_like(p_joint_latent_clean)
+    nonzero = p_latent_clean > 0
+    p_trans_latent_clean[nonzero] = p_joint_latent_clean[nonzero] / p_latent_clean[nonzero, None]
+    row_sum = p_trans_latent_clean.sum(axis=1, keepdims=True)
+    nonzero_row = row_sum[:, 0] > 0
+    p_trans_latent_clean[nonzero_row] = p_trans_latent_clean[nonzero_row] / row_sum[nonzero_row]
 
     g = metric_mat.ravel()
     w = p_joint_latent_clean.ravel()
@@ -318,8 +325,7 @@ def select_inverse_temperature_match_step(
     best_inverse_temperature = loss_l.idxmin()
 
     return {
-        "p_joint_latent_clean": p_joint_latent_clean,
-        "p_latent_clean": p_latent_clean,
+        "p_trans_latent_clean": p_trans_latent_clean,
         "best_inverse_temperature": best_inverse_temperature,
         "loss_l": loss_l,
         "metric_mat": metric_mat,
