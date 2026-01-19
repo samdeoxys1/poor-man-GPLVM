@@ -350,6 +350,7 @@ def animate_pynapple_data_mpl(
             elif 'lines' in arr:
                 lines_dict = arr['lines']
                 ylabel = arr.get('ylabel', None)
+                hline = arr.get('hline', None)  # e.g. {'y': 1.0, 'color': 'k', 'linestyle': ':', 'lw': 1}
 
                 info['type'] = 'multi1d'
                 info['lines'] = []
@@ -360,6 +361,17 @@ def animate_pynapple_data_mpl(
                     (ln,) = ax.plot([], [], label=str(lk), **line_kwargs)
                     info['lines'].append({'label': lk, 't': t, 'd': d, 'artist': ln})
                     y_all.append(np.asarray(d))
+
+                # Optional horizontal reference line (static)
+                info['hline_artist'] = None
+                if hline is not None:
+                    y0 = hline.get('y', None) if isinstance(hline, dict) else float(hline)
+                    if y0 is not None:
+                        hkw = dict(color='k', linestyle=':', lw=1, zorder=0)
+                        if isinstance(hline, dict):
+                            hkw.update({k: v for k, v in hline.items() if k != 'y'})
+                        info['hline_artist'] = ax.axhline(float(y0), **hkw)
+
                 if ylabel is not None:
                     ax.set_ylabel(ylabel)
                 ax.legend(frameon=False, loc='upper right')
@@ -515,6 +527,8 @@ def animate_pynapple_data_mpl(
                 artists.extend([info.get('artist_main'), info.get('artist_twin')])
             elif info.get('type') == 'multi1d':
                 artists.extend([li.get('artist') for li in info.get('lines', [])])
+                if info.get('hline_artist') is not None:
+                    artists.append(info.get('hline_artist'))
             else:
                 artists.append(info.get('artist'))
         return [a for a in artists if a is not None]
