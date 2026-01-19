@@ -268,14 +268,14 @@ def select_inverse_temperature_match_step(
     Choose beta that best matches m(beta) to m* under the same bulk truncation (g<=tau).
 
     Returns dict with:
-        p_trans_latent_clean : (K,K) Gibbs transition matrix at best beta (rows normalized)
+        p_trans_latent_clean : (L,L) Gibbs transition matrix at best beta (rows normalized)
         best_inverse_temperature : scalar
         loss_l : pd.Series indexed by beta
-        metric_mat : (K,K) pairwise distance matrix g_ij
+        metric_mat : (L,L) pairwise distance matrix g_ij
         metric_at_quantile : scalar tau
     """
     metric_vec = scipy.spatial.distance.pdist(tuning_fit, metric=metric)
-    metric_mat = scipy.spatial.distance.squareform(metric_vec)  # (K,K)
+    metric_mat = scipy.spatial.distance.squareform(metric_vec)  # (L,L)
 
     P = np.asarray(p_joint_latent, dtype=float)
     P = np.nan_to_num(P, nan=0.0, posinf=0.0, neginf=0.0)
@@ -283,7 +283,7 @@ def select_inverse_temperature_match_step(
     Z = P.sum()
     if Z <= 0:
         raise ValueError("[select_inverse_temperature_match_step] p_joint_latent has zero total mass")
-    p_joint_latent_clean = P / Z  # (K,K), sum=1
+    p_joint_latent_clean = P / Z  # (L,L), sum=1
 
     pi = np.asarray(p_latent, dtype=float)
     pi = np.nan_to_num(pi, nan=0.0, posinf=0.0, neginf=0.0)
@@ -332,6 +332,42 @@ def select_inverse_temperature_match_step(
         "metric_mat": metric_mat,
         "metric_at_quantile": metric_at_quantile,
     }
+
+
+def select_inverse_temperature_match_step_continuous(
+    tuning_fit,
+    p_joint_full,
+    p_latent,
+    *,
+    continuous_ind=0,
+    inverse_temperature_l=np.arange(5, 20),
+    metric="cosine",
+):
+    """
+    Like select_inverse_temperature_match_step, but define the target step statistic using only
+    the "continuous" regime of a full (regime x regime x L x L) joint.
+
+    This extracts p_joint_full[continuous_ind, continuous_ind], renormalizes it into an (L,L)
+    p_joint_latent_, then reuses select_inverse_temperature_match_step with tail_quantile=1.0.
+    """
+    p_joint_latent_ = np.asarray(p_joint_full)[continuous_ind, continuous_ind]
+    p_joint_latent_ = np.nan_to_num(p_joint_latent_, nan=0.0, posinf=0.0, neginf=0.0)
+    p_joint_latent_[p_joint_latent_ < 0] = 0.0
+    Z = float(np.sum(p_joint_latent_))
+    if Z <= 0:
+        raise ValueError(
+            "[select_inverse_temperature_match_step_continuous] p_joint_full[continuous_ind,continuous_ind] has zero total mass"
+        )
+    p_joint_latent_ = p_joint_latent_ / Z
+
+    return select_inverse_temperature_match_step(
+        tuning_fit,
+        p_joint_latent_,
+        p_latent,
+        tail_quantile=1.0,
+        inverse_temperature_l=inverse_temperature_l,
+        metric=metric,
+    )
 
 #== helper for selecting inverse_temperature for transition_matrix from tuning_distance ==
 def rowwise_cross_entropy_loss(beta, S, P_star, w=None):
