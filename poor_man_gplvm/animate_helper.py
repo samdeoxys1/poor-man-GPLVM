@@ -98,6 +98,22 @@ def animate_pynapple_data_mpl(
     >>> from IPython.display import Video
     >>> Video(out['save_path'], embed=True)
     """
+    def _robust_ylim_from_y(y, q=(0.01, 0.99), pad_frac=0.05):
+        y = np.asarray(y)
+        if y.size == 0:
+            return None
+        y = y[np.isfinite(y)]
+        if y.size == 0:
+            return None
+        lo = float(np.nanquantile(y, q[0]))
+        hi = float(np.nanquantile(y, q[1]))
+        if lo == hi:
+            # small symmetric pad
+            lo = lo - 1e-6
+            hi = hi + 1e-6
+        pad = (hi - lo) * pad_frac
+        return (lo - pad, hi + pad)
+
     def _iter_time_sources(obj):
         """
         Yield pynapple-like objects that have `.t` for time bounds.
@@ -303,6 +319,14 @@ def animate_pynapple_data_mpl(
                 ax2 = ax.twinx()
                 (line_twin,) = ax2.plot([], [], color=twin_color, label=twin_label, **line_kwargs)
 
+                # robust y limits from full restricted data
+                yl = _robust_ylim_from_y(info['d_main'])
+                if yl is not None:
+                    ax.set_ylim(*yl)
+                yl2 = _robust_ylim_from_y(info['d_twin'])
+                if yl2 is not None:
+                    ax2.set_ylim(*yl2)
+
                 if main_ylabel is not None:
                     ax.set_ylabel(main_ylabel, color=main_color)
                     ax.tick_params(axis='y', colors=main_color)
@@ -321,6 +345,7 @@ def animate_pynapple_data_mpl(
                     ax.legend(h1 + h2, l1 + l2, frameon=False, loc='upper right')
 
                 ax.set_xlim(st, ed)
+                ax2.set_xlim(st, ed)
 
             elif 'lines' in arr:
                 lines_dict = arr['lines']
@@ -328,15 +353,22 @@ def animate_pynapple_data_mpl(
 
                 info['type'] = 'multi1d'
                 info['lines'] = []
+                y_all = []
                 for lk, lv in lines_dict.items():
                     t = lv.t
                     d = lv.d
                     (ln,) = ax.plot([], [], label=str(lk), **line_kwargs)
                     info['lines'].append({'label': lk, 't': t, 'd': d, 'artist': ln})
+                    y_all.append(np.asarray(d))
                 if ylabel is not None:
                     ax.set_ylabel(ylabel)
                 ax.legend(frameon=False, loc='upper right')
                 ax.set_xlim(st, ed)
+                if len(y_all):
+                    ycat = np.concatenate([yy.ravel() for yy in y_all if yy.size], axis=0) if any(yy.size for yy in y_all) else np.array([])
+                    yl = _robust_ylim_from_y(ycat)
+                    if yl is not None:
+                        ax.set_ylim(*yl)
             else:
                 info['type'] = 'unsupported'
                 ax.text(0.5, 0.5, "Unsupported dict spec",
