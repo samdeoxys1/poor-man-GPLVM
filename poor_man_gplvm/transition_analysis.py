@@ -214,6 +214,106 @@ def select_inverse_temperature(tuning_fit,p_trans_target,inverse_temperature_l =
     transition_matrix,tuning_distance = transition_from_tuning_distance(tuning_fit,best_inverse_temperature,metric=metric)
     return transition_matrix,best_inverse_temperature,loss_l
 
+
+def _weighted_quantile_1d(x, w, q):
+    """
+    Weighted quantile for 1D arrays.
+    x, w: 1D arrays of same length, w >= 0
+    q: float in (0, 1]
+    returns: scalar threshold t such that cumulative weight of x<=t is q.
+    """
+    x = np.asarray(x)
+    w = np.asarray(w)
+    order = np.argsort(x)
+    x_sorted = x[order]
+    w_sorted = w[order]
+    cw = np.cumsum(w_sorted)
+    tot = cw[-1]
+    if tot <= 0:
+        raise ValueError("[_weighted_quantile_1d] sum(w) must be > 0")
+    target = q * tot
+    idx = int(np.searchsorted(cw, target, side="left"))
+    idx = min(max(idx, 0), len(x_sorted) - 1)
+    return float(x_sorted[idx])
+
+
+def select_inverse_temperature_match_step(
+    tuning_fit,
+    p_trans_latent,
+    *,
+    tail_quantile=0.9,
+    inverse_temperature_l=np.arange(5, 20),
+    metric="cosine",
+):
+    """
+    Select inverse_temperature by matching a *bulk* step statistic (trimmed by tail_quantile).
+
+    Given posterior latent pair weights P_post(i,j) proportional to expected transition counts
+    (e.g. from model_fit.decode_latent), define a step metric g_ij from tuning_fit (pairwise
+    distances under `metric`). Let tau be the weighted quantile of {g_ij} under P_post, then
+    compute the bulk conditional mean:
+
+        m* = E[g | g <= tau] under weights P_post.
+
+    For each beta in inverse_temperature_l, define a Gibbs transition kernel
+        K_beta(j|i) ∝ exp(-beta * g_ij),
+    and the model-induced pair weights
+        Q_beta(i,j) = pi_i * K_beta(j|i),  where pi_i = sum_j P_post(i,j).
+
+    Choose beta that best matches m(beta) to m* under the same bulk truncation (g<=tau).
+
+    Returns dict with:
+        p_trans_latent_clean : (K,K) normalized pair weights (sum=1)
+        best_inverse_temperature : scalar
+        loss_l : pd.Series indexed by beta
+        metric_mat : (K,K) pairwise distance matrix g_ij
+        metric_at_quantile : scalar tau
+    """
+    metric_vec = scipy.spatial.distance.pdist(tuning_fit, metric=metric)
+    metric_mat = scipy.spatial.distance.squareform(metric_vec)  # (K,K)
+
+    P = np.asarray(p_trans_latent, dtype=float)
+    P = np.nan_to_num(P, nan=0.0, posinf=0.0, neginf=0.0)
+    P[P < 0] = 0.0
+    Z = P.sum()
+    if Z <= 0:
+        raise ValueError("[select_inverse_temperature_match_step] p_trans_latent has zero total mass")
+    p_trans_latent_clean = P / Z  # (K,K), sum=1
+
+    g = metric_mat.ravel()
+    w = p_trans_latent_clean.ravel()
+    metric_at_quantile = _weighted_quantile_1d(g, w, tail_quantile)
+    bulk_mask = metric_mat <= metric_at_quantile
+
+    denom_star = float((p_trans_latent_clean * bulk_mask).sum())
+    if denom_star <= 0:
+        raise ValueError("[select_inverse_temperature_match_step] no mass in bulk (check tail_quantile / metric)")
+    m_star = float((p_trans_latent_clean * metric_mat * bulk_mask).sum() / denom_star)
+
+    pi = p_trans_latent_clean.sum(axis=1)  # (K,)
+    loss_d = {}
+    for beta in inverse_temperature_l:
+        K_beta = np.exp(-metric_mat * float(beta))
+        K_beta = K_beta / K_beta.sum(axis=1, keepdims=True)
+        Q_beta = pi[:, None] * K_beta
+        denom = float((Q_beta * bulk_mask).sum())
+        if denom <= 0:
+            loss_d[beta] = np.nan
+            continue
+        m_beta = float((Q_beta * metric_mat * bulk_mask).sum() / denom)
+        loss_d[beta] = (m_beta - m_star) ** 2
+
+    loss_l = pd.Series(loss_d)
+    best_inverse_temperature = loss_l.idxmin()
+
+    return {
+        "p_trans_latent_clean": p_trans_latent_clean,
+        "best_inverse_temperature": best_inverse_temperature,
+        "loss_l": loss_l,
+        "metric_mat": metric_mat,
+        "metric_at_quantile": metric_at_quantile,
+    }
+
 #== helper for selecting inverse_temperature for transition_matrix from tuning_distance ==
 def rowwise_cross_entropy_loss(beta, S, P_star, w=None):
     """
