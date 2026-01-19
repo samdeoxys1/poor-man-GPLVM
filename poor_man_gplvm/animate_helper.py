@@ -214,6 +214,8 @@ def animate_pynapple_data_mpl(
         if i < n_plots - 1:
             plt.setp(ax.get_xticklabels(), visible=False)
     axs_right[-1].set_xlabel('Time')
+    # Rotate xticklabels for visibility
+    plt.setp(axs_right[-1].get_xticklabels(), rotation=90)
 
     # --- Prepare maze artists ---
     # Background: full session maze in grey
