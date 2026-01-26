@@ -1479,3 +1479,48 @@ def plot_cdf_and_ks_test(sample1, sample2, alpha=0.05,fig=None,ax=None,label1='s
 #     plt.show()
 
     return fig,ax
+
+# mark events in time (for heatmaps)
+import numpy as np
+import matplotlib.transforms as mtransforms
+
+def mark_times_top_triangles(t_l, ax, c='red', y=1.02, s=60, **kwargs):
+    """
+    Draw downward-pointing triangles above the top of `ax`, pointing into an imshow.
+
+    Parameters
+    ----------
+    t_l : float or array-like
+        X positions (times) in the same units as ax's x-axis.
+    ax : matplotlib.axes.Axes
+        Axes containing the imshow.
+    c : color
+        Triangle color (can be overridden by kwargs['color']).
+    y : float
+        Vertical position in axes-fraction coords (1.0 = top edge). Use >1 to put above.
+    s : float
+        Marker size for scatter (points^2).
+    **kwargs :
+        Passed to ax.scatter (e.g., alpha, edgecolors, linewidths, zorder).
+
+    Returns
+    -------
+    matplotlib.collections.PathCollection or None
+    """
+    t = np.atleast_1d(t_l).astype(float)
+
+    # keep markers within current view
+    x0, x1 = ax.get_xlim()
+    lo, hi = (x0, x1) if x0 <= x1 else (x1, x0)
+    t = t[(t >= lo) & (t <= hi)]
+    if t.size == 0:
+        return None
+
+    blend = mtransforms.blended_transform_factory(ax.transData, ax.transAxes)
+
+    kwargs.setdefault('color', c)
+    kwargs.setdefault('marker', 'v')       # downward triangle
+    kwargs.setdefault('clip_on', False)    # let it sit above the axes
+    kwargs.setdefault('zorder', 10)
+
+    return ax.scatter(t, np.full_like(t, y), transform=blend, s=s, **kwargs)
