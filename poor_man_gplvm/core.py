@@ -151,7 +151,11 @@ class AbstractGPLVM1D(ABC):
             ma_latent = self.ma_latent_default
         
         movement_variance = hyperparam.get('movement_variance', self.movement_variance)
-        custom_transition_kernel_ = self.custom_transition_kernel if custom_transition_kernel is None else custom_transition_kernel
+        if hasattr(self,'custom_transition_kernel') and custom_transition_kernel is None: # check for attribute for backward compatibility
+            custom_transition_kernel_ = self.custom_transition_kernel
+        else:
+            custom_transition_kernel_ = custom_transition_kernel
+
         latent_transition_kernel, log_latent_transition_kernel = gpk.create_transition_prob_latent_1d(
             self.possible_latent_bin, movement_variance, custom_kernel=custom_transition_kernel_)
         
@@ -209,8 +213,12 @@ class AbstractGPLVM1D(ABC):
         return decoding_res
 
     def sample_latent(self, T, key=jax.random.PRNGKey(0), movement_variance=1, init_latent=None):
+        if hasattr(self,'custom_transition_kernel'): # check for attribute for backward compatibility
+            custom_transition_kernel_ = self.custom_transition_kernel
+        else:
+            custom_transition_kernel_ = None
         latent_transition_kernel, log_latent_transition_kernel = gpk.create_transition_prob_latent_1d(
-            self.possible_latent_bin, movement_variance, custom_kernel=self.custom_transition_kernel)
+            self.possible_latent_bin, movement_variance, custom_kernel=custom_transition_kernel_)
 
         if init_latent is None:
             init_latent = jax.random.choice(key, self.possible_latent_bin)
@@ -286,8 +294,12 @@ class AbstractGPLVM1D(ABC):
         iter_saved = []
         log_marginal_saved = []
 
+        if hasattr(self,'custom_transition_kernel'): # check for attribute for backward compatibility
+            custom_transition_kernel_ = self.custom_transition_kernel
+        else:
+            custom_transition_kernel_ = None
         _, log_latent_transition_kernel = gpk.create_transition_prob_latent_1d(
-            self.possible_latent_bin, movement_variance, custom_kernel=self.custom_transition_kernel)
+            self.possible_latent_bin, movement_variance, custom_kernel=custom_transition_kernel_)
         
         if ma_neuron is None:
             ma_neuron = self.ma_neuron_default
@@ -296,8 +308,9 @@ class AbstractGPLVM1D(ABC):
 
         # generate the basis if new tuning_lengthscale is provided
         if 'tuning_lengthscale' in hyperparam:
+            custom_tuning_kernel_ = self.custom_tuning_kernel if hasattr(self, 'custom_tuning_kernel') else None
             tuning_basis = generate_basis(tuning_lengthscale, self.n_latent_bin, 
-                                        self.explained_variance_threshold_basis, include_bias=True,basis_type=self.basis_type,custom_kernel=self.custom_tuning_kernel)
+                                        self.explained_variance_threshold_basis, include_bias=True, basis_type=self.basis_type, custom_kernel=custom_tuning_kernel_)
         else:
             tuning_basis = self.tuning_basis
         
@@ -374,6 +387,14 @@ class AbstractGPLVM1D(ABC):
         }
         return em_res
 
+    def set_custom_transition_kernel(self, custom_transition_kernel):
+        """
+        Convenience setter so a pickled/restored model can swap transition behavior without re-init.
+        For latent-only models, this is a n_latent x n_latent transition matrix (row-normalized inside decoder).
+        """
+        self.custom_transition_kernel = custom_transition_kernel
+        return self
+
 
 class AbstractGPLVMJump1D(ABC):
     """GPLVM with smooth 1d latent + jumps.
@@ -411,7 +432,11 @@ class AbstractGPLVMJump1D(ABC):
 
         # generate the basis
         self.basis_type = basis_type
-        self.tuning_basis = generate_basis(self.tuning_lengthscale,self.n_latent_bin,self.explained_variance_threshold_basis,include_bias=True,basis_type=basis_type,custom_kernel=custom_tuning_kernel)
+        self.custom_tuning_kernel = custom_tuning_kernel
+        self.tuning_basis = generate_basis(
+            self.tuning_lengthscale, self.n_latent_bin, self.explained_variance_threshold_basis,
+            include_bias=True, basis_type=basis_type, custom_kernel=self.custom_tuning_kernel
+        )
         self.n_basis = self.tuning_basis.shape[1]
         self.smoothness_penalty = smoothness_penalty
         # default masks
@@ -473,7 +498,10 @@ class AbstractGPLVMJump1D(ABC):
         movement_variance = hyperparam.get('movement_variance',self.movement_variance)
         p_move_to_jump = hyperparam.get('p_move_to_jump',self.p_move_to_jump)
         p_jump_to_move = hyperparam.get('p_jump_to_move',self.p_jump_to_move)
-        custom_transition_kernel_ = self.custom_transition_kernel if custom_transition_kernel is None else custom_transition_kernel
+        if hasattr(self,'custom_transition_kernel') and custom_transition_kernel is None: # check for attribute for backward compatibility
+            custom_transition_kernel_ = self.custom_transition_kernel
+        else:
+            custom_transition_kernel_ = custom_transition_kernel
         latent_transition_kernel_l,log_latent_transition_kernel_l,dynamics_transition_kernel,log_dynamics_transition_kernel = gpk.create_transition_prob_1d(
             self.possible_latent_bin,self.possible_dynamics,movement_variance,p_move_to_jump,p_jump_to_move,custom_kernel=custom_transition_kernel_)
         log_posterior_all,log_marginal_final,log_causal_posterior_all,log_one_step_predictive_marginals_all,log_accumulated_joint_total,log_likelihood_all= self._decode_latent(y,tuning,hyperparam,log_latent_transition_kernel_l,log_dynamics_transition_kernel,ma_neuron,ma_latent=ma_latent,likelihood_scale=likelihood_scale,n_time_per_chunk=n_time_per_chunk)
@@ -599,6 +627,7 @@ class AbstractGPLVMJump1D(ABC):
                     n_iter=20,
                       log_posterior_init=None,opt_state_curr=None,ma_neuron=None,ma_latent=None,n_time_per_chunk=10000,dt=1.,likelihood_scale=1.,
                       save_every=None,posterior_init_kwargs={'random_scale':0.1},verboase=True,
+                      custom_transition_kernel=None,
                       **kwargs):
         '''
         fit the model using 
@@ -630,7 +659,14 @@ class AbstractGPLVMJump1D(ABC):
         iter_saved = []
         log_marginal_saved = []
 
-        _,log_latent_transition_kernel_l,_,log_dynamics_transition_kernel = gpk.create_transition_prob_1d(self.possible_latent_bin,self.possible_dynamics,movement_variance,p_move_to_jump,p_jump_to_move,custom_kernel=self.custom_transition_kernel)
+        custom_transition_kernel_attr = self.custom_transition_kernel if hasattr(self, 'custom_transition_kernel') else None
+        custom_transition_kernel_ = custom_transition_kernel_attr if custom_transition_kernel is None else custom_transition_kernel
+        if custom_transition_kernel is not None:
+            self.custom_transition_kernel = custom_transition_kernel
+        _, log_latent_transition_kernel_l, _, log_dynamics_transition_kernel = gpk.create_transition_prob_1d(
+            self.possible_latent_bin, self.possible_dynamics, movement_variance, p_move_to_jump, p_jump_to_move,
+            custom_kernel=custom_transition_kernel_
+        )
         
         if ma_neuron is None:
             ma_neuron = self.ma_neuron_default
@@ -639,12 +675,16 @@ class AbstractGPLVMJump1D(ABC):
 
         # generate the basis if new tuning_lengthscale is provided
         if 'tuning_lengthscale' in hyperparam:
-            tuning_basis = generate_basis(tuning_lengthscale,self.n_latent_bin,self.explained_variance_threshold_basis,include_bias=True)
+            custom_tuning_kernel_ = self.custom_tuning_kernel if hasattr(self, 'custom_tuning_kernel') else None
+            tuning_basis = generate_basis(
+                tuning_lengthscale, self.n_latent_bin, self.explained_variance_threshold_basis,
+                include_bias=True, basis_type=self.basis_type, custom_kernel=custom_tuning_kernel_
+            )
         else:
             tuning_basis = self.tuning_basis
         
         if log_posterior_init is None:
-            log_posterior_init,posterior_init = self.init_latent_posterior(y.shape[0],key,**posterior_init_kwargs)
+            log_posterior_init, posterior_init = self.init_latent_posterior(y_.shape[0], key, **posterior_init_kwargs)
             key,_=jax.random.split(key,2)
         
         log_posterior_curr = log_posterior_init
@@ -718,6 +758,14 @@ class AbstractGPLVMJump1D(ABC):
                   }
         return em_res
 
+    def set_custom_transition_kernel(self, custom_transition_kernel):
+        """
+        Convenience setter so a pickled/restored model can swap transition behavior without re-init.
+        For jump models, this is a n_latent x n_latent transition matrix used for the "move" latent kernel.
+        """
+        self.custom_transition_kernel = custom_transition_kernel
+        return self
+
     
     def predict_expected_rate(self,post_latent_marg,tuning=None): #[[careful about multiD]]
         '''
@@ -771,6 +819,29 @@ class PoissonGPLVMJump1D(AbstractGPLVMJump1D):
     def __setstate__(self, state):
         """Custom unpickling - restore state, JIT function will be recreated in fit_em"""
         self.__dict__.update(state)
+        # Backward-compat defaults (older pickles may not have these)
+        if not hasattr(self, 'custom_tuning_kernel'):
+            self.custom_tuning_kernel = None
+        if not hasattr(self, 'custom_transition_kernel'):
+            self.custom_transition_kernel = None
+        if not hasattr(self, 'basis_type'):
+            self.basis_type = 'rbf'
+        if not hasattr(self, 'possible_latent_bin') and hasattr(self, 'n_latent_bin'):
+            self.possible_latent_bin = jnp.arange(self.n_latent_bin)
+        if not hasattr(self, 'possible_dynamics'):
+            self.possible_dynamics = jnp.arange(2)
+        if not hasattr(self, 'ma_neuron_default') and hasattr(self, 'n_neuron'):
+            self.ma_neuron_default = jnp.ones(self.n_neuron)
+        if not hasattr(self, 'ma_latent_default') and hasattr(self, 'n_latent_bin'):
+            self.ma_latent_default = jnp.ones(self.n_latent_bin)
+        if not hasattr(self, 'tuning_basis') and hasattr(self, 'tuning_lengthscale') and hasattr(self, 'n_latent_bin'):
+            self.tuning_basis = generate_basis(
+                self.tuning_lengthscale, self.n_latent_bin,
+                getattr(self, 'explained_variance_threshold_basis', 0.999),
+                include_bias=True, basis_type=getattr(self, 'basis_type', 'rbf'),
+                custom_kernel=getattr(self, 'custom_tuning_kernel', None)
+            )
+            self.n_basis = self.tuning_basis.shape[1]
 
     def loglikelihood(self,y,ypred,hyperparam):
         return jax.scipy.stats.poisson.logpmf(y,ypred+1e-40)
@@ -943,6 +1014,27 @@ class PoissonGPLVM1D(AbstractGPLVM1D):
     def __setstate__(self, state):
         """Custom unpickling - restore state, JIT function will be recreated in fit_em"""
         self.__dict__.update(state)
+        # Backward-compat defaults (older pickles may not have these)
+        if not hasattr(self, 'custom_tuning_kernel'):
+            self.custom_tuning_kernel = None
+        if not hasattr(self, 'custom_transition_kernel'):
+            self.custom_transition_kernel = None
+        if not hasattr(self, 'basis_type'):
+            self.basis_type = 'rbf'
+        if not hasattr(self, 'possible_latent_bin') and hasattr(self, 'n_latent_bin'):
+            self.possible_latent_bin = jnp.arange(self.n_latent_bin)
+        if not hasattr(self, 'ma_neuron_default') and hasattr(self, 'n_neuron'):
+            self.ma_neuron_default = jnp.ones(self.n_neuron)
+        if not hasattr(self, 'ma_latent_default') and hasattr(self, 'n_latent_bin'):
+            self.ma_latent_default = jnp.ones(self.n_latent_bin)
+        if not hasattr(self, 'tuning_basis') and hasattr(self, 'tuning_lengthscale') and hasattr(self, 'n_latent_bin'):
+            self.tuning_basis = generate_basis(
+                self.tuning_lengthscale, self.n_latent_bin,
+                getattr(self, 'explained_variance_threshold_basis', 0.999),
+                include_bias=True, basis_type=getattr(self, 'basis_type', 'rbf'),
+                custom_kernel=getattr(self, 'custom_tuning_kernel', None)
+            )
+            self.n_basis = self.tuning_basis.shape[1]
 
     def loglikelihood(self, y, ypred, hyperparam):
         return jax.scipy.stats.poisson.logpmf(y, ypred+1e-40)
