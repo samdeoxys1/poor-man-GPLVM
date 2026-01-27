@@ -25,9 +25,8 @@ def compute_clean_transition_and_decode(
     model_fit : PoissonGPLVMJump1D
         Fitted model
     decode_res : dict
-        Decoding result from model_fit.decode_latent
-    posterior_latent_marg : nap.TsdFrame
-        Posterior latent marginal (n_time x n_latent_bin)
+        Decoding result from model_fit.decode_latent; if None then do decoding; need to provide the posterior transition probability and the posterior marginal probablity of the latent
+
     inverse_temperature_l : array-like
         Candidate inverse temperatures to search
     metric : str
