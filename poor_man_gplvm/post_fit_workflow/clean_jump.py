@@ -2,6 +2,10 @@
 After fitting the model
 Refit transition probability based on (unsmoothed) tuning similarity
 Then re-decode
+
+From tuning similarity to transition probability: use the Gibbs distirbution
+to select the inverse temperature, matches to target transition, for each row
+target transition from the posterior transition probability only under the continuous dynamics, i.e. p_transition_full[0,0] / p_transition_full[0,0].sum(axis=1,keepdims=True)
 '''
 import poor_man_gplvm.transition_analysis as pta
 import poor_man_gplvm.fit_tuning_helper as fth
