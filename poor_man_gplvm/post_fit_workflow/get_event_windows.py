@@ -8,7 +8,7 @@ import pynapple as nap
 
 def detect_population_burst_event(spike_times, mask=None, ep=None, bin_size=0.001, smooth_std=0.0075, 
                                  z_thresh=3.0, min_duration=0.05, max_duration=0.5,
-                                 ripple_intervals=None):
+                                 ripple_intervals=None,return_population_rate=False):
     '''
     Detect population burst events based on z-scored population firing rate.
     
@@ -155,13 +155,15 @@ def detect_population_burst_event(spike_times, mask=None, ep=None, bin_size=0.00
     else:
         population_rate_restricted = nap.Tsd(t=[], d=[], time_support=population_rate_smooth.time_support)
         population_rate_z_restricted = nap.Tsd(t=[], d=[], time_support=population_rate_z.time_support)
-    
-    return {
+    to_return = {
         'event_windows': event_windows,
         'event_windows_with_ripple': event_windows_with_ripple,
-        'population_rate': population_rate_restricted,
-        'population_rate_z': population_rate_z_restricted,
+        
         'mean_rate': mean_rate,
         'std_rate': std_rate,
         'n_ripples_per_event': n_ripples_per_event,
     }
+    if return_population_rate:  
+        to_return['population_rate'] = population_rate_restricted
+        to_return['population_rate_z'] = population_rate_z_restricted
+    return to_return
