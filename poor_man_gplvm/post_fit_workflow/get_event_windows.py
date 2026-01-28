@@ -5,10 +5,12 @@ helper function for getting special event windows
 '''
 import numpy as np
 import pynapple as nap
+import os
+import pickle
 
 def detect_population_burst_event(spike_times, mask=None, ep=None, bin_size=0.001, smooth_std=0.0075, 
                                  z_thresh=3.0, min_duration=0.05, max_duration=0.5,
-                                 ripple_intervals=None,return_population_rate=False):
+                                 ripple_intervals=None,return_population_rate=False,save_dir='./',save_fn='pbe.p',force_reload=False,dosave=True):
     '''
     Detect population burst events based on z-scored population firing rate.
     
@@ -32,7 +34,16 @@ def detect_population_burst_event(spike_times, mask=None, ep=None, bin_size=0.00
         Maximum duration for valid events (default 0.5s)
     ripple_intervals : nap.IntervalSet, optional
         Ripple intervals to count within each event window
-        
+    save_dir : str
+        Directory to save results (default './')
+    save_fn : str
+        Filename to save results (default 'pbe.p')
+    force_reload : bool
+        If False and save file exists, load from disk. If True, recompute (default False)
+    dosave : bool
+        Whether to save results to disk (default True)
+    return_population_rate : bool
+        Whether to return population rate and z-scored population rate (default False)
     Returns:
     --------
     dict with:
@@ -41,8 +52,13 @@ def detect_population_burst_event(spike_times, mask=None, ep=None, bin_size=0.00
         - population_rate: nap.Tsd of smoothed population rate (restricted to event_windows)
         - population_rate_z: nap.Tsd of z-scored population rate (restricted to event_windows)
     '''
-    
-    
+    os.makedirs(save_dir,exist_ok=True)
+    save_fn_full = os.path.join(save_dir,save_fn)
+    if os.path.exists(save_fn_full) and not force_reload:
+        to_return = pickle.load(open(save_fn_full,'rb'))
+        print(f'{save_fn_full} exists; loading---')
+        return to_return
+    print(f'Detecting population burst events...')
     # Apply mask if provided
     if mask is not None:
         mask = np.asarray(mask)
@@ -53,6 +69,7 @@ def detect_population_burst_event(spike_times, mask=None, ep=None, bin_size=0.00
         spike_times = spike_times[indices]
     
     # Count spikes in bins
+    print(f'Counting spikes in bins...')
     spike_counts = spike_times.count(bin_size=bin_size, ep=ep)
     
     # Sum across all units to get population rate
@@ -166,4 +183,7 @@ def detect_population_burst_event(spike_times, mask=None, ep=None, bin_size=0.00
     if return_population_rate:  
         to_return['population_rate'] = population_rate_restricted
         to_return['population_rate_z'] = population_rate_z_restricted
+    if dosave:
+        pickle.dump(to_return, open(save_fn_full,'wb'))
+        print(f'Saved results to {save_fn_full}')
     return to_return
