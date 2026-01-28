@@ -47,7 +47,7 @@ def bin_spike_train_to_trial_based(spike_train,trial_intervals,binsize=0.02):
     '''
 
     # concatenated spike matrix
-    spike_mat = spike_train.count(binsize=binsize,ep=trial_intervals)
+    spike_mat = spike_train.count(binsize,ep=trial_intervals)
 
     # event index for each bin
     event_index_per_bin = trial_intervals.in_interval(nap.Ts(spike_mat.t))
