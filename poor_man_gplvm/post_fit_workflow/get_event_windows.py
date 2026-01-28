@@ -8,7 +8,7 @@ import pynapple as nap
 import os
 import pickle
 
-def detect_population_burst_event(spike_times, mask=None, ep=None, bin_size=0.001, smooth_std=0.0075, 
+def detect_population_burst_event(spike_times, mask=None, ep=None, bin_size=0.002, smooth_std=0.0075, 
                                  z_thresh=3.0, min_duration=0.05, max_duration=0.5,
                                  ripple_intervals=None,return_population_rate=False,save_dir='./',save_fn='pbe.p',force_reload=False,dosave=True):
     '''
