@@ -5,6 +5,8 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 
+import pynapple as nap
+
 def get_event_phase_in_trial(trials,event_key_l=[],span_key=['start','end']):
     '''
     get the phase of the event in the trial
