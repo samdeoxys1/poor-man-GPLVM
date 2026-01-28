@@ -6,11 +6,11 @@ helper function for getting special event windows
 import numpy as np
 import pynapple as nap
 
-def detect_population_synchrony(spike_times, mask=None, ep=None, bin_size=0.001, smooth_std=0.0075, 
+def detect_population_burst_event(spike_times, mask=None, ep=None, bin_size=0.001, smooth_std=0.0075, 
                                  z_thresh=3.0, min_duration=0.05, max_duration=0.5,
                                  ripple_intervals=None):
     '''
-    Detect population synchrony events based on z-scored population firing rate.
+    Detect population burst events based on z-scored population firing rate.
     
     Parameters:
     -----------
