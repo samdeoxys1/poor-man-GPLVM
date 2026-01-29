@@ -10,8 +10,8 @@ input:
     smooth_std: float (same for all label dimensions), array (different for each dimension), or {maze_key : float or array} for multiple mazes, the standard deviation for the Gaussian kernel for smoothing; if any ==0/None, then no smoothing; in label unit
     occupancy_threshold: threshold in seconds (need to convert to bin units) for a label bin to be considered occupied; unoccupied bins will be masked with nan; if None, then all bins are considered occupied
     label_min: float, array (per dim), or {maze_key : float or array}; lower edge of first bin; values below go to first bin; None => infer from data
-    label_max: float, array (per dim), or {maze_key : float or array}; lower edge of last bin; values >= max go to last bin; None => infer from data
-        useful for coarse binning, e.g. speed bins [0,5), [5,10), [10,inf) with label_min=0, label_max=10, label_bin_size=5
+    label_max: float, array (per dim), or {maze_key : float or array}; upper limit for binning; values above go to last bin; None => infer from data
+        useful for coarse binning, e.g. speed bins [0,5), [5,10), [10,15] with label_min=0, label_max=10, label_bin_size=5
 
 
 tuning_flat: n_valid_bin x n_neuron (only valid/occupied bins)
@@ -119,10 +119,10 @@ def label_to_grid(label, label_bin_size, label_min=None, label_max=None):
     label_min: float or array (per dim), or None => infer from data
         lower edge of first bin; values below go to first bin
     label_max: float or array (per dim), or None => infer from data
-        lower edge of last bin; values >= max go to last bin
+        upper limit for binning; values above go to last bin
     
     Returns:
-        bin_edges_l: list of arrays, bin edges for each dim (last edge is inf for open-ended)
+        bin_edges_l: list of arrays, bin edges for each dim
         bin_centers_l: list of arrays, bin centers for each dim
         grid_shape: tuple, shape of the grid (n_bins_dim0, n_bins_dim1, ...)
         label_dim_names: list of str, column names from label
@@ -137,19 +137,25 @@ def label_to_grid(label, label_bin_size, label_min=None, label_max=None):
         label_dim_names = [f'dim{i}' for i in range(n_dim)]
     
     # broadcast bin_size, label_min, label_max
+    # convert to list to preserve None values per dimension
     label_bin_size = np.atleast_1d(label_bin_size).astype(float)
     if label_bin_size.size == 1:
         label_bin_size = np.repeat(label_bin_size, n_dim)
     
+    # handle label_min/max as lists to preserve per-dim None
     if label_min is not None:
-        label_min = np.atleast_1d(label_min).astype(float)
-        if label_min.size == 1:
-            label_min = np.repeat(label_min, n_dim)
+        label_min = list(np.atleast_1d(label_min))
+        if len(label_min) == 1:
+            label_min = label_min * n_dim
+    else:
+        label_min = [None] * n_dim
     
     if label_max is not None:
-        label_max = np.atleast_1d(label_max).astype(float)
-        if label_max.size == 1:
-            label_max = np.repeat(label_max, n_dim)
+        label_max = list(np.atleast_1d(label_max))
+        if len(label_max) == 1:
+            label_max = label_max * n_dim
+    else:
+        label_max = [None] * n_dim
     
     bin_edges_l = []
     bin_centers_l = []
@@ -158,39 +164,29 @@ def label_to_grid(label, label_bin_size, label_min=None, label_max=None):
         finite_ma = np.isfinite(col)
         col_finite = col[finite_ma]
         
-        # determine lo (first bin edge)
-        if label_min is not None:
-            lo = label_min[d]
+        # determine lo (first bin edge) - check per-dim None
+        lmin_d = label_min[d]
+        if lmin_d is not None and np.isfinite(float(lmin_d)):
+            lo = float(lmin_d)
         elif col_finite.size == 0:
             lo = 0.
         else:
             lo = col_finite.min()
         
-        # determine hi (lower edge of last bin)
-        if label_max is not None:
-            hi = label_max[d]
+        # determine hi (lower edge of last bin) - check per-dim None
+        lmax_d = label_max[d]
+        if lmax_d is not None and np.isfinite(float(lmax_d)):
+            hi = float(lmax_d)
         elif col_finite.size == 0:
             hi = 1.
         else:
             hi = col_finite.max()
         
         bs = label_bin_size[d]
-        # build edges: [lo, lo+bs, lo+2*bs, ..., hi, inf)
-        # the last bin captures everything >= hi
-        inner_edges = np.arange(lo, hi + 1e-9, bs)
-        # ensure hi is included as the last inner edge if not already
-        if len(inner_edges) == 0 or inner_edges[-1] < hi - 1e-9:
-            inner_edges = np.append(inner_edges, hi)
-        # add inf as final edge so values >= hi go to last bin
-        edges = np.append(inner_edges, np.inf)
-        # centers: for open-ended last bin, use hi + bs/2 as nominal center
-        centers = []
-        for i in range(len(edges) - 1):
-            if np.isinf(edges[i + 1]):
-                centers.append(edges[i] + bs / 2)
-            else:
-                centers.append(0.5 * (edges[i] + edges[i + 1]))
-        centers = np.array(centers)
+        # build edges from lo to hi+bs (so hi is included in last bin)
+        # values below lo go to first bin, values >= last edge go to last bin (clipped)
+        edges = np.arange(lo, hi + bs + 1e-9, bs)
+        centers = 0.5 * (edges[:-1] + edges[1:])
         
         bin_edges_l.append(edges)
         bin_centers_l.append(centers)
@@ -420,8 +416,8 @@ def get_tuning(label_l, spk_mat, ep=None, custom_smooth_func=None,
     label_min : float, array, or dict, optional
         Lower edge of first bin; values below go to first bin. None => infer from data.
     label_max : float, array, or dict, optional
-        Lower edge of last bin; values >= max go to last bin. None => infer from data.
-        Useful for coarse binning, e.g. speed [0,5), [5,10), [10,inf) with min=0, max=10, bin_size=5.
+        Upper limit for binning; values above go to last bin. None => infer from data.
+        Useful for coarse binning, e.g. speed [0,5), [5,10), [10,15] with min=0, max=10, bin_size=5.
     
     Returns
     -------
