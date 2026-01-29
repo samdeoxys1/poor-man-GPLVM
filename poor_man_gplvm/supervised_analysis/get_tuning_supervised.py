@@ -11,19 +11,16 @@ input:
     occupancy_threshold: threshold in seconds (need to convert to bin units) for a label bin to be considered occupied; unoccupied bins will be masked with nan; if None, then all bins are considered occupied
 
 
-tuning_flat: n_label_bin x n_neuron
+tuning_flat: n_valid_bin x n_neuron (only valid/occupied bins)
 tuning: xr.DataArray or {maze_key : xr.DataArray} for multiple mazes
     firing rate in Cartesian product of the multiple label dimensions
-    the unoccupied bins are filled with nan; when flattening it the nan is dropped
+    the unoccupied bins are filled with nan
 
     tuning is computed by smoothed spk count / smoothed occupancy
     smoothing is done assuming independent Gaussian kernel for each dimension
-occupancy:
-occupancy_smth:
-spk_count:
-spk_count_smth:
-label_grid: (n_label_bin_1+1) x (n_label_bin_2+1) x...
-label_grid_centers: n_label_bin_1 x n_label_bin_2 x...
+occupancy_flat, occupancy_smth_flat, spk_count_flat, spk_count_smth_flat: 
+    all flat arrays only contain valid (occupied) bins; use valid_flat_mask to map back to full grid
+label_grid_centers: meshgrid of bin centers
 '''
 
 import numpy as np
@@ -468,10 +465,13 @@ def get_tuning(label_l, spk_mat, ep=None, custom_smooth_func=None,
         occupancy_smth_xr = xr.DataArray(occupancy_smth_grid, dims=label_dim_names,
                                          coords={dn: bin_centers_l[i] for i, dn in enumerate(label_dim_names)})
         
-        # flatten valid for convenience
-        valid_flat_mask = np.all(np.isfinite(tuning_flat), axis=1)
-        tuning_flat_valid = tuning_flat[valid_flat_mask]
-        flat_inds_valid = np.where(valid_flat_mask)[0]
+        # keep only valid (non-NaN) bins in flat arrays
+        valid_flat_mask = occupied_mask & np.all(np.isfinite(tuning_flat), axis=1)
+        tuning_flat = tuning_flat[valid_flat_mask]
+        occupancy_flat = occupancy_flat[valid_flat_mask]
+        occupancy_smth_flat = occupancy_smth_flat[valid_flat_mask]
+        spk_count_flat = spk_count_flat[valid_flat_mask]
+        spk_count_smth_flat = spk_count_smth_flat[valid_flat_mask]
         
         res = {
             'occupancy': occupancy_xr,
@@ -486,8 +486,11 @@ def get_tuning(label_l, spk_mat, ep=None, custom_smooth_func=None,
             'neuron_names': neuron_names,
             'occupied_mask': occupied_mask,
             'tuning_flat': tuning_flat,
-            'tuning_flat_valid': tuning_flat_valid,
-            'flat_inds_valid': flat_inds_valid,
+            'occupancy_flat': occupancy_flat,
+            'occupancy_smth_flat': occupancy_smth_flat,
+            'spk_count_flat': spk_count_flat,
+            'spk_count_smth_flat': spk_count_smth_flat,
+            'valid_flat_mask': valid_flat_mask,
             'dt': dt,
             'smoothing_matrix': S,
             'n_valid_timepoints': valid_mask.sum(),
