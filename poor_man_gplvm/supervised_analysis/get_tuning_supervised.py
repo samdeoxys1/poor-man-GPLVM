@@ -9,6 +9,9 @@ input:
     label_bin_size: float (same for all label dimensions), array (different for each dimension), or {maze_key : float or array} for multiple mazes, the bin size for the label grid
     smooth_std: float (same for all label dimensions), array (different for each dimension), or {maze_key : float or array} for multiple mazes, the standard deviation for the Gaussian kernel for smoothing; if any ==0/None, then no smoothing; in label unit
     occupancy_threshold: threshold in seconds (need to convert to bin units) for a label bin to be considered occupied; unoccupied bins will be masked with nan; if None, then all bins are considered occupied
+    label_min: float, array (per dim), or {maze_key : float or array}; lower edge of first bin; values below go to first bin; None => infer from data
+    label_max: float, array (per dim), or {maze_key : float or array}; lower edge of last bin; values >= max go to last bin; None => infer from data
+        useful for coarse binning, e.g. speed bins [0,5), [5,10), [10,inf) with label_min=0, label_max=10, label_bin_size=5
 
 
 tuning_flat: n_valid_bin x n_neuron (only valid/occupied bins)
@@ -39,7 +42,7 @@ def _to_dict(val, maze_keys, name=''):
 
 
 def _normalize_inputs(label_l, spk_mat, ep=None, custom_smooth_func=None, 
-                      label_bin_size=1., smooth_std=None):
+                      label_bin_size=1., smooth_std=None, label_min=None, label_max=None):
     '''
     Normalize single vs multi-maze inputs.
     Returns dict-form for all inputs keyed by maze_key.
@@ -58,6 +61,8 @@ def _normalize_inputs(label_l, spk_mat, ep=None, custom_smooth_func=None,
     custom_smooth_func_d = _to_dict(custom_smooth_func, maze_keys, 'custom_smooth_func')
     label_bin_size_d = _to_dict(label_bin_size, maze_keys, 'label_bin_size')
     smooth_std_d = _to_dict(smooth_std, maze_keys, 'smooth_std')
+    label_min_d = _to_dict(label_min, maze_keys, 'label_min')
+    label_max_d = _to_dict(label_max, maze_keys, 'label_max')
 
     # align and restrict
     label_aligned_d = {}
@@ -94,6 +99,8 @@ def _normalize_inputs(label_l, spk_mat, ep=None, custom_smooth_func=None,
         'custom_smooth_func_d': custom_smooth_func_d,
         'label_bin_size_d': label_bin_size_d,
         'smooth_std_d': smooth_std_d,
+        'label_min_d': label_min_d,
+        'label_max_d': label_max_d,
         'maze_keys': maze_keys,
         'is_multi': is_multi,
     }
@@ -103,15 +110,19 @@ def _normalize_inputs(label_l, spk_mat, ep=None, custom_smooth_func=None,
 # label_to_grid: build bin edges and centers
 # ============================================================================
 
-def label_to_grid(label, label_bin_size):
+def label_to_grid(label, label_bin_size, label_min=None, label_max=None):
     '''
     Build bin edges and centers from label data.
     
     label: nap.TsdFrame (n_time x n_dim)
     label_bin_size: float or array (per dim)
+    label_min: float or array (per dim), or None => infer from data
+        lower edge of first bin; values below go to first bin
+    label_max: float or array (per dim), or None => infer from data
+        lower edge of last bin; values >= max go to last bin
     
     Returns:
-        bin_edges_l: list of arrays, bin edges for each dim
+        bin_edges_l: list of arrays, bin edges for each dim (last edge is inf for open-ended)
         bin_centers_l: list of arrays, bin centers for each dim
         grid_shape: tuple, shape of the grid (n_bins_dim0, n_bins_dim1, ...)
         label_dim_names: list of str, column names from label
@@ -125,10 +136,20 @@ def label_to_grid(label, label_bin_size):
     else:
         label_dim_names = [f'dim{i}' for i in range(n_dim)]
     
-    # broadcast bin_size
-    label_bin_size = np.atleast_1d(label_bin_size)
+    # broadcast bin_size, label_min, label_max
+    label_bin_size = np.atleast_1d(label_bin_size).astype(float)
     if label_bin_size.size == 1:
         label_bin_size = np.repeat(label_bin_size, n_dim)
+    
+    if label_min is not None:
+        label_min = np.atleast_1d(label_min).astype(float)
+        if label_min.size == 1:
+            label_min = np.repeat(label_min, n_dim)
+    
+    if label_max is not None:
+        label_max = np.atleast_1d(label_max).astype(float)
+        if label_max.size == 1:
+            label_max = np.repeat(label_max, n_dim)
     
     bin_edges_l = []
     bin_centers_l = []
@@ -136,15 +157,41 @@ def label_to_grid(label, label_bin_size):
         col = label_arr[:, d]
         finite_ma = np.isfinite(col)
         col_finite = col[finite_ma]
-        if col_finite.size == 0:
-            # fallback
-            lo, hi = 0., 1.
+        
+        # determine lo (first bin edge)
+        if label_min is not None:
+            lo = label_min[d]
+        elif col_finite.size == 0:
+            lo = 0.
         else:
-            lo, hi = col_finite.min(), col_finite.max()
+            lo = col_finite.min()
+        
+        # determine hi (lower edge of last bin)
+        if label_max is not None:
+            hi = label_max[d]
+        elif col_finite.size == 0:
+            hi = 1.
+        else:
+            hi = col_finite.max()
+        
         bs = label_bin_size[d]
-        # build edges from lo to hi+bs (so hi is included in last bin)
-        edges = np.arange(lo, hi + bs + 1e-9, bs)
-        centers = 0.5 * (edges[:-1] + edges[1:])
+        # build edges: [lo, lo+bs, lo+2*bs, ..., hi, inf)
+        # the last bin captures everything >= hi
+        inner_edges = np.arange(lo, hi + 1e-9, bs)
+        # ensure hi is included as the last inner edge if not already
+        if len(inner_edges) == 0 or inner_edges[-1] < hi - 1e-9:
+            inner_edges = np.append(inner_edges, hi)
+        # add inf as final edge so values >= hi go to last bin
+        edges = np.append(inner_edges, np.inf)
+        # centers: for open-ended last bin, use hi + bs/2 as nominal center
+        centers = []
+        for i in range(len(edges) - 1):
+            if np.isinf(edges[i + 1]):
+                centers.append(edges[i] + bs / 2)
+            else:
+                centers.append(0.5 * (edges[i] + edges[i + 1]))
+        centers = np.array(centers)
+        
         bin_edges_l.append(edges)
         bin_centers_l.append(centers)
     
@@ -158,6 +205,9 @@ def _digitize_labels(label_arr, bin_edges_l):
     Convert label array to per-dim bin indices.
     Returns bin_inds (n_time, n_dim), valid_mask (n_time,).
     Bin indices are 0-based, clipped to valid range.
+    
+    Values below min edge go to first bin (index 0).
+    Values >= max edge go to last bin (since last edge is inf).
     '''
     n_time, n_dim = label_arr.shape
     bin_inds = np.zeros((n_time, n_dim), dtype=int)
@@ -168,14 +218,15 @@ def _digitize_labels(label_arr, bin_edges_l):
         edges = bin_edges_l[d]
         n_bins = len(edges) - 1
         
-        # digitize: returns 1..n_bins for values in range, 0 or n_bins+1 for out
+        # digitize: returns 1..n_bins for values in range, 0 for below first edge
+        # since last edge is inf, values >= second-to-last edge go to last bin
         inds = np.digitize(col, edges) - 1  # now 0-based
         
-        # mark invalid: NaN or out of range
-        invalid = ~np.isfinite(col) | (inds < 0) | (inds >= n_bins)
+        # mark invalid: only NaN
+        invalid = ~np.isfinite(col)
         valid_mask &= ~invalid
         
-        # clip for safe indexing (invalids will be masked out)
+        # clip: values below min go to 0, values above (shouldn't happen with inf edge) clip to n_bins-1
         bin_inds[:, d] = np.clip(inds, 0, n_bins - 1)
     
     return bin_inds, valid_mask
@@ -345,7 +396,8 @@ def get_smoothing_matrix(bin_centers_l, grid_shape, smooth_std=None, custom_smoo
 # ============================================================================
 
 def get_tuning(label_l, spk_mat, ep=None, custom_smooth_func=None,
-               label_bin_size=1., smooth_std=None, occupancy_threshold=None):
+               label_bin_size=1., smooth_std=None, occupancy_threshold=None,
+               label_min=None, label_max=None):
     '''
     Compute tuning curves from labels and spike matrix.
     
@@ -365,6 +417,11 @@ def get_tuning(label_l, spk_mat, ep=None, custom_smooth_func=None,
         Gaussian smoothing std in label units. 0/None => no smoothing.
     occupancy_threshold : float, optional
         Threshold in seconds; bins with raw occupancy below this are NaN.
+    label_min : float, array, or dict, optional
+        Lower edge of first bin; values below go to first bin. None => infer from data.
+    label_max : float, array, or dict, optional
+        Lower edge of last bin; values >= max go to last bin. None => infer from data.
+        Useful for coarse binning, e.g. speed [0,5), [5,10), [10,inf) with min=0, max=10, bin_size=5.
     
     Returns
     -------
@@ -380,13 +437,16 @@ def get_tuning(label_l, spk_mat, ep=None, custom_smooth_func=None,
     norm = _normalize_inputs(label_l, spk_mat, ep=ep, 
                              custom_smooth_func=custom_smooth_func,
                              label_bin_size=label_bin_size, 
-                             smooth_std=smooth_std)
+                             smooth_std=smooth_std,
+                             label_min=label_min, label_max=label_max)
     
     label_d = norm['label_d']
     spk_d = norm['spk_d']
     custom_smooth_func_d = norm['custom_smooth_func_d']
     label_bin_size_d = norm['label_bin_size_d']
     smooth_std_d = norm['smooth_std_d']
+    label_min_d = norm['label_min_d']
+    label_max_d = norm['label_max_d']
     maze_keys = norm['maze_keys']
     is_multi = norm['is_multi']
     
@@ -399,9 +459,12 @@ def get_tuning(label_l, spk_mat, ep=None, custom_smooth_func=None,
         csf_k = custom_smooth_func_d.get(k, None)
         lbs_k = label_bin_size_d.get(k, 1.)
         ss_k = smooth_std_d.get(k, None)
+        lmin_k = label_min_d.get(k, None)
+        lmax_k = label_max_d.get(k, None)
         
         # build grid
-        bin_edges_l, bin_centers_l, grid_shape, label_dim_names = label_to_grid(label_k, lbs_k)
+        bin_edges_l, bin_centers_l, grid_shape, label_dim_names = label_to_grid(
+            label_k, lbs_k, label_min=lmin_k, label_max=lmax_k)
         n_flat = int(np.prod(grid_shape))
         
         # get neuron names
