@@ -12,6 +12,8 @@ input:
     label_min: float, array (per dim), or {maze_key : float or array}; lower edge of first bin; values below go to first bin; None => infer from data
     label_max: float, array (per dim), or {maze_key : float or array}; upper limit for binning; values above go to last bin; None => infer from data
         useful for coarse binning, e.g. speed bins [0,5), [5,10), [10,15] with label_min=0, label_max=10, label_bin_size=5
+    categorical_labels: None (auto-detect integer-valued columns like 0.0,1.0,2.0), list of column names, [] (none), or True (all)
+        categorical columns use nearest-neighbor alignment instead of interpolation
 
 
 Returns tuning_res dict with:
@@ -40,12 +42,47 @@ def _to_dict(val, maze_keys, name=''):
     return {k: val for k in maze_keys}
 
 
+def _is_integer_valued(arr):
+    '''check if array values are all integers (zero decimal part)'''
+    finite = arr[np.isfinite(arr)]
+    if finite.size == 0:
+        return False
+    return np.allclose(finite, np.floor(finite))
+
+
+def _nearest_align(source_tsd, target_times):
+    '''
+    Align source_tsd to target_times using nearest-neighbor (not interpolation).
+    Returns values at nearest source timestamp for each target time.
+    '''
+    source_t = source_tsd.t
+    source_d = source_tsd.d
+    
+    # find nearest source index for each target time
+    idx = np.searchsorted(source_t, target_times)
+    # compare with idx and idx-1 to find truly nearest
+    idx = np.clip(idx, 1, len(source_t) - 1)
+    left_dist = np.abs(target_times - source_t[idx - 1])
+    right_dist = np.abs(target_times - source_t[idx])
+    nearest_idx = np.where(left_dist <= right_dist, idx - 1, idx)
+    
+    if source_d.ndim == 1:
+        return source_d[nearest_idx]
+    else:
+        return source_d[nearest_idx, :]
+
+
 def _normalize_inputs(label_l, spk_mat, ep=None, custom_smooth_func=None, 
-                      label_bin_size=1., smooth_std=None, label_min=None, label_max=None):
+                      label_bin_size=1., smooth_std=None, label_min=None, label_max=None,
+                      categorical_labels=None):
     '''
     Normalize single vs multi-maze inputs.
     Returns dict-form for all inputs keyed by maze_key.
-    Also aligns labels to spk_mat timestamps via interpolation.
+    Also aligns labels to spk_mat timestamps.
+    
+    categorical_labels: None (auto-detect integer-valued columns), list of column names,
+                        [] (none categorical), or True (all categorical).
+                        Categorical columns use nearest-neighbor alignment instead of interpolation.
     '''
     # determine if multi-maze
     if isinstance(label_l, dict):
@@ -69,24 +106,66 @@ def _normalize_inputs(label_l, spk_mat, ep=None, custom_smooth_func=None,
     for k in maze_keys:
         label_k = label_l[k]
         ep_k = ep_d.get(k, None)
-
-        # align label to spk_mat timestamps
-        label_aligned = label_k.interpolate(spk_mat)
-
-        # restrict to epoch if provided
+        
+        # get column names
+        if hasattr(label_k, 'columns'):
+            col_names = list(label_k.columns)
+        else:
+            col_names = list(range(label_k.d.shape[1]))
+        
+        # determine categorical columns
+        if categorical_labels is True:
+            cat_cols = col_names
+        elif categorical_labels is None:
+            # auto-detect: columns where all values are integer-valued
+            cat_cols = []
+            for c in col_names:
+                col_data = label_k[c].d if hasattr(label_k[c], 'd') else label_k.d[:, col_names.index(c)]
+                if _is_integer_valued(col_data):
+                    cat_cols.append(c)
+        else:
+            # explicit list (can be empty)
+            cat_cols = list(categorical_labels)
+        
+        cont_cols = [c for c in col_names if c not in cat_cols]
+        
+        # restrict label to epoch first (before alignment)
         if ep_k is not None:
-            label_aligned = label_aligned.restrict(ep_k)
+            label_k_restricted = label_k.restrict(ep_k)
             spk_sub = spk_mat.restrict(ep_k)
         else:
+            label_k_restricted = label_k
             spk_sub = spk_mat
-
-        # further restrict to common time support
-        common_ts = label_aligned.time_support.intersect(spk_sub.time_support)
-        label_aligned = label_aligned.restrict(common_ts)
+        
+        # get common time support
+        common_ts = label_k_restricted.time_support.intersect(spk_sub.time_support)
+        label_k_restricted = label_k_restricted.restrict(common_ts)
         spk_sub = spk_sub.restrict(common_ts)
-
-        # ensure same timestamps via interpolation
-        spk_aligned = spk_sub.interpolate(label_aligned)
+        
+        # target times for alignment
+        target_times = spk_sub.t
+        
+        # align columns
+        aligned_data = np.zeros((len(target_times), len(col_names)))
+        for i, c in enumerate(col_names):
+            col_tsd = label_k_restricted[c] if hasattr(label_k_restricted, '__getitem__') else None
+            if col_tsd is None:
+                col_data = label_k_restricted.d[:, i]
+                col_tsd = nap.Tsd(t=label_k_restricted.t, d=col_data)
+            
+            if c in cat_cols:
+                # nearest-neighbor alignment
+                aligned_data[:, i] = _nearest_align(col_tsd, target_times)
+            else:
+                # interpolation
+                aligned_col = col_tsd.interpolate(spk_sub)
+                aligned_data[:, i] = aligned_col.d
+        
+        # build aligned TsdFrame
+        label_aligned = nap.TsdFrame(t=target_times, d=aligned_data, columns=col_names)
+        
+        # spk is already at target times
+        spk_aligned = spk_sub
 
         label_aligned_d[k] = label_aligned
         spk_aligned_d[k] = spk_aligned
@@ -392,7 +471,7 @@ def get_smoothing_matrix(bin_centers_l, grid_shape, smooth_std=None, custom_smoo
 
 def get_tuning(label_l, spk_mat, ep=None, custom_smooth_func=None,
                label_bin_size=1., smooth_std=None, occupancy_threshold=None,
-               label_min=None, label_max=None):
+               label_min=None, label_max=None, categorical_labels=None):
     '''
     Compute tuning curves from labels and spike matrix.
     
@@ -417,6 +496,11 @@ def get_tuning(label_l, spk_mat, ep=None, custom_smooth_func=None,
     label_max : float, array, or dict, optional
         Upper limit for binning; values above go to last bin. None => infer from data.
         Useful for coarse binning, e.g. speed [0,5), [5,10), [10,15] with min=0, max=10, bin_size=5.
+    categorical_labels : None, list, or True, optional
+        None: auto-detect integer-valued columns (0.0, 1.0, 2.0...) → nearest-neighbor alignment.
+        []: explicitly no categorical columns (use interpolation for all).
+        ['col1', 'col2']: specific columns are categorical.
+        True: all columns are categorical.
     
     Returns
     -------
@@ -432,7 +516,8 @@ def get_tuning(label_l, spk_mat, ep=None, custom_smooth_func=None,
                              custom_smooth_func=custom_smooth_func,
                              label_bin_size=label_bin_size, 
                              smooth_std=smooth_std,
-                             label_min=label_min, label_max=label_max)
+                             label_min=label_min, label_max=label_max,
+                             categorical_labels=categorical_labels)
     
     label_d = norm['label_d']
     spk_d = norm['spk_d']
