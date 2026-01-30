@@ -10,7 +10,7 @@ import jax.numpy as jnp
 
 import poor_man_gplvm.decoder as decoder
 
-def decode_naive_bayes(spk, tuning, tensor_pad_mask=None, flat_idx_to_coord=None, **kwargs):
+def decode_naive_bayes(spk, tuning, tensor_pad_mask=None, flat_idx_to_coord=None, dt=1.0, gain=1.0, time_l=None, **kwargs):
     '''
     Wrapper around `poor_man_gplvm.decoder.get_naive_bayes_ma_chunk` with a simple supervised API.
 
@@ -24,7 +24,9 @@ def decode_naive_bayes(spk, tuning, tensor_pad_mask=None, flat_idx_to_coord=None
     - n_time_per_chunk: int, default 10000
     - observation_model: 'poisson' (default) or 'gaussian'
     - noise_std: float, only used for gaussian
-    - dt_l: scalar or (n_time,) for matrix / (n_valid_time,) after masking for tensor
+    - dt: scalar, bin size (seconds). Used when dt_l is not provided.
+    - gain: scalar, multiply tuning (Hz) by gain before converting to expected counts.
+    - dt_l: scalar or (n_time,) for matrix / (n_valid_time,) after masking for tensor (seconds). If provided, dt is ignored.
     - ma_neuron: (n_neuron,) or broadcastable to spk; default all-ones
     - ma_latent: (n_label_bin,) mask; default all-ones
     - time_l: only for tensor input. (n_valid_time,) timestamps for valid bins (trial-major concat)
@@ -55,13 +57,14 @@ res_xr = dec_sup.decode_naive_bayes(
     if hasattr(spk, 't'):
         time_coord = np.asarray(spk.t)
 
-    time_l = kwargs.get('time_l', None)
+    if time_l is None:
+        time_l = kwargs.get('time_l', None)
 
     spk = jnp.asarray(spk)
     tuning = jnp.asarray(tuning)
 
     if spk.ndim == 2:
-        res = _decode_naive_bayes_matrix(spk, tuning, **kwargs)
+        res = _decode_naive_bayes_matrix(spk, tuning, dt=dt, gain=gain, **kwargs)
         if flat_idx_to_coord is not None:
             res = _wrap_label_results_xr_by_maze(res, flat_idx_to_coord=flat_idx_to_coord, time_coord=time_coord)
         return res
@@ -69,7 +72,7 @@ res_xr = dec_sup.decode_naive_bayes(
     if spk.ndim == 3:
         if tensor_pad_mask is None:
             raise ValueError('tensor input requires tensor_pad_mask (n_trial, n_time, 1).')
-        res = _decode_naive_bayes_tensor(spk, tuning, tensor_pad_mask=tensor_pad_mask, **kwargs)
+        res = _decode_naive_bayes_tensor(spk, tuning, tensor_pad_mask=tensor_pad_mask, dt=dt, gain=gain, **kwargs)
         if time_l is not None:
             res['time_l'] = np.asarray(time_l)
         if flat_idx_to_coord is not None:
@@ -85,7 +88,12 @@ def _decode_naive_bayes_matrix(spk, tuning, **kwargs):
     '''
     observation_model = kwargs.get('observation_model', 'poisson')
     n_time_per_chunk = int(kwargs.get('n_time_per_chunk', 10000))
-    dt_l = kwargs.get('dt_l', 1)
+    dt = float(kwargs.get('dt', 1.0))
+    gain = float(kwargs.get('gain', 1.0))
+    dt_l = kwargs.get('dt_l', None)
+    if dt_l is None:
+        dt_l = dt
+    dt_l = dt_l * gain
     ma_neuron = kwargs.get('ma_neuron', jnp.ones(spk.shape[1]))
     ma_latent = kwargs.get('ma_latent', jnp.ones(tuning.shape[0]))
     noise_std = kwargs.get('noise_std', 1.0)
@@ -142,9 +150,14 @@ def _decode_naive_bayes_tensor(spk_tensor, tuning, tensor_pad_mask, **kwargs):
         print(f"[_decode_naive_bayes_tensor] spk_tensor shape={tuple(spk_tensor.shape)}")
         print(f"[_decode_naive_bayes_tensor] spk_valid shape={tuple(spk_valid.shape)} (after mask)")
 
-    dt_l = kwargs.get('dt_l', 1)
+    dt = float(kwargs.get('dt', 1.0))
+    gain = float(kwargs.get('gain', 1.0))
+    dt_l = kwargs.get('dt_l', None)
+    if dt_l is None:
+        dt_l = dt
     if np.ndim(dt_l) > 0 and not np.isscalar(dt_l):
         dt_l = np.asarray(dt_l).reshape((n_trial * n_time,))[mask_flat]
+    dt_l = dt_l * gain
 
     if not profile_chunks:
         kwargs2 = dict(kwargs)
