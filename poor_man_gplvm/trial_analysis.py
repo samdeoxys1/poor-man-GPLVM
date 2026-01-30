@@ -46,13 +46,18 @@ def bin_spike_train_to_trial_based(spike_train,trial_intervals,binsize=0.02):
     mask: n_trial x n_bin x 1; True for valid bins
     event_index_per_bin: n_bin; index of the event for each bin
     n_bin_per_trial: n_trial; number of bins per trial
+    time_l: (n_bin,) timestamps for concatenated binned data (same order as event_index_per_bin)
+    time_per_trial: list[np.ndarray], len n_trial; timestamps per trial (inhomogeneous)
     '''
 
     # concatenated spike matrix
     spike_mat = spike_train.count(binsize,ep=trial_intervals)
+    time_l = np.asarray(spike_mat.t)
 
     # event index for each bin
-    event_index_per_bin = trial_intervals.in_interval(nap.Ts(spike_mat.t))
+    event_index_per_bin = np.asarray(trial_intervals.in_interval(nap.Ts(time_l)))
+    n_trial = int(trial_intervals.shape[0])
+    time_per_trial = [time_l[event_index_per_bin == i] for i in range(n_trial)]
 
     # padded tensor
     spike_mat_padded = nap.build_tensor(spike_mat,ep=trial_intervals,bin_size=binsize) # n_neuron x n_trial x n_bin
@@ -66,7 +71,14 @@ def bin_spike_train_to_trial_based(spike_train,trial_intervals,binsize=0.02):
     n_bin_per_trial = np.squeeze(mask_full.sum(axis=1))
 
     # repad with 0 to avoid nan
-    spike_mat_padded[mask_full] = 0
+    spike_mat_padded[np.logical_not(mask_full)] = 0
 
-    bin_spk_res = {'spike_mat_padded': spike_mat_padded, 'mask': mask, 'event_index_per_bin': event_index_per_bin, 'n_bin_per_trial': n_bin_per_trial}
+    bin_spk_res = {
+        'spike_mat_padded': spike_mat_padded,
+        'mask': mask,
+        'event_index_per_bin': event_index_per_bin,
+        'n_bin_per_trial': n_bin_per_trial,
+        'time_l': time_l,
+        'time_per_trial': time_per_trial,
+    }
     return bin_spk_res
