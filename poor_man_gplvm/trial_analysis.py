@@ -42,6 +42,7 @@ def bin_spike_train_to_trial_based(spike_train,trial_intervals,binsize=0.02):
     trial_intervals: nap.IntervalSet; can be any event, e.g. population burst events
 
     return:
+    spike_mat: concatenated binned counts (nap.TsdFrame-like), from spike_train.count
     spike_mat_padded: n_trial x n_bin x n_neuron; padded with 0 
     mask: n_trial x n_bin x 1; True for valid bins
     event_index_per_bin: n_bin; index of the event for each bin
@@ -74,6 +75,7 @@ def bin_spike_train_to_trial_based(spike_train,trial_intervals,binsize=0.02):
     spike_mat_padded[np.logical_not(mask_full)] = 0
 
     bin_spk_res = {
+        'spike_mat': spike_mat,
         'spike_mat_padded': spike_mat_padded,
         'mask': mask,
         'event_index_per_bin': event_index_per_bin,
