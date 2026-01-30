@@ -14,21 +14,20 @@ input:
         useful for coarse binning, e.g. speed bins [0,5), [5,10), [10,15] with label_min=0, label_max=10, label_bin_size=5
 
 
-tuning_flat: n_valid_bin x n_neuron (only valid/occupied bins)
-tuning: xr.DataArray or {maze_key : xr.DataArray} for multiple mazes
-    firing rate in Cartesian product of the multiple label dimensions
-    the unoccupied bins are filled with nan
-
-    tuning is computed by smoothed spk count / smoothed occupancy
-    smoothing is done assuming independent Gaussian kernel for each dimension
-occupancy_flat, occupancy_smth_flat, spk_count_flat, spk_count_smth_flat: 
-    all flat arrays only contain valid (occupied) bins; use valid_flat_mask to map back to full grid
-label_grid_centers: meshgrid of bin centers
+Returns tuning_res dict with:
+    tuning: xr.DataArray (*grid_shape, n_neuron) or {maze_key: xr.DataArray} for multi-maze
+        firing rate; unoccupied bins are nan; computed as smoothed spk_count / smoothed occupancy
+    tuning_flat: (n_valid_bin, n_neuron); for multi-maze, concatenated with coord_to_flat_idx mapping
+    coord_to_flat_idx: pd.Series, multi-index (label coords + maze_key for multi) -> index in tuning_flat
+    occupancy, occupancy_smth: xr.DataArray or {maze_key: xr.DataArray}
+    occupancy_flat, spk_count_flat, etc.: flat arrays (valid bins only); for multi-maze, concatenated
+    bin_edges, bin_centers, grid_shape, label_dim_names, neuron_names, dt, etc.
 '''
 
 import numpy as np
 import pynapple as nap
 import xarray as xr
+import pandas as pd
 
 # ============================================================================
 # Helper: normalize inputs for single vs multi-maze
@@ -421,13 +420,12 @@ def get_tuning(label_l, spk_mat, ep=None, custom_smooth_func=None,
     
     Returns
     -------
-    If single maze:
-        tuning : xr.DataArray, (*grid_shape, n_neuron)
-        res : dict with occupancy, occupancy_smth, spk_count, spk_count_smth,
-              bin_edges, bin_centers, occupied_mask, tuning_flat, dt, etc.
-    If multi-maze:
-        tuning_d : dict of xr.DataArray keyed by maze_key
-        res_d : dict of res dicts keyed by maze_key
+    tuning_res : dict
+        tuning: xr.DataArray or {maze_key: xr.DataArray}
+        tuning_flat: (n_valid_bin, n_neuron), concatenated for multi-maze
+        coord_to_flat_idx: pd.Series mapping (label coords [+ maze_key]) -> flat index
+        occupancy, occupancy_smth, spk_count, spk_count_smth, bin_edges, bin_centers, etc.
+        For multi-maze: xr outputs are dicts keyed by maze_key; flat arrays are concatenated.
     '''
     # normalize inputs
     norm = _normalize_inputs(label_l, spk_mat, ep=ep, 
@@ -446,8 +444,8 @@ def get_tuning(label_l, spk_mat, ep=None, custom_smooth_func=None,
     maze_keys = norm['maze_keys']
     is_multi = norm['is_multi']
     
-    tuning_d = {}
-    res_d = {}
+    # collect per-maze results
+    per_maze = {}
     
     for k in maze_keys:
         label_k = label_d[k]
@@ -495,8 +493,8 @@ def get_tuning(label_l, spk_mat, ep=None, custom_smooth_func=None,
         
         # tuning = smoothed spk_count / smoothed occupancy
         with np.errstate(divide='ignore', invalid='ignore'):
-            tuning_flat = spk_count_smth_flat / occupancy_smth_flat[:, None]
-        tuning_flat = np.where(np.isfinite(tuning_flat), tuning_flat, np.nan)
+            tuning_flat_full = spk_count_smth_flat / occupancy_smth_flat[:, None]
+        tuning_flat_full = np.where(np.isfinite(tuning_flat_full), tuning_flat_full, np.nan)
         
         # occupancy threshold mask (on raw occupancy)
         if occupancy_threshold is not None:
@@ -505,12 +503,12 @@ def get_tuning(label_l, spk_mat, ep=None, custom_smooth_func=None,
             occupied_mask = np.ones(n_flat, dtype=bool)
         
         # apply mask
-        tuning_flat[~occupied_mask, :] = np.nan
+        tuning_flat_full[~occupied_mask, :] = np.nan
         
         # reshape to grid
         occupancy_smth_grid = occupancy_smth_flat.reshape(grid_shape)
         spk_count_smth_grid = spk_count_smth_flat.reshape((*grid_shape, n_neuron))
-        tuning_grid = tuning_flat.reshape((*grid_shape, n_neuron))
+        tuning_grid = tuning_flat_full.reshape((*grid_shape, n_neuron))
         
         # build xr.DataArray for tuning
         dims = label_dim_names + ['neuron']
@@ -525,14 +523,24 @@ def get_tuning(label_l, spk_mat, ep=None, custom_smooth_func=None,
                                          coords={dn: bin_centers_l[i] for i, dn in enumerate(label_dim_names)})
         
         # keep only valid (non-NaN) bins in flat arrays
-        valid_flat_mask = occupied_mask & np.all(np.isfinite(tuning_flat), axis=1)
-        tuning_flat = tuning_flat[valid_flat_mask]
-        occupancy_flat = occupancy_flat[valid_flat_mask]
-        occupancy_smth_flat = occupancy_smth_flat[valid_flat_mask]
-        spk_count_flat = spk_count_flat[valid_flat_mask]
-        spk_count_smth_flat = spk_count_smth_flat[valid_flat_mask]
+        valid_flat_mask = occupied_mask & np.all(np.isfinite(tuning_flat_full), axis=1)
+        valid_flat_inds = np.where(valid_flat_mask)[0]
+        tuning_flat = tuning_flat_full[valid_flat_mask]
+        occupancy_flat_valid = occupancy_flat[valid_flat_mask]
+        occupancy_smth_flat_valid = occupancy_smth_flat[valid_flat_mask]
+        spk_count_flat_valid = spk_count_flat[valid_flat_mask]
+        spk_count_smth_flat_valid = spk_count_smth_flat[valid_flat_mask]
         
-        res = {
+        # build coord_to_flat_idx: multi-index from label bin centers -> local flat index
+        # unravel valid_flat_inds to get grid coords
+        grid_coords = np.unravel_index(valid_flat_inds, grid_shape)
+        coord_tuples = []
+        for i in range(len(valid_flat_inds)):
+            coord = tuple(bin_centers_l[d][grid_coords[d][i]] for d in range(len(label_dim_names)))
+            coord_tuples.append(coord)
+        
+        per_maze[k] = {
+            'tuning': tuning_xr,
             'occupancy': occupancy_xr,
             'occupancy_smth': occupancy_smth_xr,
             'spk_count': spk_count_grid,
@@ -545,22 +553,113 @@ def get_tuning(label_l, spk_mat, ep=None, custom_smooth_func=None,
             'neuron_names': neuron_names,
             'occupied_mask': occupied_mask,
             'tuning_flat': tuning_flat,
-            'occupancy_flat': occupancy_flat,
-            'occupancy_smth_flat': occupancy_smth_flat,
-            'spk_count_flat': spk_count_flat,
-            'spk_count_smth_flat': spk_count_smth_flat,
+            'occupancy_flat': occupancy_flat_valid,
+            'occupancy_smth_flat': occupancy_smth_flat_valid,
+            'spk_count_flat': spk_count_flat_valid,
+            'spk_count_smth_flat': spk_count_smth_flat_valid,
             'valid_flat_mask': valid_flat_mask,
+            'coord_tuples': coord_tuples,
             'dt': dt,
             'smoothing_matrix': S,
             'n_valid_timepoints': valid_mask.sum(),
         }
         
-        tuning_d[k] = tuning_xr
-        res_d[k] = res
-        
         print(f"[get_tuning] maze={k}: grid_shape={grid_shape}, n_neurons={n_neuron}, "
               f"dt={dt:.4f}s, n_valid_time={valid_mask.sum()}, n_occupied_bins={occupied_mask.sum()}")
     
+    # build output
     if not is_multi:
-        return tuning_d['_single'], res_d['_single']
-    return tuning_d, res_d
+        # single maze: flatten structure, build coord_to_flat_idx
+        res = per_maze['_single']
+        label_dim_names = res['label_dim_names']
+        coord_tuples = res['coord_tuples']
+        if coord_tuples:
+            midx = pd.MultiIndex.from_tuples(coord_tuples, names=label_dim_names)
+            coord_to_flat_idx = pd.Series(np.arange(len(coord_tuples)), index=midx)
+        else:
+            coord_to_flat_idx = pd.Series(dtype=int)
+        
+        tuning_res = {
+            'tuning': res['tuning'],
+            'tuning_flat': res['tuning_flat'],
+            'coord_to_flat_idx': coord_to_flat_idx,
+            'occupancy': res['occupancy'],
+            'occupancy_smth': res['occupancy_smth'],
+            'spk_count': res['spk_count'],
+            'spk_count_smth': res['spk_count_smth'],
+            'occupancy_flat': res['occupancy_flat'],
+            'occupancy_smth_flat': res['occupancy_smth_flat'],
+            'spk_count_flat': res['spk_count_flat'],
+            'spk_count_smth_flat': res['spk_count_smth_flat'],
+            'bin_edges': res['bin_edges'],
+            'bin_centers': res['bin_centers'],
+            'label_grid_centers': res['label_grid_centers'],
+            'grid_shape': res['grid_shape'],
+            'label_dim_names': res['label_dim_names'],
+            'neuron_names': res['neuron_names'],
+            'occupied_mask': res['occupied_mask'],
+            'valid_flat_mask': res['valid_flat_mask'],
+            'dt': res['dt'],
+            'smoothing_matrix': res['smoothing_matrix'],
+            'n_valid_timepoints': res['n_valid_timepoints'],
+        }
+        return tuning_res
+    
+    # multi-maze: maze_key at lowest level, concatenate flat arrays
+    # xr outputs as dicts keyed by maze_key
+    tuning_res = {
+        'tuning': {k: per_maze[k]['tuning'] for k in maze_keys},
+        'occupancy': {k: per_maze[k]['occupancy'] for k in maze_keys},
+        'occupancy_smth': {k: per_maze[k]['occupancy_smth'] for k in maze_keys},
+        'spk_count': {k: per_maze[k]['spk_count'] for k in maze_keys},
+        'spk_count_smth': {k: per_maze[k]['spk_count_smth'] for k in maze_keys},
+        'bin_edges': {k: per_maze[k]['bin_edges'] for k in maze_keys},
+        'bin_centers': {k: per_maze[k]['bin_centers'] for k in maze_keys},
+        'label_grid_centers': {k: per_maze[k]['label_grid_centers'] for k in maze_keys},
+        'grid_shape': {k: per_maze[k]['grid_shape'] for k in maze_keys},
+        'label_dim_names': {k: per_maze[k]['label_dim_names'] for k in maze_keys},
+        'neuron_names': per_maze[maze_keys[0]]['neuron_names'],  # same across mazes
+        'occupied_mask': {k: per_maze[k]['occupied_mask'] for k in maze_keys},
+        'valid_flat_mask': {k: per_maze[k]['valid_flat_mask'] for k in maze_keys},
+        'dt': {k: per_maze[k]['dt'] for k in maze_keys},
+        'smoothing_matrix': {k: per_maze[k]['smoothing_matrix'] for k in maze_keys},
+        'n_valid_timepoints': {k: per_maze[k]['n_valid_timepoints'] for k in maze_keys},
+    }
+    
+    # concatenate flat arrays across mazes and build coord_to_flat_idx with maze_key
+    tuning_flat_l = []
+    occupancy_flat_l = []
+    occupancy_smth_flat_l = []
+    spk_count_flat_l = []
+    spk_count_smth_flat_l = []
+    coord_tuples_all = []
+    
+    for k in maze_keys:
+        res_k = per_maze[k]
+        tuning_flat_l.append(res_k['tuning_flat'])
+        occupancy_flat_l.append(res_k['occupancy_flat'])
+        occupancy_smth_flat_l.append(res_k['occupancy_smth_flat'])
+        spk_count_flat_l.append(res_k['spk_count_flat'])
+        spk_count_smth_flat_l.append(res_k['spk_count_smth_flat'])
+        # add maze_key to coord tuples
+        for ct in res_k['coord_tuples']:
+            coord_tuples_all.append(ct + (k,))
+    
+    tuning_res['tuning_flat'] = np.concatenate(tuning_flat_l, axis=0) if tuning_flat_l else np.array([])
+    tuning_res['occupancy_flat'] = np.concatenate(occupancy_flat_l, axis=0) if occupancy_flat_l else np.array([])
+    tuning_res['occupancy_smth_flat'] = np.concatenate(occupancy_smth_flat_l, axis=0) if occupancy_smth_flat_l else np.array([])
+    tuning_res['spk_count_flat'] = np.concatenate(spk_count_flat_l, axis=0) if spk_count_flat_l else np.array([])
+    tuning_res['spk_count_smth_flat'] = np.concatenate(spk_count_smth_flat_l, axis=0) if spk_count_smth_flat_l else np.array([])
+    
+    # build coord_to_flat_idx with maze_key as additional level
+    if coord_tuples_all:
+        # get label_dim_names from first maze (assume same across mazes)
+        label_dim_names = per_maze[maze_keys[0]]['label_dim_names']
+        midx = pd.MultiIndex.from_tuples(coord_tuples_all, names=label_dim_names + ['maze'])
+        coord_to_flat_idx = pd.Series(np.arange(len(coord_tuples_all)), index=midx)
+    else:
+        coord_to_flat_idx = pd.Series(dtype=int)
+    
+    tuning_res['coord_to_flat_idx'] = coord_to_flat_idx
+    
+    return tuning_res
