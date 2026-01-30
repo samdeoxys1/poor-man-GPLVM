@@ -11,7 +11,50 @@ import jax.numpy as jnp
 import pynapple as nap
 import poor_man_gplvm.decoder as decoder
 
-def decode_naive_bayes(spk, tuning, tensor_pad_mask=None, flat_idx_to_coord=None, dt=1.0, gain=1.0, time_l=None, **kwargs):
+def _parse_event_index_per_bin(event_index_per_bin):
+    '''
+    Parse an (n_time,) event index vector into contiguous event segments.
+
+    Returns dict with:
+    - event_l: (n_event,) event ids in appearance order
+    - starts: (n_event,) start indices into time-concat arrays
+    - ends: (n_event,) end indices (exclusive)
+    - n_time_per_event: (n_event,) segment lengths
+    '''
+    e = np.asarray(event_index_per_bin)
+    if e.size == 0:
+        return {
+            'event_l': np.asarray([], dtype=e.dtype),
+            'starts': np.asarray([], dtype=int),
+            'ends': np.asarray([], dtype=int),
+            'n_time_per_event': np.asarray([], dtype=int),
+        }
+
+    is_new = np.empty((e.size,), dtype=bool)
+    is_new[0] = True
+    is_new[1:] = e[1:] != e[:-1]
+    starts = np.where(is_new)[0].astype(int)
+    ends = np.concatenate([starts[1:], np.asarray([e.size], dtype=int)])
+    event_l = e[starts]
+    n_time_per_event = (ends - starts).astype(int)
+    return {
+        'event_l': np.asarray(event_l),
+        'starts': starts,
+        'ends': ends,
+        'n_time_per_event': n_time_per_event,
+    }
+
+def decode_naive_bayes(
+    spk,
+    tuning,
+    tensor_pad_mask=None,
+    flat_idx_to_coord=None,
+    event_index_per_bin=None,
+    dt=1.0,
+    gain=1.0,
+    time_l=None,
+    **kwargs
+):
     '''
     Wrapper around `poor_man_gplvm.decoder.get_naive_bayes_ma_chunk` with a simple supervised API.
 
@@ -20,6 +63,8 @@ def decode_naive_bayes(spk, tuning, tensor_pad_mask=None, flat_idx_to_coord=None
     - tuning: (n_label_bin, n_neuron) (typically `tuning_res['tuning_flat']`)
     - tensor_pad_mask: (n_trial, n_time, 1) bool, True for valid time bins (from `trial_analysis.bin_spike_train_to_trial_based`)
     - flat_idx_to_coord: pd.DataFrame indexed by flat_idx, columns ['maze', ...label_dims...] from `get_tuning_supervised.get_tuning`
+    - event_index_per_bin: optional (n_time,) int-like. Only for matrix spk input; indicates which event each time bin
+      belongs to (typically from `trial_analysis.bin_spike_train_to_trial_based` for concatenated events).
 
     Kwargs (forwarded / used internally)
     - n_time_per_chunk: int, default 10000
@@ -42,6 +87,14 @@ import poor_man_gplvm.supervised_analysis.decoder_supervised as dec_sup
 
 # matrix decoding
 res = dec_sup.decode_naive_bayes(spk_mat, tuning_res['tuning_flat'], n_time_per_chunk=20000)
+
+# matrix decoding with event grouping -> xarray + per-event outputs
+res_ev = dec_sup.decode_naive_bayes(
+    spk_mat,
+    tuning_res['tuning_flat'],
+    event_index_per_bin=event_index_per_bin,
+    time_l=time_l,  # optional, used when spk_mat has no .t
+)
 
 # trial tensor decoding
 res_t = dec_sup.decode_naive_bayes(spk_tensor, tuning_res['tuning_flat'], tensor_pad_mask=tensor_pad_mask)
@@ -71,10 +124,34 @@ res_xr = dec_sup.decode_naive_bayes(
         if time_coord is None and time_l is not None:
             time_coord = np.asarray(time_l)
 
+        if event_index_per_bin is not None:
+            event_index_per_bin = np.asarray(event_index_per_bin)
+            res['event_index_per_bin'] = event_index_per_bin
+            parsing_res = _parse_event_index_per_bin(event_index_per_bin)
+            res.update(parsing_res)
+
+            starts = np.asarray(res['starts']).astype(int)
+            ends = np.asarray(res['ends']).astype(int)
+            for k in ['log_likelihood', 'log_posterior', 'posterior']:
+                if k in res and np.ndim(res[k]) == 2:
+                    arr = np.asarray(res[k])
+                    res[f'{k}_per_event'] = [arr[s:e] for s, e in zip(starts, ends)]
+            if 'log_marginal_l' in res and np.ndim(res['log_marginal_l']) == 1:
+                arr = np.asarray(res['log_marginal_l'])
+                res['log_marginal_l_per_event'] = [arr[s:e] for s, e in zip(starts, ends)]
+                res['log_marginal_per_event'] = np.asarray([np.sum(arr[s:e]) for s, e in zip(starts, ends)])
+
         if flat_idx_to_coord is not None:
-            res = _wrap_label_results_xr_by_maze(res, flat_idx_to_coord=flat_idx_to_coord, time_coord=time_coord)
+            res = _wrap_label_results_xr_by_maze(
+                res,
+                flat_idx_to_coord=flat_idx_to_coord,
+                time_coord=time_coord,
+                event_index_per_bin=event_index_per_bin,
+            )
         else:
-            if time_coord is not None:
+            if event_index_per_bin is not None:
+                res = _wrap_decode_res_xr_matrix(res, time_coord=time_coord, event_index_per_bin=event_index_per_bin)
+            elif time_coord is not None:
                 res = _wrap_decode_res_tsdframe_matrix(res, time_coord=time_coord)
         return res
 
@@ -121,6 +198,42 @@ def _wrap_decode_res_tsdframe_matrix(res, time_coord):
         res2['log_marginal_l'] = nap.Tsd(d=np.asarray(res2['log_marginal_l']), t=np.asarray(time_coord))
     return res2
 
+def _wrap_decode_res_xr_matrix(res, time_coord, event_index_per_bin=None):
+    '''
+    Wrap matrix decode outputs into xarray DataArray(s), optionally with an event coord.
+    '''
+    res2 = dict(res)
+    time_coord = np.asarray(time_coord) if time_coord is not None else np.arange(int(np.asarray(res2['log_likelihood']).shape[0]))
+    coords_time = {'time': time_coord}
+    if event_index_per_bin is not None:
+        coords_time['event_index_per_bin'] = ('time', np.asarray(event_index_per_bin))
+
+    for k in ['log_likelihood', 'log_posterior', 'posterior']:
+        if k in res2 and np.ndim(res2[k]) == 2:
+            arr = np.asarray(res2[k])
+            res2[k] = xr.DataArray(
+                arr,
+                dims=('time', 'label_bin'),
+                coords=dict(coords_time, label_bin=np.arange(arr.shape[1])),
+            )
+
+    if 'log_marginal_l' in res2 and np.ndim(res2['log_marginal_l']) == 1:
+        res2['log_marginal_l'] = xr.DataArray(
+            np.asarray(res2['log_marginal_l']),
+            dims=('time',),
+            coords=coords_time,
+        )
+
+    if ('starts' in res2) and ('ends' in res2):
+        starts = np.asarray(res2['starts']).astype(int)
+        ends = np.asarray(res2['ends']).astype(int)
+        for k in ['log_likelihood', 'log_posterior', 'posterior']:
+            if k in res2 and isinstance(res2[k], xr.DataArray):
+                res2[f'{k}_per_event'] = [res2[k].isel(time=slice(s, e)) for s, e in zip(starts, ends)]
+        if 'log_marginal_l' in res2 and isinstance(res2['log_marginal_l'], xr.DataArray):
+            res2['log_marginal_l_per_event'] = [res2['log_marginal_l'].isel(time=slice(s, e)) for s, e in zip(starts, ends)]
+    return res2
+
 def _wrap_decode_res_tsdframe_tensor(res, time_l):
     '''
     Wrap tensor decode outputs into TsdFrame/Tsd using time_l (valid-bin concat time).
@@ -130,13 +243,13 @@ def _wrap_decode_res_tsdframe_tensor(res, time_l):
     starts = np.asarray(res2.get('starts', []), dtype=int)
     ends = np.asarray(res2.get('ends', []), dtype=int)
 
-    for k in ['log_likelihood_concat', 'log_posterior_concat', 'posterior_concat']:
+    for k in ['log_likelihood', 'log_posterior', 'posterior']:
         if k in res2 and np.ndim(res2[k]) == 2:
             arr = np.asarray(res2[k])
             cols = np.arange(arr.shape[1])
             res2[k] = nap.TsdFrame(d=arr, t=np.asarray(time_l), columns=cols)
 
-    for k in ['log_likelihood', 'log_posterior', 'posterior']:
+    for k in ['log_likelihood_per_event', 'log_posterior_per_event', 'posterior_per_event']:
         if k in res2 and isinstance(res2[k], list) and len(res2[k]) and np.ndim(res2[k][0]) == 2:
             arr_l = [np.asarray(a) for a in res2[k]]
             tsdf_l = []
@@ -145,13 +258,13 @@ def _wrap_decode_res_tsdframe_tensor(res, time_l):
                 tsdf_l.append(nap.TsdFrame(d=a, t=np.asarray(time_l)[s:e], columns=cols))
             res2[k] = tsdf_l
 
-    if 'log_marginal_l_concat' in res2 and np.ndim(res2['log_marginal_l_concat']) == 1:
-        res2['log_marginal_l_concat'] = nap.Tsd(d=np.asarray(res2['log_marginal_l_concat']), t=np.asarray(time_l))
-    if 'log_marginal_l' in res2 and isinstance(res2['log_marginal_l'], list) and len(res2['log_marginal_l']):
+    if 'log_marginal_l' in res2 and np.ndim(res2['log_marginal_l']) == 1:
+        res2['log_marginal_l'] = nap.Tsd(d=np.asarray(res2['log_marginal_l']), t=np.asarray(time_l))
+    if 'log_marginal_l_per_event' in res2 and isinstance(res2['log_marginal_l_per_event'], list) and len(res2['log_marginal_l_per_event']):
         tsd_l = []
-        for a, s, e in zip(res2['log_marginal_l'], starts, ends):
+        for a, s, e in zip(res2['log_marginal_l_per_event'], starts, ends):
             tsd_l.append(nap.Tsd(d=np.asarray(a), t=np.asarray(time_l)[s:e]))
-        res2['log_marginal_l'] = tsd_l
+        res2['log_marginal_l_per_event'] = tsd_l
 
     return res2
 
@@ -204,10 +317,13 @@ def _decode_naive_bayes_tensor(spk_tensor, tuning, tensor_pad_mask, **kwargs):
     spk_tensor: (n_trial, n_time, n_neuron) padded with zeros
     tensor_pad_mask: (n_trial, n_time, 1) bool, True for valid bins
 
-    Returns dict where label-related arrays are lists (length n_trial), each entry is (n_time_i, n_label_bin).
-    Also returns:
-    - log_marginal_l_per_trial: list of (n_time_i,)
-    - log_marginal_per_trial: (n_trial,)
+    Returns a dict with:
+    - time-concat arrays under keys:
+      `log_likelihood`, `log_posterior`, `posterior`, `log_marginal_l`, `log_marginal`
+    - per-event (per-trial) lists under keys:
+      `log_likelihood_per_event`, `log_posterior_per_event`, `posterior_per_event`, `log_marginal_l_per_event`
+    - parsing meta:
+      `n_time_per_event`, `starts`, `ends`
     '''
     mask = np.asarray(tensor_pad_mask)[..., 0].astype(bool)  # (n_trial, n_time)
     n_trial, n_time, n_neuron = spk_tensor.shape
@@ -324,38 +440,40 @@ def _decode_naive_bayes_tensor(spk_tensor, tuning, tensor_pad_mask, **kwargs):
     def _split_1d(arr_1d):
         return [arr_1d[s:e] for s, e in zip(starts, ends)]
 
-    log_likelihood_per_trial = _split_by_trial(res_mat['log_likelihood'])
-    log_posterior_per_trial = _split_by_trial(res_mat['log_posterior'])
-    posterior_per_trial = _split_by_trial(res_mat['posterior'])
-    log_marginal_l_per_trial = _split_1d(res_mat['log_marginal_l'])
-    log_marginal_per_trial = jnp.asarray([jnp.sum(x) for x in log_marginal_l_per_trial])
+    log_likelihood_per_event = _split_by_trial(res_mat['log_likelihood'])
+    log_posterior_per_event = _split_by_trial(res_mat['log_posterior'])
+    posterior_per_event = _split_by_trial(res_mat['posterior'])
+    log_marginal_l_per_event = _split_1d(res_mat['log_marginal_l'])
+    log_marginal_per_event = jnp.asarray([jnp.sum(x) for x in log_marginal_l_per_event])
 
     res = {
-        'log_likelihood': log_likelihood_per_trial,
-        'log_posterior': log_posterior_per_trial,
-        'posterior': posterior_per_trial,
-        'log_marginal_l': log_marginal_l_per_trial,
-        'log_marginal': log_marginal_per_trial,
-        'log_likelihood_concat': res_mat['log_likelihood'],
-        'log_posterior_concat': res_mat['log_posterior'],
-        'posterior_concat': res_mat['posterior'],
-        'log_marginal_l_concat': res_mat['log_marginal_l'],
-        'log_marginal_concat': res_mat['log_marginal'],
-        'n_time_per_trial': n_time_per_trial,
+        # time-concat outputs
+        'log_likelihood': res_mat['log_likelihood'],
+        'log_posterior': res_mat['log_posterior'],
+        'posterior': res_mat['posterior'],
+        'log_marginal_l': res_mat['log_marginal_l'],
+        'log_marginal': res_mat['log_marginal'],
+        # per-event outputs
+        'log_likelihood_per_event': log_likelihood_per_event,
+        'log_posterior_per_event': log_posterior_per_event,
+        'posterior_per_event': posterior_per_event,
+        'log_marginal_l_per_event': log_marginal_l_per_event,
+        'log_marginal_per_event': log_marginal_per_event,
+        # parsing meta
+        'n_time_per_event': n_time_per_trial,
         'starts': starts,
         'ends': ends,
     }
     return res
 
 
-def _wrap_label_results_xr_by_maze(res, flat_idx_to_coord, time_coord=None):
+def _wrap_label_results_xr_by_maze(res, flat_idx_to_coord, time_coord=None, event_index_per_bin=None):
     '''
     Wrap label-related outputs into dict[str, xr.DataArray] keyed by maze, so each xr only
     contains label bins for that maze (no "other maze" bins).
 
     - Matrix output: returns dict[maze] -> DataArray (time, label_bin)
-    - Tensor output: returns dict[maze] -> list[DataArray], one per trial (views from concat)
-      Also keeps concatenated DataArrays under *_concat keys as dict[maze] -> DataArray.
+    - Tensor output: returns dict[maze] -> DataArray (time concat) and dict[maze] -> list[DataArray] under *_per_event.
     '''
     df = flat_idx_to_coord
     if not isinstance(df, pd.DataFrame):
@@ -395,60 +513,6 @@ def _wrap_label_results_xr_by_maze(res, flat_idx_to_coord, time_coord=None):
             out[maze] = arr_2d[:, pos_idx]
         return out
 
-    # tensor mode: concat arrays + starts/ends available
-    if ('log_likelihood_concat' in res) and ('starts' in res) and ('ends' in res):
-        n_time = int(np.asarray(res['log_likelihood_concat']).shape[0])
-        if time_coord is None:
-            time_coord = _default_time(n_time)
-        else:
-            time_coord = np.asarray(time_coord)
-
-        ll_by_maze = _split_cols_by_maze(res['log_likelihood_concat'])
-        lp_by_maze = _split_cols_by_maze(res['log_posterior_concat'])
-        post_by_maze = _split_cols_by_maze(res['posterior_concat'])
-
-        starts = np.asarray(res['starts']).astype(int)
-        ends = np.asarray(res['ends']).astype(int)
-
-        res2 = dict(res)
-        res2['maze_l'] = maze_l
-
-        res2['log_likelihood_concat'] = {}
-        res2['log_posterior_concat'] = {}
-        res2['posterior_concat'] = {}
-        res2['log_likelihood'] = {}
-        res2['log_posterior'] = {}
-        res2['posterior'] = {}
-
-        for maze in maze_l:
-            pos_idx = np.where(np.asarray(df['maze']) == maze)[0]
-            label_coord = _make_label_coord(pos_idx, maze)
-
-            ll_c = xr.DataArray(
-                ll_by_maze[maze],
-                dims=('time', 'label_bin'),
-                coords={'time': time_coord, 'label_bin': label_coord},
-            )
-            lp_c = xr.DataArray(
-                lp_by_maze[maze],
-                dims=('time', 'label_bin'),
-                coords={'time': time_coord, 'label_bin': label_coord},
-            )
-            post_c = xr.DataArray(
-                post_by_maze[maze],
-                dims=('time', 'label_bin'),
-                coords={'time': time_coord, 'label_bin': label_coord},
-            )
-
-            res2['log_likelihood_concat'][maze] = ll_c
-            res2['log_posterior_concat'][maze] = lp_c
-            res2['posterior_concat'][maze] = post_c
-            res2['log_likelihood'][maze] = [ll_c.isel(time=slice(s, e)) for s, e in zip(starts, ends)]
-            res2['log_posterior'][maze] = [lp_c.isel(time=slice(s, e)) for s, e in zip(starts, ends)]
-            res2['posterior'][maze] = [post_c.isel(time=slice(s, e)) for s, e in zip(starts, ends)]
-
-        return res2
-
     n_time = int(np.asarray(res['log_likelihood']).shape[0])
     if time_coord is None:
         time_coord = _default_time(n_time)
@@ -464,23 +528,42 @@ def _wrap_label_results_xr_by_maze(res, flat_idx_to_coord, time_coord=None):
     res2['log_likelihood'] = {}
     res2['log_posterior'] = {}
     res2['posterior'] = {}
+    if ('starts' in res2) and ('ends' in res2):
+        res2['log_likelihood_per_event'] = {}
+        res2['log_posterior_per_event'] = {}
+        res2['posterior_per_event'] = {}
+
+    coords_time = {'time': time_coord}
+    if event_index_per_bin is not None:
+        coords_time['event_index_per_bin'] = ('time', np.asarray(event_index_per_bin))
+
     for maze in maze_l:
         pos_idx = np.where(np.asarray(df['maze']) == maze)[0]
         label_coord = _make_label_coord(pos_idx, maze)
-        res2['log_likelihood'][maze] = xr.DataArray(
+        ll_c = xr.DataArray(
             ll_by_maze[maze],
             dims=('time', 'label_bin'),
-            coords={'time': time_coord, 'label_bin': label_coord},
+            coords=dict(coords_time, label_bin=label_coord),
         )
-        res2['log_posterior'][maze] = xr.DataArray(
+        lp_c = xr.DataArray(
             lp_by_maze[maze],
             dims=('time', 'label_bin'),
-            coords={'time': time_coord, 'label_bin': label_coord},
+            coords=dict(coords_time, label_bin=label_coord),
         )
-        res2['posterior'][maze] = xr.DataArray(
+        post_c = xr.DataArray(
             post_by_maze[maze],
             dims=('time', 'label_bin'),
-            coords={'time': time_coord, 'label_bin': label_coord},
+            coords=dict(coords_time, label_bin=label_coord),
         )
+        res2['log_likelihood'][maze] = ll_c
+        res2['log_posterior'][maze] = lp_c
+        res2['posterior'][maze] = post_c
+
+        if ('starts' in res2) and ('ends' in res2):
+            starts = np.asarray(res2['starts']).astype(int)
+            ends = np.asarray(res2['ends']).astype(int)
+            res2['log_likelihood_per_event'][maze] = [ll_c.isel(time=slice(s, e)) for s, e in zip(starts, ends)]
+            res2['log_posterior_per_event'][maze] = [lp_c.isel(time=slice(s, e)) for s, e in zip(starts, ends)]
+            res2['posterior_per_event'][maze] = [post_c.isel(time=slice(s, e)) for s, e in zip(starts, ends)]
     return res2
 
