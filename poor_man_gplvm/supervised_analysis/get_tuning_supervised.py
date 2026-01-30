@@ -92,8 +92,8 @@ def _normalize_inputs(label_l, spk_mat, ep=None, custom_smooth_func=None,
         maze_keys = list(label_l.keys())
         is_multi = True
     else:
-        maze_keys = ['_single']
-        label_l = {'_single': label_l}
+        maze_keys = ['single']
+        label_l = {'single': label_l}
         is_multi = False
 
     ep_d = _to_dict(ep, maze_keys, 'ep')
@@ -677,7 +677,7 @@ def get_tuning(label_l, spk_mat, ep=None, custom_smooth_func=None,
     # build output
     if not is_multi:
         # single maze: flatten structure, build coord_to_flat_idx
-        res = per_maze['_single']
+        res = per_maze['single']
         label_dim_names = res['label_dim_names']
         coord_tuples = res['coord_tuples']
         if coord_tuples:
@@ -689,7 +689,7 @@ def get_tuning(label_l, spk_mat, ep=None, custom_smooth_func=None,
         # reverse mapping: flat idx -> coord columns (and maze)
         if coord_tuples:
             flat_idx_to_coord = pd.DataFrame(coord_tuples, columns=label_dim_names)
-            flat_idx_to_coord.insert(0, 'maze', '_single')
+            flat_idx_to_coord.insert(0, 'maze', 'single')
             flat_idx_to_coord.index = np.arange(len(coord_tuples))
             flat_idx_to_coord.index.name = 'flat_idx'
         else:

@@ -8,7 +8,7 @@ import xarray as xr
 import time
 import jax.numpy as jnp
 
-import pynapple
+import pynapple as nap
 import poor_man_gplvm.decoder as decoder
 
 def decode_naive_bayes(spk, tuning, tensor_pad_mask=None, flat_idx_to_coord=None, dt=1.0, gain=1.0, time_l=None, **kwargs):
@@ -67,6 +67,18 @@ res_xr = dec_sup.decode_naive_bayes(
     if spk.ndim == 2:
         res = _decode_naive_bayes_matrix(spk, tuning, dt=dt, gain=gain, **kwargs)
         res = _decode_res_to_numpy(res)
+        # keep a consistent API with tensor mode
+        if 'log_likelihood_concat' not in res:
+            res['log_likelihood_concat'] = res.get('log_likelihood', None)
+        if 'log_posterior_concat' not in res:
+            res['log_posterior_concat'] = res.get('log_posterior', None)
+        if 'posterior_concat' not in res:
+            res['posterior_concat'] = res.get('posterior', None)
+        if 'log_marginal_l_concat' not in res:
+            res['log_marginal_l_concat'] = res.get('log_marginal_l', None)
+        if 'log_marginal_concat' not in res:
+            res['log_marginal_concat'] = res.get('log_marginal', None)
+
         if time_coord is None and time_l is not None:
             time_coord = np.asarray(time_l)
 
@@ -115,9 +127,9 @@ def _wrap_decode_res_tsdframe_matrix(res, time_coord):
         if k in res2 and np.ndim(res2[k]) == 2:
             arr = np.asarray(res2[k])
             cols = np.arange(arr.shape[1])
-            res2[k] = pynapple.TsdFrame(d=arr, t=np.asarray(time_coord), columns=cols)
+            res2[k] = nap.TsdFrame(d=arr, t=np.asarray(time_coord), columns=cols)
     if 'log_marginal_l' in res2 and np.ndim(res2['log_marginal_l']) == 1:
-        res2['log_marginal_l'] = pynapple.Tsd(d=np.asarray(res2['log_marginal_l']), t=np.asarray(time_coord))
+        res2['log_marginal_l'] = nap.Tsd(d=np.asarray(res2['log_marginal_l']), t=np.asarray(time_coord))
     return res2
 
 def _wrap_decode_res_tsdframe_tensor(res, time_l):
@@ -133,7 +145,7 @@ def _wrap_decode_res_tsdframe_tensor(res, time_l):
         if k in res2 and np.ndim(res2[k]) == 2:
             arr = np.asarray(res2[k])
             cols = np.arange(arr.shape[1])
-            res2[k] = pynapple.TsdFrame(d=arr, t=np.asarray(time_l), columns=cols)
+            res2[k] = nap.TsdFrame(d=arr, t=np.asarray(time_l), columns=cols)
 
     for k in ['log_likelihood', 'log_posterior', 'posterior']:
         if k in res2 and isinstance(res2[k], list) and len(res2[k]) and np.ndim(res2[k][0]) == 2:
@@ -141,15 +153,15 @@ def _wrap_decode_res_tsdframe_tensor(res, time_l):
             tsdf_l = []
             for a, s, e in zip(arr_l, starts, ends):
                 cols = np.arange(a.shape[1])
-                tsdf_l.append(pynapple.TsdFrame(d=a, t=np.asarray(time_l)[s:e], columns=cols))
+                tsdf_l.append(nap.TsdFrame(d=a, t=np.asarray(time_l)[s:e], columns=cols))
             res2[k] = tsdf_l
 
     if 'log_marginal_l_concat' in res2 and np.ndim(res2['log_marginal_l_concat']) == 1:
-        res2['log_marginal_l_concat'] = pynapple.Tsd(d=np.asarray(res2['log_marginal_l_concat']), t=np.asarray(time_l))
+        res2['log_marginal_l_concat'] = nap.Tsd(d=np.asarray(res2['log_marginal_l_concat']), t=np.asarray(time_l))
     if 'log_marginal_l' in res2 and isinstance(res2['log_marginal_l'], list) and len(res2['log_marginal_l']):
         tsd_l = []
         for a, s, e in zip(res2['log_marginal_l'], starts, ends):
-            tsd_l.append(pynapple.Tsd(d=np.asarray(a), t=np.asarray(time_l)[s:e]))
+            tsd_l.append(nap.Tsd(d=np.asarray(a), t=np.asarray(time_l)[s:e]))
         res2['log_marginal_l'] = tsd_l
 
     return res2
