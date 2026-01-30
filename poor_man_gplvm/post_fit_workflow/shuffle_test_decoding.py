@@ -9,6 +9,7 @@ import numpy as np
 import tqdm
 import os
 import pandas as pd
+import xarray as xr
 
 import poor_man_gplvm.supervised_analysis.decoder_supervised as decoder_supervised
 
@@ -39,12 +40,41 @@ def _save_npz_dict(save_path, d):
     for k, v in d.items():
         if isinstance(v, dict):
             d2[k] = np.asarray(v, dtype=object)
-        elif isinstance(v, pd.DataFrame):
-            d2[k] = np.asarray(v, dtype=object)
         else:
             d2[k] = v
     np.savez(str(save_path), **d2)
     print(f'saved: {save_path}')
+
+def _save_pickle(save_path, d):
+    pd.to_pickle(d, str(save_path))
+    print(f'saved: {save_path}')
+
+
+def _load_pickle(save_path):
+    out = pd.read_pickle(str(save_path))
+    print(f'loaded: {save_path}')
+    return out
+
+
+def _resolve_save_paths(save_dir, save_fn):
+    save_dir = str(save_dir)
+    save_fn = str(save_fn)
+    base_path = os.path.join(save_dir, save_fn)
+
+    if base_path.endswith('.npz'):
+        pkl_path = base_path[:-4] + '.pkl'
+        npz_path = base_path
+    elif base_path.endswith('.pkl'):
+        pkl_path = base_path
+        npz_path = base_path[:-4] + '.npz'
+    else:
+        pkl_path = base_path + '.pkl'
+        npz_path = base_path + '.npz'
+
+    return {
+        'pkl_path': pkl_path,
+        'npz_path': npz_path,
+    }
 
 
 def _load_npz_dict(save_path):
@@ -246,9 +276,11 @@ print(res['is_sig_overall'].mean())
     if bool(dosave):
         if save_dir is None:
             raise ValueError('dosave=True requires save_dir.')
-        save_path = os.path.join(str(save_dir), str(save_fn))
-        if (not bool(force_reload)) and os.path.exists(save_path):
-            return _load_npz_dict(save_path)
+        save_paths = _resolve_save_paths(save_dir, save_fn)
+        if (not bool(force_reload)) and os.path.exists(save_paths['pkl_path']):
+            return _load_pickle(save_paths['pkl_path'])
+        if (not bool(force_reload)) and os.path.exists(save_paths['npz_path']):
+            return _load_npz_dict(save_paths['npz_path'])
 
     spk = np.asarray(spk_mat)
     event_index_per_bin = np.asarray(event_index_per_bin)
@@ -345,6 +377,35 @@ print(res['is_sig_overall'].mean())
         index=pd.Index(event_l, name='event_l'),
     )
 
+    is_sig_frac = pd.Series(
+        {
+            'id': float(np.mean(np.asarray(event_df['is_sig_id_shuffle'].to_numpy(dtype=bool)))) if n_event else float('nan'),
+            'circular': float(np.mean(np.asarray(event_df['is_sig_circular_shuffle'].to_numpy(dtype=bool)))) if n_event else float('nan'),
+            'overall': float(np.mean(np.asarray(event_df['is_sig_overall'].to_numpy(dtype=bool)))) if n_event else float('nan'),
+        },
+        name='is_sig_frac',
+    )
+
+    print('[shuffle_test_naive_bayes_marginal_l] chunk: expand is_sig_overall to time bins')
+    event_id_l = np.asarray(event_df.index)
+    sig_event_l = np.asarray(event_df['is_sig_overall'].to_numpy(dtype=bool))
+    if event_id_l.size:
+        max_event_id = int(np.max(event_id_l))
+        if max_event_id <= 50_000_000:
+            lut = np.zeros((max_event_id + 1,), dtype=bool)
+            lut[event_id_l.astype(int)] = sig_event_l
+            is_sig_mask_time = lut[event_index_per_bin.astype(int)]
+        else:
+            order = np.argsort(event_id_l.astype(int))
+            event_id_sorted = event_id_l.astype(int)[order]
+            sig_sorted = sig_event_l[order]
+            idx = np.searchsorted(event_id_sorted, event_index_per_bin.astype(int))
+            is_sig_mask_time = np.zeros_like(event_index_per_bin, dtype=bool)
+            ok = (idx >= 0) & (idx < event_id_sorted.size) & (event_id_sorted[idx] == event_index_per_bin.astype(int))
+            is_sig_mask_time[ok] = sig_sorted[idx[ok]]
+    else:
+        is_sig_mask_time = np.zeros_like(event_index_per_bin, dtype=bool)
+
     q_cols = pd.Index(np.asarray(q_l), name='q')
     log_marginal_id_q_df = pd.DataFrame(
         log_marginal_per_event_id_shuffle_q.T,
@@ -361,6 +422,9 @@ print(res['is_sig_overall'].mean())
         'event_df': event_df,
         'log_marginal_id_q_df': log_marginal_id_q_df,
         'log_marginal_circular_q_df': log_marginal_circular_q_df,
+        'decode_true': res_true,
+        'is_sig_mask_time': is_sig_mask_time,
+        'is_sig_frac': is_sig_frac,
         'meta': {
             'n_time': int(n_time),
             'n_neuron': int(n_neuron),
@@ -390,6 +454,23 @@ print(res['is_sig_overall'].mean())
 
     if bool(dosave):
         os.makedirs(str(save_dir), exist_ok=True)
-        _save_npz_dict(os.path.join(str(save_dir), str(save_fn)), out)
+        save_paths = _resolve_save_paths(save_dir, save_fn)
+        _save_pickle(save_paths['pkl_path'], out)
+        if bool(return_shuffle):
+            _save_npz_dict(save_paths['npz_path'], {
+                'event_l': event_l,
+                'starts': starts,
+                'ends': ends,
+                'event_index_per_bin': event_index_per_bin,
+                'q_l': q_l,
+                'log_marginal_per_event_true': log_marginal_per_event_true,
+                'log_marginal_per_event_id_shuffle': log_marginal_per_event_id_shuffle,
+                'log_marginal_per_event_circular_shuffle': log_marginal_per_event_circular_shuffle,
+                'log_marginal_per_event_id_shuffle_q': log_marginal_per_event_id_shuffle_q,
+                'log_marginal_per_event_circular_shuffle_q': log_marginal_per_event_circular_shuffle_q,
+                'is_sig_id_shuffle': is_sig_id_shuffle,
+                'is_sig_circular_shuffle': is_sig_circular_shuffle,
+                'is_sig_overall': is_sig_overall,
+            })
     return out
 
