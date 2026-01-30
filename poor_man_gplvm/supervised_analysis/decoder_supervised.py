@@ -278,15 +278,27 @@ def _wrap_label_results_xr_by_maze(res, flat_idx_to_coord, time_coord=None):
         raise ValueError("flat_idx_to_coord must include column 'maze'.")
 
     maze_l = pd.unique(df['maze'])
-    label_cols = [c for c in df.columns if c != 'maze']
+    label_cols_all = [c for c in df.columns if c != 'maze']
 
     def _default_time(n_time):
         return np.arange(int(n_time))
 
-    def _make_label_coord(pos_idx):
+    def _make_label_coord(pos_idx, maze):
+        if len(label_cols_all) == 0:
+            return np.arange(len(pos_idx))
+
+        df_maze = df.iloc[pos_idx]
+        label_cols = [c for c in label_cols_all if df_maze[c].notna().any()]
         if len(label_cols) == 0:
             return np.arange(len(pos_idx))
-        return pd.MultiIndex.from_frame(df.iloc[pos_idx][label_cols])
+
+        df_lab = df_maze.loc[:, label_cols].copy()
+        for c in label_cols:
+            if df_lab[c].dtype.kind in 'if':
+                df_lab[c] = df_lab[c].fillna(-1)
+            else:
+                df_lab[c] = df_lab[c].fillna('_nan')
+        return pd.MultiIndex.from_frame(df_lab)
 
     def _split_cols_by_maze(arr_2d):
         out = {}
@@ -322,7 +334,7 @@ def _wrap_label_results_xr_by_maze(res, flat_idx_to_coord, time_coord=None):
 
         for maze in maze_l:
             pos_idx = np.where(np.asarray(df['maze']) == maze)[0]
-            label_coord = _make_label_coord(pos_idx)
+            label_coord = _make_label_coord(pos_idx, maze)
 
             ll_c = xr.DataArray(
                 ll_by_maze[maze],
@@ -366,7 +378,7 @@ def _wrap_label_results_xr_by_maze(res, flat_idx_to_coord, time_coord=None):
     res2['posterior'] = {}
     for maze in maze_l:
         pos_idx = np.where(np.asarray(df['maze']) == maze)[0]
-        label_coord = _make_label_coord(pos_idx)
+        label_coord = _make_label_coord(pos_idx, maze)
         res2['log_likelihood'][maze] = xr.DataArray(
             ll_by_maze[maze],
             dims=('time', 'label_bin'),
