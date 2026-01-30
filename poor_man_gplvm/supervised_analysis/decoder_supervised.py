@@ -43,7 +43,7 @@ res = dec_sup.decode_naive_bayes(spk_mat, tuning_res['tuning_flat'], n_time_per_
 # trial tensor decoding
 res_t = dec_sup.decode_naive_bayes(spk_tensor, tuning_res['tuning_flat'], tensor_pad_mask=tensor_pad_mask)
 
-# xarray MultiIndex wrapping (label bins)
+# xarray wrapping (label bins)
 res_xr = dec_sup.decode_naive_bayes(
     spk_mat,
     tuning_res['tuning_flat'],
@@ -63,7 +63,7 @@ res_xr = dec_sup.decode_naive_bayes(
     if spk.ndim == 2:
         res = _decode_naive_bayes_matrix(spk, tuning, **kwargs)
         if flat_idx_to_coord is not None:
-            res = _wrap_label_results_xr(res, flat_idx_to_coord=flat_idx_to_coord, time_coord=time_coord)
+            res = _wrap_label_results_xr_by_maze(res, flat_idx_to_coord=flat_idx_to_coord, time_coord=time_coord)
         return res
 
     if spk.ndim == 3:
@@ -73,7 +73,7 @@ res_xr = dec_sup.decode_naive_bayes(
         if time_l is not None:
             res['time_l'] = np.asarray(time_l)
         if flat_idx_to_coord is not None:
-            res = _wrap_label_results_xr(res, flat_idx_to_coord=flat_idx_to_coord, time_coord=time_l)
+            res = _wrap_label_results_xr_by_maze(res, flat_idx_to_coord=flat_idx_to_coord, time_coord=time_l)
         return res
 
     raise ValueError(f'Unsupported spk ndim={spk.ndim}; expected 2 or 3.')
@@ -261,29 +261,40 @@ def _decode_naive_bayes_tensor(spk_tensor, tuning, tensor_pad_mask, **kwargs):
     return res
 
 
-def _wrap_label_results_xr(res, flat_idx_to_coord, time_coord=None):
+def _wrap_label_results_xr_by_maze(res, flat_idx_to_coord, time_coord=None):
     '''
-    Wrap label-related outputs into xr.DataArray with MultiIndex coord `label_bin`.
-    - For matrix output: returns DataArray (time, label_bin)
-    - For tensor output: returns list[DataArray], one per trial (views sliced from concatenated DataArray)
-      Also keeps concatenated DataArrays under *_concat keys.
+    Wrap label-related outputs into dict[str, xr.DataArray] keyed by maze, so each xr only
+    contains label bins for that maze (no "other maze" bins).
+
+    - Matrix output: returns dict[maze] -> DataArray (time, label_bin)
+    - Tensor output: returns dict[maze] -> list[DataArray], one per trial (views from concat)
+      Also keeps concatenated DataArrays under *_concat keys as dict[maze] -> DataArray.
     '''
     df = flat_idx_to_coord
     if not isinstance(df, pd.DataFrame):
         raise ValueError('flat_idx_to_coord must be a pandas DataFrame.')
 
-    cols = ['maze'] + [c for c in df.columns if c != 'maze']
-    midx = pd.MultiIndex.from_frame(df.loc[:, cols])
+    if 'maze' not in df.columns:
+        raise ValueError("flat_idx_to_coord must include column 'maze'.")
 
-    def _wrap_2d(arr, time_coord_):
-        return xr.DataArray(
-            np.asarray(arr),
-            dims=('time', 'label_bin'),
-            coords={'time': np.asarray(time_coord_), 'label_bin': midx},
-        )
+    maze_l = pd.unique(df['maze'])
+    label_cols = [c for c in df.columns if c != 'maze']
 
     def _default_time(n_time):
         return np.arange(int(n_time))
+
+    def _make_label_coord(pos_idx):
+        if len(label_cols) == 0:
+            return np.arange(len(pos_idx))
+        return pd.MultiIndex.from_frame(df.iloc[pos_idx][label_cols])
+
+    def _split_cols_by_maze(arr_2d):
+        out = {}
+        arr_2d = np.asarray(arr_2d)
+        for maze in maze_l:
+            pos_idx = np.where(np.asarray(df['maze']) == maze)[0]
+            out[maze] = arr_2d[:, pos_idx]
+        return out
 
     if 'log_likelihood_concat' in res:
         n_time = int(np.asarray(res['log_likelihood_concat']).shape[0])
@@ -292,20 +303,50 @@ def _wrap_label_results_xr(res, flat_idx_to_coord, time_coord=None):
         else:
             time_coord = np.asarray(time_coord)
 
-        ll_c = _wrap_2d(res['log_likelihood_concat'], time_coord)
-        lp_c = _wrap_2d(res['log_posterior_concat'], time_coord)
-        post_c = _wrap_2d(res['posterior_concat'], time_coord)
+        ll_by_maze = _split_cols_by_maze(res['log_likelihood_concat'])
+        lp_by_maze = _split_cols_by_maze(res['log_posterior_concat'])
+        post_by_maze = _split_cols_by_maze(res['posterior_concat'])
 
         starts = np.asarray(res['starts']).astype(int)
         ends = np.asarray(res['ends']).astype(int)
 
         res2 = dict(res)
-        res2['log_likelihood_concat'] = ll_c
-        res2['log_posterior_concat'] = lp_c
-        res2['posterior_concat'] = post_c
-        res2['log_likelihood'] = [ll_c.isel(time=slice(s, e)) for s, e in zip(starts, ends)]
-        res2['log_posterior'] = [lp_c.isel(time=slice(s, e)) for s, e in zip(starts, ends)]
-        res2['posterior'] = [post_c.isel(time=slice(s, e)) for s, e in zip(starts, ends)]
+        res2['maze_l'] = maze_l
+
+        res2['log_likelihood_concat'] = {}
+        res2['log_posterior_concat'] = {}
+        res2['posterior_concat'] = {}
+        res2['log_likelihood'] = {}
+        res2['log_posterior'] = {}
+        res2['posterior'] = {}
+
+        for maze in maze_l:
+            pos_idx = np.where(np.asarray(df['maze']) == maze)[0]
+            label_coord = _make_label_coord(pos_idx)
+
+            ll_c = xr.DataArray(
+                ll_by_maze[maze],
+                dims=('time', 'label_bin'),
+                coords={'time': time_coord, 'label_bin': label_coord},
+            )
+            lp_c = xr.DataArray(
+                lp_by_maze[maze],
+                dims=('time', 'label_bin'),
+                coords={'time': time_coord, 'label_bin': label_coord},
+            )
+            post_c = xr.DataArray(
+                post_by_maze[maze],
+                dims=('time', 'label_bin'),
+                coords={'time': time_coord, 'label_bin': label_coord},
+            )
+
+            res2['log_likelihood_concat'][maze] = ll_c
+            res2['log_posterior_concat'][maze] = lp_c
+            res2['posterior_concat'][maze] = post_c
+            res2['log_likelihood'][maze] = [ll_c.isel(time=slice(s, e)) for s, e in zip(starts, ends)]
+            res2['log_posterior'][maze] = [lp_c.isel(time=slice(s, e)) for s, e in zip(starts, ends)]
+            res2['posterior'][maze] = [post_c.isel(time=slice(s, e)) for s, e in zip(starts, ends)]
+
         return res2
 
     n_time = int(np.asarray(res['log_likelihood']).shape[0])
@@ -315,7 +356,31 @@ def _wrap_label_results_xr(res, flat_idx_to_coord, time_coord=None):
         time_coord = np.asarray(time_coord)
 
     res2 = dict(res)
-    res2['log_likelihood'] = _wrap_2d(res['log_likelihood'], time_coord)
-    res2['log_posterior'] = _wrap_2d(res['log_posterior'], time_coord)
-    res2['posterior'] = _wrap_2d(res['posterior'], time_coord)
+    ll_by_maze = _split_cols_by_maze(res['log_likelihood'])
+    lp_by_maze = _split_cols_by_maze(res['log_posterior'])
+    post_by_maze = _split_cols_by_maze(res['posterior'])
+
+    res2['maze_l'] = maze_l
+    res2['log_likelihood'] = {}
+    res2['log_posterior'] = {}
+    res2['posterior'] = {}
+    for maze in maze_l:
+        pos_idx = np.where(np.asarray(df['maze']) == maze)[0]
+        label_coord = _make_label_coord(pos_idx)
+        res2['log_likelihood'][maze] = xr.DataArray(
+            ll_by_maze[maze],
+            dims=('time', 'label_bin'),
+            coords={'time': time_coord, 'label_bin': label_coord},
+        )
+        res2['log_posterior'][maze] = xr.DataArray(
+            lp_by_maze[maze],
+            dims=('time', 'label_bin'),
+            coords={'time': time_coord, 'label_bin': label_coord},
+        )
+        res2['posterior'][maze] = xr.DataArray(
+            post_by_maze[maze],
+            dims=('time', 'label_bin'),
+            coords={'time': time_coord, 'label_bin': label_coord},
+        )
     return res2
+
