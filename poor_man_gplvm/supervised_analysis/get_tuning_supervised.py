@@ -106,6 +106,7 @@ def _normalize_inputs(label_l, spk_mat, ep=None, custom_smooth_func=None,
     # align and restrict
     label_aligned_d = {}
     spk_aligned_d = {}
+    categorical_cols_d = {}
     for k in maze_keys:
         label_k = label_l[k]
         ep_k = ep_d.get(k, None)
@@ -131,6 +132,7 @@ def _normalize_inputs(label_l, spk_mat, ep=None, custom_smooth_func=None,
             cat_cols = list(categorical_labels)
         
         cont_cols = [c for c in col_names if c not in cat_cols]
+        categorical_cols_d[k] = cat_cols
         
         # restrict label to epoch first (before alignment)
         if ep_k is not None:
@@ -182,6 +184,7 @@ def _normalize_inputs(label_l, spk_mat, ep=None, custom_smooth_func=None,
         'smooth_std_d': smooth_std_d,
         'label_min_d': label_min_d,
         'label_max_d': label_max_d,
+        'categorical_cols_d': categorical_cols_d,
         'maze_keys': maze_keys,
         'is_multi': is_multi,
     }
@@ -191,7 +194,7 @@ def _normalize_inputs(label_l, spk_mat, ep=None, custom_smooth_func=None,
 # label_to_grid: build bin edges and centers
 # ============================================================================
 
-def label_to_grid(label, label_bin_size, label_min=None, label_max=None):
+def label_to_grid(label, label_bin_size, label_min=None, label_max=None, categorical_cols=None):
     '''
     Build bin edges and centers from label data.
     
@@ -201,7 +204,8 @@ def label_to_grid(label, label_bin_size, label_min=None, label_max=None):
         lower edge of first bin; values below go to first bin
     label_max: float or array (per dim), or None => infer from data + 0.5*bin_size
         upper limit for binning; values above go to last bin
-        (the 0.5*bin_size extension makes bin centers align to natural values like 0,10,20...)
+    categorical_cols: list of column names treated as categorical (bin edges inferred with +/- 0.5*bin_size shift)
+        Continuous columns infer edges as [min, max] without shift.
     
     Returns:
         bin_edges_l: list of arrays, bin edges for each dim
@@ -217,6 +221,9 @@ def label_to_grid(label, label_bin_size, label_min=None, label_max=None):
         label_dim_names = list(label.columns)
     else:
         label_dim_names = [f'dim{i}' for i in range(n_dim)]
+
+    if categorical_cols is None:
+        categorical_cols = []
     
     # broadcast bin_size, label_min, label_max
     # convert to list to preserve None values per dimension
@@ -246,26 +253,31 @@ def label_to_grid(label, label_bin_size, label_min=None, label_max=None):
         finite_ma = np.isfinite(col)
         col_finite = col[finite_ma]
         bs = label_bin_size[d]
+        is_cat = label_dim_names[d] in categorical_cols
         
         # determine lo (first bin edge) - check per-dim None
-        # extend by 0.5*bs when inferred from data so bin centers align to natural values
+        # if inferred:
+        # - continuous: start at min (no shift)
+        # - categorical: shift by -0.5*bs so centers align to integer-like values
         lmin_d = label_min[d]
         if lmin_d is not None and np.isfinite(float(lmin_d)):
             lo = float(lmin_d)
         elif col_finite.size == 0:
-            lo = -0.5 * bs
+            lo = (-0.5 * bs) if is_cat else 0.0
         else:
-            lo = col_finite.min() - 0.5 * bs
+            lo = (col_finite.min() - 0.5 * bs) if is_cat else col_finite.min()
         
         # determine hi - check per-dim None
-        # extend by 0.5*bs when inferred from data
+        # if inferred:
+        # - continuous: end at max (no shift)
+        # - categorical: shift by +0.5*bs so centers align to integer-like values
         lmax_d = label_max[d]
         if lmax_d is not None and np.isfinite(float(lmax_d)):
             hi = float(lmax_d)
         elif col_finite.size == 0:
-            hi = 0.5 * bs
+            hi = (0.5 * bs) if is_cat else bs
         else:
-            hi = col_finite.max() + 0.5 * bs
+            hi = (col_finite.max() + 0.5 * bs) if is_cat else col_finite.max()
         
         # build edges from lo to hi (values below lo go to first bin, above hi to last bin)
         edges = np.arange(lo, hi + 1e-9, bs)
@@ -534,6 +546,7 @@ def get_tuning(label_l, spk_mat, ep=None, custom_smooth_func=None,
     smooth_std_d = norm['smooth_std_d']
     label_min_d = norm['label_min_d']
     label_max_d = norm['label_max_d']
+    categorical_cols_d = norm['categorical_cols_d']
     maze_keys = norm['maze_keys']
     is_multi = norm['is_multi']
     
@@ -548,10 +561,11 @@ def get_tuning(label_l, spk_mat, ep=None, custom_smooth_func=None,
         ss_k = smooth_std_d.get(k, None)
         lmin_k = label_min_d.get(k, None)
         lmax_k = label_max_d.get(k, None)
+        cat_cols_k = categorical_cols_d.get(k, [])
         
         # build grid
         bin_edges_l, bin_centers_l, grid_shape, label_dim_names = label_to_grid(
-            label_k, lbs_k, label_min=lmin_k, label_max=lmax_k)
+            label_k, lbs_k, label_min=lmin_k, label_max=lmax_k, categorical_cols=cat_cols_k)
         n_flat = int(np.prod(grid_shape))
         
         # get neuron names
