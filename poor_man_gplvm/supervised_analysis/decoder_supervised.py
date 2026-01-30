@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 import time
+import jax
 import jax.numpy as jnp
 
 import pynapple as nap
@@ -179,6 +180,12 @@ def _decode_res_to_numpy(res):
         return {k: _decode_res_to_numpy(v) for k, v in res.items()}
     if isinstance(res, list):
         return [_decode_res_to_numpy(v) for v in res]
+    if isinstance(res, jax.Array):
+        return np.asarray(jax.device_get(res))
+    if isinstance(res, (np.ndarray, np.number)):
+        return np.asarray(res)
+    if isinstance(res, (int, float, bool, str, type(None))):
+        return res
     try:
         return np.asarray(res)
     except Exception:
