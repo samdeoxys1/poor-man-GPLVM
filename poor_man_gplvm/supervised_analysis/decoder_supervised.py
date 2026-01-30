@@ -51,6 +51,7 @@ def decode_naive_bayes(
     tensor_pad_mask=None,
     flat_idx_to_coord=None,
     event_index_per_bin=None,
+    return_per_event=False,
     dt=1.0,
     gain=1.0,
     time_l=None,
@@ -66,6 +67,8 @@ def decode_naive_bayes(
     - flat_idx_to_coord: pd.DataFrame indexed by flat_idx, columns ['maze', ...label_dims...] from `get_tuning_supervised.get_tuning`
     - event_index_per_bin: optional (n_time,) int-like. Only for matrix spk input; indicates which event each time bin
       belongs to (typically from `trial_analysis.bin_spike_train_to_trial_based` for concatenated events).
+    - return_per_event: bool. Only for matrix spk input + event_index_per_bin. If False (default), only returns
+      `log_marginal_per_event` (plus parsing meta). If True, also returns per-event arrays for posterior/likelihood.
 
     Kwargs (forwarded / used internally)
     - n_time_per_chunk: int, default 10000
@@ -94,6 +97,7 @@ res_ev = dec_sup.decode_naive_bayes(
     spk_mat,
     tuning_res['tuning_flat'],
     event_index_per_bin=event_index_per_bin,
+    return_per_event=True,
     time_l=time_l,  # optional, used when spk_mat has no .t
 )
 
@@ -130,17 +134,22 @@ res_xr = dec_sup.decode_naive_bayes(
             res['event_index_per_bin'] = event_index_per_bin
             parsing_res = _parse_event_index_per_bin(event_index_per_bin)
             res.update(parsing_res)
+            res['return_per_event'] = bool(return_per_event)
 
             starts = np.asarray(res['starts']).astype(int)
             ends = np.asarray(res['ends']).astype(int)
-            for k in ['log_likelihood', 'log_posterior', 'posterior']:
-                if k in res and np.ndim(res[k]) == 2:
-                    arr = np.asarray(res[k])
-                    res[f'{k}_per_event'] = [arr[s:e] for s, e in zip(starts, ends)]
             if 'log_marginal_l' in res and np.ndim(res['log_marginal_l']) == 1:
                 arr = np.asarray(res['log_marginal_l'])
-                res['log_marginal_l_per_event'] = [arr[s:e] for s, e in zip(starts, ends)]
                 res['log_marginal_per_event'] = np.asarray([np.sum(arr[s:e]) for s, e in zip(starts, ends)])
+
+                if bool(return_per_event):
+                    res['log_marginal_l_per_event'] = [arr[s:e] for s, e in zip(starts, ends)]
+
+            if bool(return_per_event):
+                for k in ['log_likelihood', 'log_posterior', 'posterior']:
+                    if k in res and np.ndim(res[k]) == 2:
+                        arr = np.asarray(res[k])
+                        res[f'{k}_per_event'] = [arr[s:e] for s, e in zip(starts, ends)]
 
         if flat_idx_to_coord is not None:
             res = _wrap_label_results_xr_by_maze(
@@ -148,10 +157,16 @@ res_xr = dec_sup.decode_naive_bayes(
                 flat_idx_to_coord=flat_idx_to_coord,
                 time_coord=time_coord,
                 event_index_per_bin=event_index_per_bin,
+                return_per_event=bool(return_per_event),
             )
         else:
             if event_index_per_bin is not None:
-                res = _wrap_decode_res_xr_matrix(res, time_coord=time_coord, event_index_per_bin=event_index_per_bin)
+                res = _wrap_decode_res_xr_matrix(
+                    res,
+                    time_coord=time_coord,
+                    event_index_per_bin=event_index_per_bin,
+                    return_per_event=bool(return_per_event),
+                )
             elif time_coord is not None:
                 res = _wrap_decode_res_tsdframe_matrix(res, time_coord=time_coord)
         return res
@@ -205,7 +220,7 @@ def _wrap_decode_res_tsdframe_matrix(res, time_coord):
         res2['log_marginal_l'] = nap.Tsd(d=np.asarray(res2['log_marginal_l']), t=np.asarray(time_coord))
     return res2
 
-def _wrap_decode_res_xr_matrix(res, time_coord, event_index_per_bin=None):
+def _wrap_decode_res_xr_matrix(res, time_coord, event_index_per_bin=None, return_per_event=False):
     '''
     Wrap matrix decode outputs into xarray DataArray(s), optionally with an event coord.
     '''
@@ -231,7 +246,7 @@ def _wrap_decode_res_xr_matrix(res, time_coord, event_index_per_bin=None):
             coords=coords_time,
         )
 
-    if ('starts' in res2) and ('ends' in res2):
+    if bool(return_per_event) and ('starts' in res2) and ('ends' in res2):
         starts = np.asarray(res2['starts']).astype(int)
         ends = np.asarray(res2['ends']).astype(int)
         for k in ['log_likelihood', 'log_posterior', 'posterior']:
@@ -474,7 +489,7 @@ def _decode_naive_bayes_tensor(spk_tensor, tuning, tensor_pad_mask, **kwargs):
     return res
 
 
-def _wrap_label_results_xr_by_maze(res, flat_idx_to_coord, time_coord=None, event_index_per_bin=None):
+def _wrap_label_results_xr_by_maze(res, flat_idx_to_coord, time_coord=None, event_index_per_bin=None, return_per_event=False):
     '''
     Wrap label-related outputs into dict[str, xr.DataArray] keyed by maze, so each xr only
     contains label bins for that maze (no "other maze" bins).
@@ -535,7 +550,7 @@ def _wrap_label_results_xr_by_maze(res, flat_idx_to_coord, time_coord=None, even
     res2['log_likelihood'] = {}
     res2['log_posterior'] = {}
     res2['posterior'] = {}
-    if ('starts' in res2) and ('ends' in res2):
+    if bool(return_per_event) and ('starts' in res2) and ('ends' in res2):
         res2['log_likelihood_per_event'] = {}
         res2['log_posterior_per_event'] = {}
         res2['posterior_per_event'] = {}
@@ -566,7 +581,7 @@ def _wrap_label_results_xr_by_maze(res, flat_idx_to_coord, time_coord=None, even
         res2['log_posterior'][maze] = lp_c
         res2['posterior'][maze] = post_c
 
-        if ('starts' in res2) and ('ends' in res2):
+        if bool(return_per_event) and ('starts' in res2) and ('ends' in res2):
             starts = np.asarray(res2['starts']).astype(int)
             ends = np.asarray(res2['ends']).astype(int)
             res2['log_likelihood_per_event'][maze] = [ll_c.isel(time=slice(s, e)) for s, e in zip(starts, ends)]
