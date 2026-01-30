@@ -11,6 +11,7 @@ import jax.numpy as jnp
 
 import pynapple as nap
 import poor_man_gplvm.decoder as decoder
+import poor_man_gplvm.supervised_analysis.get_tuning_supervised as get_tuning_supervised
 
 def _parse_event_index_per_bin(event_index_per_bin):
     '''
@@ -589,3 +590,141 @@ def _wrap_label_results_xr_by_maze(res, flat_idx_to_coord, time_coord=None, even
             res2['posterior_per_event'][maze] = [post_c.isel(time=slice(s, e)) for s, e in zip(starts, ends)]
     return res2
 
+
+def decode_with_dynamics(
+    spk,
+    tuning,
+    tensor_pad_mask=None,
+    flat_idx_to_coord=None,
+    event_index_per_bin=None,
+    return_per_event=False,
+    dt=1.0,
+    gain=1.0,
+    time_l=None,
+    continuous_transition_movement_variance=1., # scalar, array, or {maze:}
+    p_move_to_jump=0.02,
+    p_jump_to_move=0.02,
+    custom_continuous_transition_kernel=None,
+    **kwargs
+):
+    '''
+    state-space decoder as in the JumpLVM; 
+    '''
+    pass
+
+def get_latent_transition_kernel_multi_maze(coord_to_flat_idx,continuous_transition_movement_variance=1.):
+    '''
+    for creating transition kernel for the supervised analysis, especially can deal with multiple mazes
+    '''
+    def _as_dict(v):
+        if isinstance(v, dict):
+            return v
+        return None
+
+    def _to_maze_dict(v, maze_l):
+        vd = _as_dict(v)
+        if vd is not None:
+            return vd
+        return {k: v for k in maze_l}
+
+    def _variance_to_smooth_std(var, n_dim):
+        var = np.asarray(var) if not np.isscalar(var) else float(var)
+        if np.ndim(var) == 0:
+            std = np.sqrt(float(var))
+            return np.repeat(std, n_dim)
+        var = np.asarray(var).astype(float).ravel()
+        if var.size == 1:
+            return np.repeat(np.sqrt(var[0]), n_dim)
+        if var.size != n_dim:
+            raise ValueError(f'continuous_transition_movement_variance size={var.size} != n_dim={n_dim}')
+        return np.sqrt(var)
+
+    def _coords_to_full_flat_index(coord_tuples, centers_l):
+        # coord_tuples: list[tuple] length n_keep, each tuple length n_dim
+        # centers_l: list[np.ndarray] per dim, sorted unique centers
+        n_dim = len(centers_l)
+        shape = [len(c) for c in centers_l]
+        stride = np.ones((n_dim,), dtype=int)
+        for d in range(n_dim - 2, -1, -1):
+            stride[d] = stride[d + 1] * shape[d + 1]
+
+        flat_idx = np.zeros((len(coord_tuples),), dtype=int)
+        for i, ct in enumerate(coord_tuples):
+            s = 0
+            for d in range(n_dim):
+                c = centers_l[d]
+                j = int(np.searchsorted(c, ct[d]))
+                if j >= len(c) or c[j] != ct[d]:
+                    raise ValueError(f'coord value not found in centers: dim={d} value={ct[d]}')
+                s += j * stride[d]
+            flat_idx[i] = s
+        return flat_idx
+
+    # accept single-maze Series or multi-maze dict[maze]->Series
+    if isinstance(coord_to_flat_idx, pd.Series):
+        coord_to_flat_idx = {'single': coord_to_flat_idx}
+    if not isinstance(coord_to_flat_idx, dict):
+        raise ValueError('coord_to_flat_idx must be a pd.Series or dict[str, pd.Series].')
+
+    maze_l = list(coord_to_flat_idx.keys())
+    if len(maze_l) == 0:
+        return np.zeros((0, 0))
+
+    # build per-maze transition kernels on the *valid* bins, then place into a global block-diagonal matrix
+    var_d = _to_maze_dict(continuous_transition_movement_variance, maze_l)
+    n_total = 0
+    for k in maze_l:
+        s = coord_to_flat_idx[k]
+        if not isinstance(s, pd.Series):
+            raise ValueError(f'coord_to_flat_idx[{k}] must be a pd.Series.')
+        if s.size:
+            n_total = max(n_total, int(np.max(np.asarray(s.values))) + 1)
+
+    K_global = np.zeros((n_total, n_total), dtype=float)
+
+    for k in maze_l:
+        s = coord_to_flat_idx[k]
+        if s.size == 0:
+            continue
+
+        if not isinstance(s.index, pd.MultiIndex):
+            # single-dim: represent as 1-level MultiIndex for uniform handling
+            s = pd.Series(s.values, index=pd.MultiIndex.from_arrays([s.index], names=[s.index.name]))
+
+        # order states by global flat index (to match tuning_flat concatenation)
+        order = np.argsort(np.asarray(s.values).astype(int))
+        coord_tuples = [tuple(s.index[i]) for i in order]
+        global_idx = np.asarray(s.values, dtype=int)[order]
+
+        n_dim = int(s.index.nlevels)
+        centers_l = [np.sort(np.unique(np.asarray(s.index.get_level_values(d), dtype=float))) for d in range(n_dim)]
+        grid_shape = tuple(len(c) for c in centers_l)
+
+        smooth_std = _variance_to_smooth_std(var_d[k], n_dim=n_dim)
+        S_full = get_tuning_supervised.get_smoothing_matrix(
+            bin_centers_l=centers_l,
+            grid_shape=grid_shape,
+            smooth_std=smooth_std,
+        )
+
+        keep_full_flat = _coords_to_full_flat_index(coord_tuples, centers_l)
+        S_sub = S_full[np.ix_(keep_full_flat, keep_full_flat)]
+
+        # row-normalize after subsetting (holes / dropped states break row sums)
+        row_sums = S_sub.sum(axis=1, keepdims=True)
+        row_sums[row_sums == 0] = 1.0
+        S_sub = S_sub / row_sums
+
+        K_global[np.ix_(global_idx, global_idx)] = S_sub
+
+    # final row-normalize (should already be ok, but keeps invariants)
+    if K_global.size:
+        row_sums = K_global.sum(axis=1, keepdims=True)
+        zero_row = (row_sums[:, 0] == 0)
+        row_sums[zero_row, :] = 1.0
+        K_global = K_global / row_sums
+        if np.any(zero_row):
+            ii = np.where(zero_row)[0]
+            K_global[ii, ii] = 1.0
+
+    return K_global
