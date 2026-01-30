@@ -8,6 +8,7 @@ Currently do the test on naive bayes marginal likelihood, since the state-space 
 import numpy as np
 import tqdm
 import os
+import pandas as pd
 
 import poor_man_gplvm.supervised_analysis.decoder_supervised as decoder_supervised
 
@@ -37,6 +38,8 @@ def _save_npz_dict(save_path, d):
     d2 = {}
     for k, v in d.items():
         if isinstance(v, dict):
+            d2[k] = np.asarray(v, dtype=object)
+        elif isinstance(v, pd.DataFrame):
             d2[k] = np.asarray(v, dtype=object)
         else:
             d2[k] = v
@@ -208,6 +211,7 @@ def shuffle_test_naive_bayes_marginal_l(
     force_reload=False,
     save_dir=None,
     save_fn='shuffle_test_naive_bayes_marginal_l.npz',
+    return_shuffle=False,
 ):
     '''
     create neuron-id and circular shuffle (within-event); decode true + shuffles; get per-event log marginal sum quantiles
@@ -327,21 +331,42 @@ print(res['is_sig_overall'].mean())
     is_sig_circular_shuffle = log_marginal_per_event_true > circ_thresh
     is_sig_overall = np.logical_and(is_sig_id_shuffle, is_sig_circular_shuffle)
 
+    event_df = pd.DataFrame(
+        {
+            'starts': starts,
+            'ends': ends,
+            'log_marginal_per_event_true': log_marginal_per_event_true,
+            'id_shuffle_thresh': id_thresh,
+            'circular_shuffle_thresh': circ_thresh,
+            'is_sig_id_shuffle': is_sig_id_shuffle,
+            'is_sig_circular_shuffle': is_sig_circular_shuffle,
+            'is_sig_overall': is_sig_overall,
+        },
+        index=pd.Index(event_l, name='event_l'),
+    )
+
+    q_cols = pd.Index(np.asarray(q_l), name='q')
+    log_marginal_id_q_df = pd.DataFrame(
+        log_marginal_per_event_id_shuffle_q.T,
+        index=pd.Index(event_l, name='event_l'),
+        columns=q_cols,
+    )
+    log_marginal_circular_q_df = pd.DataFrame(
+        log_marginal_per_event_circular_shuffle_q.T,
+        index=pd.Index(event_l, name='event_l'),
+        columns=q_cols,
+    )
+
     out = {
         'event_l': event_l,
         'starts': starts,
         'ends': ends,
         'event_index_per_bin': event_index_per_bin,
-        'log_marginal_per_event_true': log_marginal_per_event_true,
-        'log_marginal_per_event_id_shuffle': log_marginal_per_event_id_shuffle,
-        'log_marginal_per_event_circular_shuffle': log_marginal_per_event_circular_shuffle,
+        'event_df': event_df,
         'q_l': q_l,
-        'log_marginal_per_event_id_shuffle_q': log_marginal_per_event_id_shuffle_q,
-        'log_marginal_per_event_circular_shuffle_q': log_marginal_per_event_circular_shuffle_q,
+        'log_marginal_id_q_df': log_marginal_id_q_df,
+        'log_marginal_circular_q_df': log_marginal_circular_q_df,
         'sig_thresh': float(sig_thresh),
-        'is_sig_id_shuffle': is_sig_id_shuffle,
-        'is_sig_circular_shuffle': is_sig_circular_shuffle,
-        'is_sig_overall': is_sig_overall,
         'meta': {
             'n_time': int(n_time),
             'n_neuron': int(n_neuron),
@@ -349,8 +374,19 @@ print(res['is_sig_overall'].mean())
             'n_shuffle': int(n_shuffle),
             'seed': int(seed),
             'decoding_kwargs': decoding_kwargs,
+            'return_shuffle': bool(return_shuffle),
         },
     }
+
+    if bool(return_shuffle):
+        out['log_marginal_per_event_true'] = log_marginal_per_event_true
+        out['log_marginal_per_event_id_shuffle'] = log_marginal_per_event_id_shuffle
+        out['log_marginal_per_event_circular_shuffle'] = log_marginal_per_event_circular_shuffle
+        out['log_marginal_per_event_id_shuffle_q'] = log_marginal_per_event_id_shuffle_q
+        out['log_marginal_per_event_circular_shuffle_q'] = log_marginal_per_event_circular_shuffle_q
+        out['is_sig_id_shuffle'] = is_sig_id_shuffle
+        out['is_sig_circular_shuffle'] = is_sig_circular_shuffle
+        out['is_sig_overall'] = is_sig_overall
 
     if bool(dosave):
         os.makedirs(str(save_dir), exist_ok=True)
