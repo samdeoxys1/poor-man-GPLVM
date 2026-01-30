@@ -8,7 +8,7 @@ import pynapple as nap
 import os
 import pickle
 
-def detect_population_burst_event(spike_times, mask=None, ep=None, bin_size=0.002, smooth_std=0.0075, 
+def detect_population_burst_event(spike_times, mask=None, ep=None, threshold_ep=None, bin_size=0.002, smooth_std=0.0075, 
                                  z_thresh=3.0, min_duration=0.05, max_duration=0.5,
                                  ripple_intervals=None,return_population_rate=False,save_dir='./',save_fn='pbe.p',force_reload=False,dosave=True):
     '''
@@ -22,6 +22,8 @@ def detect_population_burst_event(spike_times, mask=None, ep=None, bin_size=0.00
         Boolean mask or indices to select subset of units
     ep : nap.IntervalSet, optional
         Time epoch to restrict analysis
+    threshold_ep : nap.IntervalSet, optional
+        Epoch to compute mean/std for z-scoring (default None -> use ep)
     bin_size : float
         Bin size for counting spikes (default 0.001s = 1ms)
     smooth_std : float
@@ -68,9 +70,18 @@ def detect_population_burst_event(spike_times, mask=None, ep=None, bin_size=0.00
             indices = mask
         spike_times = spike_times[indices]
     
-    # Count spikes in bins
+    # Count spikes in bins (do once on union epoch)
+    if ep is None and threshold_ep is None:
+        analysis_ep = None
+    elif ep is None:
+        analysis_ep = threshold_ep
+    elif threshold_ep is None:
+        analysis_ep = ep
+    else:
+        analysis_ep = ep.union(threshold_ep)
+
     print(f'Counting spikes in bins...')
-    spike_counts = spike_times.count(bin_size=bin_size, ep=ep)
+    spike_counts = spike_times.count(bin_size=bin_size, ep=analysis_ep)
     
     # Sum across all units to get population rate
     population_rate = spike_counts.sum(axis=1)
@@ -78,20 +89,40 @@ def detect_population_burst_event(spike_times, mask=None, ep=None, bin_size=0.00
     # Smooth the population rate
     population_rate_smooth = population_rate.smooth(std=smooth_std)
     
-    # Z-score the population rate
+    # Z-score the population rate; mean/std can be computed from threshold_ep via restrict
+    if threshold_ep is None:
+        threshold_ep_use = ep
+    else:
+        threshold_ep_use = threshold_ep
+
+    if threshold_ep_use is None:
+        population_rate_threshold_smooth = population_rate_smooth
+    else:
+        population_rate_threshold_smooth = population_rate_smooth.restrict(threshold_ep_use)
+
+    threshold_rate_values = population_rate_threshold_smooth.values
+    if len(threshold_rate_values) == 0:
+        threshold_rate_values = population_rate_smooth.values
+
+    mean_rate = np.mean(threshold_rate_values)
+    std_rate = np.std(threshold_rate_values)
     rate_values = population_rate_smooth.values
-    mean_rate = np.mean(rate_values)
-    std_rate = np.std(rate_values)
     z_values = (rate_values - mean_rate) / std_rate
     population_rate_z = nap.Tsd(t=population_rate_smooth.times(), d=z_values, 
                                  time_support=population_rate_smooth.time_support)
+
+    # Detect events only within ep (even if baseline uses threshold_ep)
+    if ep is None:
+        population_rate_z_det = population_rate_z
+    else:
+        population_rate_z_det = population_rate_z.restrict(ep)
     
     # Find putative event windows above z_thresh
-    putative_above_thresh = population_rate_z.threshold(z_thresh, method='above')
+    putative_above_thresh = population_rate_z_det.threshold(z_thresh, method='above')
     putative_intervals = putative_above_thresh.time_support
     
     # Find all windows above mean (z > 0)
-    above_mean = population_rate_z.threshold(0, method='above')
+    above_mean = population_rate_z_det.threshold(0, method='above')
     above_mean_intervals = above_mean.time_support
     
     # For each above-mean interval, check if it contains putative events
