@@ -358,15 +358,9 @@ print(res['is_sig_overall'].mean())
     )
 
     out = {
-        'event_l': event_l,
-        'starts': starts,
-        'ends': ends,
-        'event_index_per_bin': event_index_per_bin,
         'event_df': event_df,
-        'q_l': q_l,
         'log_marginal_id_q_df': log_marginal_id_q_df,
         'log_marginal_circular_q_df': log_marginal_circular_q_df,
-        'sig_thresh': float(sig_thresh),
         'meta': {
             'n_time': int(n_time),
             'n_neuron': int(n_neuron),
@@ -375,10 +369,16 @@ print(res['is_sig_overall'].mean())
             'seed': int(seed),
             'decoding_kwargs': decoding_kwargs,
             'return_shuffle': bool(return_shuffle),
+            'sig_thresh': float(sig_thresh),
         },
     }
 
     if bool(return_shuffle):
+        out['event_l'] = event_l
+        out['starts'] = starts
+        out['ends'] = ends
+        out['event_index_per_bin'] = event_index_per_bin
+        out['q_l'] = q_l
         out['log_marginal_per_event_true'] = log_marginal_per_event_true
         out['log_marginal_per_event_id_shuffle'] = log_marginal_per_event_id_shuffle
         out['log_marginal_per_event_circular_shuffle'] = log_marginal_per_event_circular_shuffle
