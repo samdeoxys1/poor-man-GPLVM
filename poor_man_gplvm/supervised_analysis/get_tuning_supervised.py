@@ -20,7 +20,10 @@ Returns tuning_res dict with:
     tuning: xr.DataArray (*grid_shape, n_neuron) or {maze_key: xr.DataArray} for multi-maze
         firing rate; unoccupied bins are nan; computed as smoothed spk_count / smoothed occupancy
     tuning_flat: (n_valid_bin, n_neuron); for multi-maze, concatenated with coord_to_flat_idx mapping
-    coord_to_flat_idx: pd.Series, multi-index (label coords + maze_key for multi) -> index in tuning_flat
+    coord_to_flat_idx:
+        - single-maze: pd.Series, multi-index (label coords) -> index in tuning_flat
+        - multi-maze: {maze_key: pd.Series}, each Series is multi-indexed by that maze's label coords -> index in tuning_flat
+    flat_idx_to_coord: pd.DataFrame indexed by flat idx, columns include 'maze' and all label columns across mazes
     occupancy, occupancy_smth: xr.DataArray or {maze_key: xr.DataArray}
     occupancy_flat, spk_count_flat, etc.: flat arrays (valid bins only); for multi-maze, concatenated
     bin_edges, bin_centers, grid_shape, label_dim_names, neuron_names, dt, etc.
@@ -509,7 +512,10 @@ def get_tuning(label_l, spk_mat, ep=None, custom_smooth_func=None,
     tuning_res : dict
         tuning: xr.DataArray or {maze_key: xr.DataArray}
         tuning_flat: (n_valid_bin, n_neuron), concatenated for multi-maze
-        coord_to_flat_idx: pd.Series mapping (label coords [+ maze_key]) -> flat index
+        coord_to_flat_idx:
+            - single-maze: pd.Series mapping (label coords) -> flat index
+            - multi-maze: {maze_key: pd.Series} mapping (label coords) -> flat index in concatenated tuning_flat
+        flat_idx_to_coord: pd.DataFrame indexed by flat index, mapping -> coord columns (and 'maze')
         occupancy, occupancy_smth, spk_count, spk_count_smth, bin_edges, bin_centers, etc.
         For multi-maze: xr outputs are dicts keyed by maze_key; flat arrays are concatenated.
     '''
@@ -665,11 +671,22 @@ def get_tuning(label_l, spk_mat, ep=None, custom_smooth_func=None,
             coord_to_flat_idx = pd.Series(np.arange(len(coord_tuples)), index=midx)
         else:
             coord_to_flat_idx = pd.Series(dtype=int)
+
+        # reverse mapping: flat idx -> coord columns (and maze)
+        if coord_tuples:
+            flat_idx_to_coord = pd.DataFrame(coord_tuples, columns=label_dim_names)
+            flat_idx_to_coord.insert(0, 'maze', '_single')
+            flat_idx_to_coord.index = np.arange(len(coord_tuples))
+            flat_idx_to_coord.index.name = 'flat_idx'
+        else:
+            flat_idx_to_coord = pd.DataFrame(columns=['maze'] + list(label_dim_names))
+            flat_idx_to_coord.index.name = 'flat_idx'
         
         tuning_res = {
             'tuning': res['tuning'],
             'tuning_flat': res['tuning_flat'],
             'coord_to_flat_idx': coord_to_flat_idx,
+            'flat_idx_to_coord': flat_idx_to_coord,
             'occupancy': res['occupancy'],
             'occupancy_smth': res['occupancy_smth'],
             'spk_count': res['spk_count'],
@@ -713,13 +730,15 @@ def get_tuning(label_l, spk_mat, ep=None, custom_smooth_func=None,
         'n_valid_timepoints': {k: per_maze[k]['n_valid_timepoints'] for k in maze_keys},
     }
     
-    # concatenate flat arrays across mazes and build coord_to_flat_idx with maze_key
+    # concatenate flat arrays across mazes and build per-maze coord_to_flat_idx (global flat idx)
     tuning_flat_l = []
     occupancy_flat_l = []
     occupancy_smth_flat_l = []
     spk_count_flat_l = []
     spk_count_smth_flat_l = []
-    coord_tuples_all = []
+    coord_to_flat_idx_d = {}
+    flat_idx_to_coord_l = []
+    global_offset = 0
     
     for k in maze_keys:
         res_k = per_maze[k]
@@ -728,9 +747,27 @@ def get_tuning(label_l, spk_mat, ep=None, custom_smooth_func=None,
         occupancy_smth_flat_l.append(res_k['occupancy_smth_flat'])
         spk_count_flat_l.append(res_k['spk_count_flat'])
         spk_count_smth_flat_l.append(res_k['spk_count_smth_flat'])
-        # add maze_key to coord tuples
-        for ct in res_k['coord_tuples']:
-            coord_tuples_all.append(ct + (k,))
+        
+        coord_tuples = res_k['coord_tuples']
+        label_dim_names = res_k['label_dim_names']
+        n_k = len(coord_tuples)
+        
+        if n_k:
+            midx = pd.MultiIndex.from_tuples(coord_tuples, names=label_dim_names)
+            coord_to_flat_idx_d[k] = pd.Series(global_offset + np.arange(n_k), index=midx)
+            
+            df_k = pd.DataFrame(coord_tuples, columns=label_dim_names)
+            df_k.insert(0, 'maze', k)
+            df_k.index = global_offset + np.arange(n_k)
+            df_k.index.name = 'flat_idx'
+            flat_idx_to_coord_l.append(df_k)
+        else:
+            coord_to_flat_idx_d[k] = pd.Series(dtype=int)
+            df_k = pd.DataFrame(columns=['maze'] + list(label_dim_names))
+            df_k.index.name = 'flat_idx'
+            flat_idx_to_coord_l.append(df_k)
+        
+        global_offset += n_k
     
     tuning_res['tuning_flat'] = np.concatenate(tuning_flat_l, axis=0) if tuning_flat_l else np.array([])
     tuning_res['occupancy_flat'] = np.concatenate(occupancy_flat_l, axis=0) if occupancy_flat_l else np.array([])
@@ -738,15 +775,15 @@ def get_tuning(label_l, spk_mat, ep=None, custom_smooth_func=None,
     tuning_res['spk_count_flat'] = np.concatenate(spk_count_flat_l, axis=0) if spk_count_flat_l else np.array([])
     tuning_res['spk_count_smth_flat'] = np.concatenate(spk_count_smth_flat_l, axis=0) if spk_count_smth_flat_l else np.array([])
     
-    # build coord_to_flat_idx with maze_key as additional level
-    if coord_tuples_all:
-        # get label_dim_names from first maze (assume same across mazes)
-        label_dim_names = per_maze[maze_keys[0]]['label_dim_names']
-        midx = pd.MultiIndex.from_tuples(coord_tuples_all, names=label_dim_names + ['maze'])
-        coord_to_flat_idx = pd.Series(np.arange(len(coord_tuples_all)), index=midx)
-    else:
-        coord_to_flat_idx = pd.Series(dtype=int)
+    tuning_res['coord_to_flat_idx'] = coord_to_flat_idx_d
     
-    tuning_res['coord_to_flat_idx'] = coord_to_flat_idx
+    if flat_idx_to_coord_l:
+        flat_idx_to_coord = pd.concat(flat_idx_to_coord_l, axis=0, sort=False)
+        if 'maze' in flat_idx_to_coord.columns:
+            cols = ['maze'] + [c for c in flat_idx_to_coord.columns if c != 'maze']
+            flat_idx_to_coord = flat_idx_to_coord.loc[:, cols]
+        tuning_res['flat_idx_to_coord'] = flat_idx_to_coord
+    else:
+        tuning_res['flat_idx_to_coord'] = pd.DataFrame(columns=['maze'])
     
     return tuning_res
