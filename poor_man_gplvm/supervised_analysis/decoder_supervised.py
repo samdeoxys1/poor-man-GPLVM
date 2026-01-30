@@ -8,6 +8,7 @@ import xarray as xr
 import time
 import jax.numpy as jnp
 
+import pynapple
 import poor_man_gplvm.decoder as decoder
 
 def decode_naive_bayes(spk, tuning, tensor_pad_mask=None, flat_idx_to_coord=None, dt=1.0, gain=1.0, time_l=None, **kwargs):
@@ -65,21 +66,93 @@ res_xr = dec_sup.decode_naive_bayes(
 
     if spk.ndim == 2:
         res = _decode_naive_bayes_matrix(spk, tuning, dt=dt, gain=gain, **kwargs)
+        res = _decode_res_to_numpy(res)
+        if time_coord is None and time_l is not None:
+            time_coord = np.asarray(time_l)
+
         if flat_idx_to_coord is not None:
             res = _wrap_label_results_xr_by_maze(res, flat_idx_to_coord=flat_idx_to_coord, time_coord=time_coord)
+        else:
+            if time_coord is not None:
+                res = _wrap_decode_res_tsdframe_matrix(res, time_coord=time_coord)
         return res
 
     if spk.ndim == 3:
         if tensor_pad_mask is None:
             raise ValueError('tensor input requires tensor_pad_mask (n_trial, n_time, 1).')
         res = _decode_naive_bayes_tensor(spk, tuning, tensor_pad_mask=tensor_pad_mask, dt=dt, gain=gain, **kwargs)
+        res = _decode_res_to_numpy(res)
         if time_l is not None:
             res['time_l'] = np.asarray(time_l)
         if flat_idx_to_coord is not None:
             res = _wrap_label_results_xr_by_maze(res, flat_idx_to_coord=flat_idx_to_coord, time_coord=time_l)
+        else:
+            if time_l is not None:
+                res = _wrap_decode_res_tsdframe_tensor(res, time_l=np.asarray(time_l))
         return res
 
     raise ValueError(f'Unsupported spk ndim={spk.ndim}; expected 2 or 3.')
+
+def _decode_res_to_numpy(res):
+    '''
+    Convert JAX arrays to numpy arrays (recursively for lists / dicts).
+    '''
+    if isinstance(res, dict):
+        return {k: _decode_res_to_numpy(v) for k, v in res.items()}
+    if isinstance(res, list):
+        return [_decode_res_to_numpy(v) for v in res]
+    try:
+        return np.asarray(res)
+    except Exception:
+        return res
+
+def _wrap_decode_res_tsdframe_matrix(res, time_coord):
+    '''
+    Wrap matrix decode outputs into pynapple time series containers when time is available.
+    '''
+    res2 = dict(res)
+    for k in ['log_likelihood', 'log_posterior', 'posterior']:
+        if k in res2 and np.ndim(res2[k]) == 2:
+            arr = np.asarray(res2[k])
+            cols = np.arange(arr.shape[1])
+            res2[k] = pynapple.TsdFrame(d=arr, t=np.asarray(time_coord), columns=cols)
+    if 'log_marginal_l' in res2 and np.ndim(res2['log_marginal_l']) == 1:
+        res2['log_marginal_l'] = pynapple.Tsd(d=np.asarray(res2['log_marginal_l']), t=np.asarray(time_coord))
+    return res2
+
+def _wrap_decode_res_tsdframe_tensor(res, time_l):
+    '''
+    Wrap tensor decode outputs into TsdFrame/Tsd using time_l (valid-bin concat time).
+    Also wraps per-trial outputs into list[TsdFrame]/list[Tsd] using starts/ends.
+    '''
+    res2 = dict(res)
+    starts = np.asarray(res2.get('starts', []), dtype=int)
+    ends = np.asarray(res2.get('ends', []), dtype=int)
+
+    for k in ['log_likelihood_concat', 'log_posterior_concat', 'posterior_concat']:
+        if k in res2 and np.ndim(res2[k]) == 2:
+            arr = np.asarray(res2[k])
+            cols = np.arange(arr.shape[1])
+            res2[k] = pynapple.TsdFrame(d=arr, t=np.asarray(time_l), columns=cols)
+
+    for k in ['log_likelihood', 'log_posterior', 'posterior']:
+        if k in res2 and isinstance(res2[k], list) and len(res2[k]) and np.ndim(res2[k][0]) == 2:
+            arr_l = [np.asarray(a) for a in res2[k]]
+            tsdf_l = []
+            for a, s, e in zip(arr_l, starts, ends):
+                cols = np.arange(a.shape[1])
+                tsdf_l.append(pynapple.TsdFrame(d=a, t=np.asarray(time_l)[s:e], columns=cols))
+            res2[k] = tsdf_l
+
+    if 'log_marginal_l_concat' in res2 and np.ndim(res2['log_marginal_l_concat']) == 1:
+        res2['log_marginal_l_concat'] = pynapple.Tsd(d=np.asarray(res2['log_marginal_l_concat']), t=np.asarray(time_l))
+    if 'log_marginal_l' in res2 and isinstance(res2['log_marginal_l'], list) and len(res2['log_marginal_l']):
+        tsd_l = []
+        for a, s, e in zip(res2['log_marginal_l'], starts, ends):
+            tsd_l.append(pynapple.Tsd(d=np.asarray(a), t=np.asarray(time_l)[s:e]))
+        res2['log_marginal_l'] = tsd_l
+
+    return res2
 
 def _decode_naive_bayes_matrix(spk, tuning, **kwargs):
     '''
