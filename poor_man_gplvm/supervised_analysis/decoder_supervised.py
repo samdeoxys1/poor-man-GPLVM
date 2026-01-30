@@ -67,17 +67,6 @@ res_xr = dec_sup.decode_naive_bayes(
     if spk.ndim == 2:
         res = _decode_naive_bayes_matrix(spk, tuning, dt=dt, gain=gain, **kwargs)
         res = _decode_res_to_numpy(res)
-        # keep a consistent API with tensor mode
-        if 'log_likelihood_concat' not in res:
-            res['log_likelihood_concat'] = res.get('log_likelihood', None)
-        if 'log_posterior_concat' not in res:
-            res['log_posterior_concat'] = res.get('log_posterior', None)
-        if 'posterior_concat' not in res:
-            res['posterior_concat'] = res.get('posterior', None)
-        if 'log_marginal_l_concat' not in res:
-            res['log_marginal_l_concat'] = res.get('log_marginal_l', None)
-        if 'log_marginal_concat' not in res:
-            res['log_marginal_concat'] = res.get('log_marginal', None)
 
         if time_coord is None and time_l is not None:
             time_coord = np.asarray(time_l)
@@ -406,7 +395,8 @@ def _wrap_label_results_xr_by_maze(res, flat_idx_to_coord, time_coord=None):
             out[maze] = arr_2d[:, pos_idx]
         return out
 
-    if 'log_likelihood_concat' in res:
+    # tensor mode: concat arrays + starts/ends available
+    if ('log_likelihood_concat' in res) and ('starts' in res) and ('ends' in res):
         n_time = int(np.asarray(res['log_likelihood_concat']).shape[0])
         if time_coord is None:
             time_coord = _default_time(n_time)
