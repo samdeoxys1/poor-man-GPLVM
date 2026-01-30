@@ -194,10 +194,11 @@ def label_to_grid(label, label_bin_size, label_min=None, label_max=None):
     
     label: nap.TsdFrame (n_time x n_dim)
     label_bin_size: float or array (per dim)
-    label_min: float or array (per dim), or None => infer from data
+    label_min: float or array (per dim), or None => infer from data - 0.5*bin_size
         lower edge of first bin; values below go to first bin
-    label_max: float or array (per dim), or None => infer from data
+    label_max: float or array (per dim), or None => infer from data + 0.5*bin_size
         upper limit for binning; values above go to last bin
+        (the 0.5*bin_size extension makes bin centers align to natural values like 0,10,20...)
     
     Returns:
         bin_edges_l: list of arrays, bin edges for each dim
@@ -241,29 +242,30 @@ def label_to_grid(label, label_bin_size, label_min=None, label_max=None):
         col = label_arr[:, d]
         finite_ma = np.isfinite(col)
         col_finite = col[finite_ma]
+        bs = label_bin_size[d]
         
         # determine lo (first bin edge) - check per-dim None
+        # extend by 0.5*bs when inferred from data so bin centers align to natural values
         lmin_d = label_min[d]
         if lmin_d is not None and np.isfinite(float(lmin_d)):
             lo = float(lmin_d)
         elif col_finite.size == 0:
-            lo = 0.
+            lo = -0.5 * bs
         else:
-            lo = col_finite.min()
+            lo = col_finite.min() - 0.5 * bs
         
-        # determine hi (lower edge of last bin) - check per-dim None
+        # determine hi - check per-dim None
+        # extend by 0.5*bs when inferred from data
         lmax_d = label_max[d]
         if lmax_d is not None and np.isfinite(float(lmax_d)):
             hi = float(lmax_d)
         elif col_finite.size == 0:
-            hi = 1.
+            hi = 0.5 * bs
         else:
-            hi = col_finite.max()
+            hi = col_finite.max() + 0.5 * bs
         
-        bs = label_bin_size[d]
-        # build edges from lo to hi+bs (so hi is included in last bin)
-        # values below lo go to first bin, values >= last edge go to last bin (clipped)
-        edges = np.arange(lo, hi + bs + 1e-9, bs)
+        # build edges from lo to hi (values below lo go to first bin, above hi to last bin)
+        edges = np.arange(lo, hi + 1e-9, bs)
         centers = 0.5 * (edges[:-1] + edges[1:])
         
         bin_edges_l.append(edges)
