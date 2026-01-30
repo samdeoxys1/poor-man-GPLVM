@@ -5,6 +5,7 @@ wrappers of the decoder.py, specifically for supervised analysis
 import numpy as np
 import pandas as pd
 import xarray as xr
+import time
 import jax.numpy as jnp
 
 import poor_man_gplvm.decoder as decoder
@@ -124,14 +125,98 @@ def _decode_naive_bayes_tensor(spk_tensor, tuning, tensor_pad_mask, **kwargs):
     mask_flat = mask.reshape((n_trial * n_time,))
     spk_valid = spk_flat[mask_flat]
 
+    verbose = bool(kwargs.get('verbose', True))
+    profile_chunks = bool(kwargs.get('profile_chunks', True))
+    n_time_per_chunk = int(kwargs.get('n_time_per_chunk', 10000))
+
+    if verbose:
+        print(f"[_decode_naive_bayes_tensor] spk_tensor shape={tuple(spk_tensor.shape)}")
+        print(f"[_decode_naive_bayes_tensor] spk_valid shape={tuple(spk_valid.shape)} (after mask)")
+
     dt_l = kwargs.get('dt_l', 1)
     if np.ndim(dt_l) > 0 and not np.isscalar(dt_l):
         dt_l = np.asarray(dt_l).reshape((n_trial * n_time,))[mask_flat]
 
-    kwargs2 = dict(kwargs)
-    kwargs2['dt_l'] = dt_l
+    if not profile_chunks:
+        kwargs2 = dict(kwargs)
+        kwargs2['dt_l'] = dt_l
+        res_mat = _decode_naive_bayes_matrix(spk_valid, tuning, **kwargs2)
+    else:
+        observation_model = kwargs.get('observation_model', 'poisson')
+        ma_neuron = kwargs.get('ma_neuron', jnp.ones(n_neuron))
+        ma_latent = kwargs.get('ma_latent', jnp.ones(tuning.shape[0]))
+        noise_std = kwargs.get('noise_std', 1.0)
 
-    res_mat = _decode_naive_bayes_matrix(spk_valid, tuning, **kwargs2)
+        if observation_model == 'gaussian':
+            hyperparam = {'noise_std': noise_std}
+        else:
+            hyperparam = {}
+
+        n_valid_time = int(spk_valid.shape[0])
+        n_chunks = int(np.ceil(n_valid_time / n_time_per_chunk)) if n_valid_time else 0
+
+        if verbose:
+            print(f"[_decode_naive_bayes_tensor] chunking n_valid_time={n_valid_time} with n_time_per_chunk={n_time_per_chunk} => n_chunks={n_chunks}")
+
+        ma_neuron_full = jnp.broadcast_to(ma_neuron, (n_valid_time, n_neuron))
+        dt_l_full = dt_l
+        if np.ndim(dt_l_full) == 0 or np.isscalar(dt_l_full):
+            dt_l_full = jnp.broadcast_to(dt_l_full, (n_valid_time,))
+        else:
+            dt_l_full = jnp.asarray(dt_l_full)
+
+        log_post_l = []
+        log_marginal_l_l = []
+        log_marginal_chunk_l = []
+        ll_per_pos_l_l = []
+
+        t0 = time.time()
+        for chunk_i in range(n_chunks):
+            sl = slice(chunk_i * n_time_per_chunk, (chunk_i + 1) * n_time_per_chunk)
+            y_chunk = spk_valid[sl]
+            ma_neuron_chunk = ma_neuron_full[sl]
+            dt_l_chunk = dt_l_full[sl]
+
+            tic = time.time()
+            log_post, log_marginal_l_chunk, log_marginal, ll_per_pos_chunk = decoder.get_naive_bayes_ma(
+                y_chunk,
+                tuning,
+                hyperparam,
+                ma_neuron_chunk,
+                ma_latent,
+                dt_l=dt_l_chunk,
+                observation_model=observation_model,
+            )
+            log_post.block_until_ready()
+            toc = time.time()
+
+            if verbose:
+                chunk_len = int(y_chunk.shape[0])
+                print(f"[_decode_naive_bayes_tensor] chunk {chunk_i+1}/{n_chunks}: time_idx={sl.start}:{min(sl.stop, n_valid_time)} n_time={chunk_len} dt={toc-tic:.3f}s")
+
+            log_post_l.append(log_post)
+            log_marginal_l_l.append(log_marginal_l_chunk)
+            log_marginal_chunk_l.append(log_marginal)
+            ll_per_pos_l_l.append(ll_per_pos_chunk)
+
+        log_posterior = jnp.concatenate(log_post_l, axis=0) if log_post_l else jnp.zeros((0, tuning.shape[0]))
+        log_marginal_l = jnp.concatenate(log_marginal_l_l, axis=0) if log_marginal_l_l else jnp.zeros((0,))
+        log_marginal = jnp.sum(jnp.asarray(log_marginal_chunk_l)) if log_marginal_chunk_l else jnp.asarray(0.0)
+        log_likelihood = jnp.concatenate(ll_per_pos_l_l, axis=0) if ll_per_pos_l_l else jnp.zeros((0, tuning.shape[0]))
+
+        posterior = jnp.exp(log_posterior)
+
+        res_mat = {
+            'log_likelihood': log_likelihood,
+            'log_posterior': log_posterior,
+            'posterior': posterior,
+            'log_marginal_l': log_marginal_l,
+            'log_marginal': log_marginal,
+        }
+
+        if verbose:
+            print(f"[_decode_naive_bayes_tensor] decode total dt={time.time()-t0:.3f}s")
+            print(f"[_decode_naive_bayes_tensor] concat mat shape={tuple(res_mat['log_posterior'].shape)}")
 
     n_time_per_trial = mask.sum(axis=1).astype(int)  # (n_trial,)
     ends = np.cumsum(n_time_per_trial)
