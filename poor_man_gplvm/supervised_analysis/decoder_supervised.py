@@ -8,9 +8,11 @@ import xarray as xr
 import time
 import jax
 import jax.numpy as jnp
+import jax.scipy as jscipy
 
 import pynapple as nap
 import poor_man_gplvm.decoder as decoder
+import poor_man_gplvm.decoder_trial as decoder_trial
 import poor_man_gplvm.supervised_analysis.get_tuning_supervised as get_tuning_supervised
 
 def _parse_event_index_per_bin(event_index_per_bin):
@@ -591,10 +593,347 @@ def _wrap_label_results_xr_by_maze(res, flat_idx_to_coord, time_coord=None, even
     return res2
 
 
+def _wrap_label_results_xr_by_maze_dynamics(res, flat_idx_to_coord, time_coord=None, event_index_per_bin=None, return_per_event=False):
+    '''
+    Maze-aware xarray wrapping for dynamics decoding outputs.
+
+    - Splits latent dimension by maze (from flat_idx_to_coord['maze'])
+    - Wraps arrays with latent dim into DataArray using a MultiIndex label_bin coord (same as decode_naive_bayes wrapper)
+
+    Expected keys (if present):
+    - (time, n_latent): 'log_likelihood', 'log_posterior_latent_marg', 'posterior_latent_marg'
+    - (time, n_dyn, n_latent): 'log_posterior_all', 'posterior_all'
+    - per-event lists under *_per_event (if return_per_event True in matrix mode, or tensor mode)
+    '''
+    df = flat_idx_to_coord
+    if not isinstance(df, pd.DataFrame):
+        raise ValueError('flat_idx_to_coord must be a pandas DataFrame.')
+    if 'maze' not in df.columns:
+        raise ValueError("flat_idx_to_coord must include column 'maze'.")
+
+    maze_l = pd.unique(df['maze'])
+    label_cols_all = [c for c in df.columns if c != 'maze']
+
+    def _default_time(n_time):
+        return np.arange(int(n_time))
+
+    def _make_label_coord(pos_idx):
+        if len(label_cols_all) == 0:
+            return np.arange(len(pos_idx))
+
+        df_maze = df.iloc[pos_idx]
+        label_cols = [c for c in label_cols_all if df_maze[c].notna().any()]
+        if len(label_cols) == 0:
+            return np.arange(len(pos_idx))
+
+        df_lab = df_maze.loc[:, label_cols].copy()
+        for c in label_cols:
+            if df_lab[c].dtype.kind in 'if':
+                df_lab[c] = df_lab[c].fillna(-1)
+            else:
+                df_lab[c] = df_lab[c].fillna('_nan')
+        return pd.MultiIndex.from_frame(df_lab)
+
+    def _split_latent(arr):
+        out = {}
+        arr = np.asarray(arr)
+        for maze in maze_l:
+            pos_idx = np.where(np.asarray(df['maze']) == maze)[0]
+            out[maze] = arr[:, pos_idx]
+        return out
+
+    def _split_dyn_latent(arr):
+        out = {}
+        arr = np.asarray(arr)
+        for maze in maze_l:
+            pos_idx = np.where(np.asarray(df['maze']) == maze)[0]
+            out[maze] = arr[:, :, pos_idx]
+        return out
+
+    # time coordinate
+    n_time = None
+    for k in ['log_likelihood', 'posterior_latent_marg', 'log_posterior_all', 'posterior_all']:
+        if k in res and np.ndim(res[k]) >= 1:
+            n_time = int(np.asarray(res[k]).shape[0])
+            break
+    if n_time is None:
+        return dict(res)
+
+    if time_coord is None:
+        time_coord = _default_time(n_time)
+    else:
+        time_coord = np.asarray(time_coord)
+
+    coords_time = {'time': time_coord}
+    if event_index_per_bin is not None:
+        coords_time['event_index_per_bin'] = ('time', np.asarray(event_index_per_bin))
+
+    res2 = dict(res)
+
+    # initialize dict outputs
+    for k in ['log_likelihood', 'log_posterior_latent_marg', 'posterior_latent_marg', 'log_posterior_all', 'posterior_all']:
+        if k in res2:
+            res2[k] = {}
+    if bool(return_per_event):
+        for k in ['log_likelihood_per_event', 'log_posterior_latent_marg_per_event', 'posterior_latent_marg_per_event',
+                  'log_posterior_all_per_event', 'posterior_all_per_event']:
+            if k in res2:
+                res2[k] = {}
+
+    # wrap
+    if 'log_likelihood' in res:
+        ll_by_maze = _split_latent(res['log_likelihood'])
+    if 'log_posterior_latent_marg' in res:
+        lpm_by_maze = _split_latent(res['log_posterior_latent_marg'])
+    if 'posterior_latent_marg' in res:
+        pm_by_maze = _split_latent(res['posterior_latent_marg'])
+    if 'log_posterior_all' in res:
+        lpa_by_maze = _split_dyn_latent(res['log_posterior_all'])
+    if 'posterior_all' in res:
+        pa_by_maze = _split_dyn_latent(res['posterior_all'])
+
+    for maze in maze_l:
+        pos_idx = np.where(np.asarray(df['maze']) == maze)[0]
+        label_coord = _make_label_coord(pos_idx)
+
+        if 'log_likelihood' in res:
+            res2['log_likelihood'][maze] = xr.DataArray(
+                ll_by_maze[maze],
+                dims=('time', 'label_bin'),
+                coords=dict(coords_time, label_bin=label_coord),
+            )
+        if 'log_posterior_latent_marg' in res:
+            res2['log_posterior_latent_marg'][maze] = xr.DataArray(
+                lpm_by_maze[maze],
+                dims=('time', 'label_bin'),
+                coords=dict(coords_time, label_bin=label_coord),
+            )
+        if 'posterior_latent_marg' in res:
+            res2['posterior_latent_marg'][maze] = xr.DataArray(
+                pm_by_maze[maze],
+                dims=('time', 'label_bin'),
+                coords=dict(coords_time, label_bin=label_coord),
+            )
+        if 'log_posterior_all' in res:
+            res2['log_posterior_all'][maze] = xr.DataArray(
+                lpa_by_maze[maze],
+                dims=('time', 'dyn', 'label_bin'),
+                coords=dict(coords_time, dyn=np.arange(np.asarray(lpa_by_maze[maze]).shape[1]), label_bin=label_coord),
+            )
+        if 'posterior_all' in res:
+            res2['posterior_all'][maze] = xr.DataArray(
+                pa_by_maze[maze],
+                dims=('time', 'dyn', 'label_bin'),
+                coords=dict(coords_time, dyn=np.arange(np.asarray(pa_by_maze[maze]).shape[1]), label_bin=label_coord),
+            )
+
+        if bool(return_per_event) and ('starts' in res2) and ('ends' in res2):
+            starts = np.asarray(res2['starts']).astype(int)
+            ends = np.asarray(res2['ends']).astype(int)
+            if 'log_likelihood_per_event' in res2 and 'log_likelihood' in res2:
+                res2['log_likelihood_per_event'][maze] = [res2['log_likelihood'][maze].isel(time=slice(s, e)) for s, e in zip(starts, ends)]
+            if 'log_posterior_latent_marg_per_event' in res2 and 'log_posterior_latent_marg' in res2:
+                res2['log_posterior_latent_marg_per_event'][maze] = [res2['log_posterior_latent_marg'][maze].isel(time=slice(s, e)) for s, e in zip(starts, ends)]
+            if 'posterior_latent_marg_per_event' in res2 and 'posterior_latent_marg' in res2:
+                res2['posterior_latent_marg_per_event'][maze] = [res2['posterior_latent_marg'][maze].isel(time=slice(s, e)) for s, e in zip(starts, ends)]
+            if 'log_posterior_all_per_event' in res2 and 'log_posterior_all' in res2:
+                res2['log_posterior_all_per_event'][maze] = [res2['log_posterior_all'][maze].isel(time=slice(s, e)) for s, e in zip(starts, ends)]
+            if 'posterior_all_per_event' in res2 and 'posterior_all' in res2:
+                res2['posterior_all_per_event'][maze] = [res2['posterior_all'][maze].isel(time=slice(s, e)) for s, e in zip(starts, ends)]
+
+    res2['maze_l'] = maze_l
+    return res2
+
+
+def _wrap_decode_res_xr_matrix_dynamics(res, time_coord, event_index_per_bin=None, return_per_event=False):
+    '''
+    Wrap matrix dynamics outputs into xarray DataArray(s), optionally with an event coord.
+    Uses a simple integer label_bin coord (0..n_latent-1).
+    '''
+    res2 = dict(res)
+    time_coord = np.asarray(time_coord) if time_coord is not None else np.arange(int(np.asarray(res2['posterior_latent_marg']).shape[0]))
+    coords_time = {'time': time_coord}
+    if event_index_per_bin is not None:
+        coords_time['event_index_per_bin'] = ('time', np.asarray(event_index_per_bin))
+
+    if 'log_likelihood' in res2 and np.ndim(res2['log_likelihood']) == 2:
+        arr = np.asarray(res2['log_likelihood'])
+        res2['log_likelihood'] = xr.DataArray(arr, dims=('time', 'label_bin'), coords=dict(coords_time, label_bin=np.arange(arr.shape[1])))
+    for k in ['log_posterior_latent_marg', 'posterior_latent_marg']:
+        if k in res2 and np.ndim(res2[k]) == 2:
+            arr = np.asarray(res2[k])
+            res2[k] = xr.DataArray(arr, dims=('time', 'label_bin'), coords=dict(coords_time, label_bin=np.arange(arr.shape[1])))
+    for k in ['log_posterior_all', 'posterior_all']:
+        if k in res2 and np.ndim(res2[k]) == 3:
+            arr = np.asarray(res2[k])
+            res2[k] = xr.DataArray(arr, dims=('time', 'dyn', 'label_bin'),
+                                   coords=dict(coords_time, dyn=np.arange(arr.shape[1]), label_bin=np.arange(arr.shape[2])))
+
+    if 'log_marginal_l' in res2 and np.ndim(res2['log_marginal_l']) == 1:
+        res2['log_marginal_l'] = xr.DataArray(np.asarray(res2['log_marginal_l']), dims=('time',), coords=coords_time)
+
+    if bool(return_per_event) and ('starts' in res2) and ('ends' in res2):
+        starts = np.asarray(res2['starts']).astype(int)
+        ends = np.asarray(res2['ends']).astype(int)
+        for k in ['log_likelihood', 'log_posterior_latent_marg', 'posterior_latent_marg', 'log_posterior_all', 'posterior_all', 'log_marginal_l']:
+            if k in res2 and isinstance(res2[k], xr.DataArray):
+                res2[f'{k}_per_event'] = [res2[k].isel(time=slice(s, e)) for s, e in zip(starts, ends)]
+    return res2
+
+
+def _wrap_decode_res_tsdframe_matrix_dynamics(res, time_coord):
+    '''
+    Wrap matrix dynamics outputs into pynapple time series containers when time is available.
+    '''
+    res2 = dict(res)
+    t = np.asarray(time_coord)
+    for k in ['log_likelihood', 'log_posterior_latent_marg', 'posterior_latent_marg']:
+        if k in res2 and np.ndim(res2[k]) == 2:
+            arr = np.asarray(res2[k])
+            cols = np.arange(arr.shape[1])
+            res2[k] = nap.TsdFrame(d=arr, t=t, columns=cols)
+    if 'posterior_dynamics_marg' in res2 and np.ndim(res2['posterior_dynamics_marg']) == 2:
+        arr = np.asarray(res2['posterior_dynamics_marg'])
+        cols = np.arange(arr.shape[1])
+        res2['posterior_dynamics_marg'] = nap.TsdFrame(d=arr, t=t, columns=cols)
+    if 'log_marginal_l' in res2 and np.ndim(res2['log_marginal_l']) == 1:
+        res2['log_marginal_l'] = nap.Tsd(d=np.asarray(res2['log_marginal_l']), t=t)
+    return res2
+
+
+def _wrap_decode_res_tsdframe_tensor_dynamics(res, time_l):
+    '''
+    Wrap tensor (time-concat) dynamics outputs into TsdFrame/Tsd using time_l.
+    Also wraps per-event outputs into list[TsdFrame]/list[Tsd] using starts/ends.
+    '''
+    res2 = dict(res)
+    starts = np.asarray(res2.get('starts', []), dtype=int)
+    ends = np.asarray(res2.get('ends', []), dtype=int)
+    t = np.asarray(time_l)
+
+    def _wrap_2d(arr_2d):
+        arr_2d = np.asarray(arr_2d)
+        cols = np.arange(arr_2d.shape[1])
+        return nap.TsdFrame(d=arr_2d, t=t, columns=cols)
+
+    def _wrap_1d(arr_1d):
+        return nap.Tsd(d=np.asarray(arr_1d), t=t)
+
+    # time-concat arrays
+    for k in ['log_likelihood', 'log_posterior_latent_marg', 'posterior_latent_marg', 'posterior_dynamics_marg']:
+        if k in res2 and np.ndim(res2[k]) == 2:
+            res2[k] = _wrap_2d(res2[k])
+
+    # per-event lists (trial-based)
+    for k in [
+        'log_likelihood_per_event',
+        'log_posterior_latent_marg_per_event',
+        'posterior_latent_marg_per_event',
+        'posterior_dynamics_marg_per_event',
+    ]:
+        if k in res2 and isinstance(res2[k], list) and len(res2[k]) and np.ndim(res2[k][0]) == 2:
+            tsdf_l = []
+            for a, s, e in zip(res2[k], starts, ends):
+                cols = np.arange(np.asarray(a).shape[1])
+                tsdf_l.append(nap.TsdFrame(d=np.asarray(a), t=t[s:e], columns=cols))
+            res2[k] = tsdf_l
+
+    # 3D arrays (dyn, latent): leave as numpy for now (harder to represent cleanly in nap)
+    # but still wrap per-event lists if desired in analysis code.
+    return res2
+
+
+def _safe_row_normalize(mat):
+    mat = np.asarray(mat, dtype=float)
+    if mat.size == 0:
+        return mat
+    row_sums = mat.sum(axis=1, keepdims=True)
+    zero_row = (row_sums[:, 0] == 0)
+    row_sums[zero_row, :] = 1.0
+    mat = mat / row_sums
+    if np.any(zero_row):
+        ii = np.where(zero_row)[0]
+        mat[ii, :] = 0.0
+        mat[ii, ii] = 1.0
+    return mat
+
+
+def _safe_log_prob(mat):
+    mat = np.asarray(mat, dtype=float)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        logp = np.log(mat)
+    logp = np.where(np.isfinite(logp), logp, -1e20)
+    return logp
+
+
+def _get_log_transition_matrices_supervised(
+    *,
+    n_latent,
+    coord_to_flat_idx=None,
+    continuous_transition_movement_variance=1.0,
+    p_move_to_jump=0.02,
+    p_jump_to_move=0.02,
+    custom_continuous_transition_kernel=None,
+):
+    '''
+    Build log transition kernels for supervised JumpLVM-style decoding.
+
+    Returns dict with:
+    - latent_transition_kernel_l: (2, n_latent, n_latent) [move, jump]
+    - log_latent_transition_kernel_l: (2, n_latent, n_latent)
+    - dynamics_transition_kernel: (2, 2)
+    - log_dynamics_transition_kernel: (2, 2)
+    '''
+    n_latent = int(n_latent)
+    if n_latent < 0:
+        raise ValueError(f'n_latent must be >=0, got {n_latent}')
+
+    if custom_continuous_transition_kernel is not None:
+        K_move = np.asarray(custom_continuous_transition_kernel, dtype=float)
+    else:
+        if coord_to_flat_idx is None:
+            raise ValueError('coord_to_flat_idx is required when custom_continuous_transition_kernel is None.')
+        K_move = get_latent_transition_kernel_multi_maze(
+            coord_to_flat_idx,
+            continuous_transition_movement_variance=continuous_transition_movement_variance,
+        )
+
+    if K_move.shape != (n_latent, n_latent):
+        raise ValueError(f'continuous transition kernel shape {K_move.shape} != (n_latent, n_latent)=({n_latent}, {n_latent})')
+
+    K_move = _safe_row_normalize(K_move)
+
+    if n_latent == 0:
+        K_jump = np.zeros((0, 0), dtype=float)
+    else:
+        K_jump = np.full((n_latent, n_latent), 1.0 / float(n_latent), dtype=float)
+
+    latent_transition_kernel_l = np.stack([K_move, K_jump], axis=0)
+    log_latent_transition_kernel_l = np.stack([_safe_log_prob(K_move), _safe_log_prob(K_jump)], axis=0)
+
+    dyn_mat = np.array(
+        [
+            [1.0 - float(p_move_to_jump), float(p_move_to_jump)],
+            [float(p_jump_to_move), 1.0 - float(p_jump_to_move)],
+        ],
+        dtype=float,
+    )
+    dyn_mat = _safe_row_normalize(dyn_mat)
+    log_dyn_mat = _safe_log_prob(dyn_mat)
+
+    return {
+        'latent_transition_kernel_l': latent_transition_kernel_l,
+        'log_latent_transition_kernel_l': log_latent_transition_kernel_l,
+        'dynamics_transition_kernel': dyn_mat,
+        'log_dynamics_transition_kernel': log_dyn_mat,
+    }
+
+
 def decode_with_dynamics(
     spk,
     tuning,
     tensor_pad_mask=None,
+    coord_to_flat_idx=None,
     flat_idx_to_coord=None,
     event_index_per_bin=None,
     return_per_event=False,
@@ -608,9 +947,316 @@ def decode_with_dynamics(
     **kwargs
 ):
     '''
-    state-space decoder as in the JumpLVM; 
+    State-space decoder (latent + dynamics) as in JumpLVM core, but with supervised tuning.
+
+    Inputs
+    - spk: (n_time, n_neuron) or padded tensor (n_trial, T_max, n_neuron)
+    - tuning: (n_latent, n_neuron) firing rate in Hz (typically `tuning_res['tuning_flat']`)
+    - tensor_pad_mask: required for tensor input, (n_trial, T_max, 1) bool
+    - coord_to_flat_idx: (optional but usually needed) from `get_tuning_supervised.get_tuning` output.
+      - single-maze: pd.Series mapping coord -> flat idx
+      - multi-maze: dict[maze] -> pd.Series mapping coord -> global flat idx (concatenated tuning order)
+      Needed to build the continuous (move) transition kernel unless `custom_continuous_transition_kernel` is provided.
+    - flat_idx_to_coord: optional pd.DataFrame (index=flat_idx, includes column 'maze') for maze-aware xarray wrapping.
+    - event_index_per_bin: matrix-mode only, (n_time,) event id per time bin (for per-event slicing).
+    - return_per_event: matrix-mode only; if True, also returns *_per_event lists for time-indexed arrays.
+
+    Transition params
+    - continuous_transition_movement_variance: controls Gaussian smoothing width (variance in label units^2) for the move kernel
+    - p_move_to_jump / p_jump_to_move: define the 2x2 dynamics transition matrix
+    - custom_continuous_transition_kernel: optional global (n_latent, n_latent) transition matrix (row-normalized internally)
+
+    Notes
+    - Matrix mode uses `decoder.smooth_all_step_combined_ma_chunk` (supports poisson/gaussian).
+    - Tensor mode uses `decoder_trial.decode_trials_padded_vmapped` (poisson only).
+
+    Cluster Jupyter examples
+
+```python
+import poor_man_gplvm.supervised_analysis.decoder_supervised as dec_sup
+
+# matrix mode
+res = dec_sup.decode_with_dynamics(
+    spk_mat,
+    tuning_res['tuning_flat'],
+    coord_to_flat_idx=tuning_res['coord_to_flat_idx'],
+    flat_idx_to_coord=tuning_res.get('flat_idx_to_coord', None),
+    dt=0.02,
+    gain=1.0,
+    n_time_per_chunk=20000,
+    likelihood_scale=1.0,
+)
+
+# tensor mode
+res_t = dec_sup.decode_with_dynamics(
+    spk_tensor,
+    tuning_res['tuning_flat'],
+    tensor_pad_mask=tensor_pad_mask,
+    coord_to_flat_idx=tuning_res['coord_to_flat_idx'],
+    dt=0.02,
+    gain=1.0,
+    n_trial_per_chunk=200,
+    prior_magnifier=1.0,
+    time_l=time_l,  # optional, valid-bin concat time
+)
+```
     '''
-    pass
+    time_coord = None
+    if hasattr(spk, 't'):
+        time_coord = np.asarray(spk.t)
+
+    if time_l is None:
+        time_l = kwargs.get('time_l', None)
+
+    # allow passing coord_to_flat_idx via kwargs for backwards compatibility
+    if coord_to_flat_idx is None:
+        coord_to_flat_idx = kwargs.get('coord_to_flat_idx', None)
+
+    spk_j = jnp.asarray(spk)
+    tuning_j = jnp.asarray(tuning)
+
+    observation_model = kwargs.get('observation_model', 'poisson')
+    noise_std = float(kwargs.get('noise_std', 1.0))
+    likelihood_scale = float(kwargs.get('likelihood_scale', 1.0))
+    n_time_per_chunk = int(kwargs.get('n_time_per_chunk', 10000))
+
+    # transitions
+    n_latent = int(tuning_j.shape[0])
+    trans = _get_log_transition_matrices_supervised(
+        n_latent=n_latent,
+        coord_to_flat_idx=coord_to_flat_idx,
+        continuous_transition_movement_variance=continuous_transition_movement_variance,
+        p_move_to_jump=p_move_to_jump,
+        p_jump_to_move=p_jump_to_move,
+        custom_continuous_transition_kernel=custom_continuous_transition_kernel,
+    )
+    log_latent_transition_kernel_l = jnp.asarray(trans['log_latent_transition_kernel_l'])
+    log_dynamics_transition_kernel = jnp.asarray(trans['log_dynamics_transition_kernel'])
+
+    # masks
+    ma_neuron = kwargs.get('ma_neuron', None)
+    if ma_neuron is None:
+        ma_neuron = jnp.ones((spk_j.shape[-1],), dtype=jnp.float32)
+    else:
+        ma_neuron = jnp.asarray(ma_neuron)
+    ma_latent = kwargs.get('ma_latent', None)
+    if ma_latent is None:
+        ma_latent = jnp.ones((n_latent,), dtype=bool)
+    else:
+        ma_latent = jnp.asarray(ma_latent).astype(bool)
+
+    if spk_j.ndim == 2:
+        # matrix mode: use decoder.smooth_all_step_combined_ma_chunk
+        if observation_model == 'gaussian':
+            hyperparam = {'noise_std': noise_std}
+        else:
+            hyperparam = {}
+
+        # decoder.py assumes dt=1 inside likelihood; supply expected counts/bin directly
+        tuning_eff = tuning_j * jnp.asarray(dt, dtype=jnp.float32) * jnp.asarray(gain, dtype=jnp.float32)
+
+        (log_posterior_all,
+         log_marginal_final,
+         log_causal_posterior_all,
+         log_one_step_predictive_marginals_all,
+         log_accumulated_joint_total,
+         log_likelihood_all) = decoder.smooth_all_step_combined_ma_chunk(
+            spk_j,
+            tuning_eff,
+            hyperparam,
+            log_latent_transition_kernel_l,
+            log_dynamics_transition_kernel,
+            ma_neuron,
+            ma_latent=ma_latent,
+            likelihood_scale=likelihood_scale,
+            n_time_per_chunk=n_time_per_chunk,
+            observation_model=observation_model,
+        )
+
+        posterior_all = jnp.exp(log_posterior_all)
+        posterior_latent_marg = jnp.sum(posterior_all, axis=1)
+        posterior_dynamics_marg = jnp.sum(posterior_all, axis=2)
+        log_posterior_latent_marg = jscipy.special.logsumexp(log_posterior_all, axis=1)
+
+        res = {
+            'log_likelihood': log_likelihood_all,
+            'log_posterior_all': log_posterior_all,
+            'posterior_all': posterior_all,
+            'log_posterior_latent_marg': log_posterior_latent_marg,
+            'posterior_latent_marg': posterior_latent_marg,
+            'posterior_dynamics_marg': posterior_dynamics_marg,
+            'log_marginal_l': log_one_step_predictive_marginals_all,
+            'log_marginal': log_marginal_final,
+            'log_causal_posterior_all': log_causal_posterior_all,
+            'log_latent_transition_kernel_l': log_latent_transition_kernel_l,
+            'log_dynamics_transition_kernel': log_dynamics_transition_kernel,
+        }
+
+        if log_accumulated_joint_total is not None:
+            res.update(decoder.compute_transition_posterior_prob(log_accumulated_joint_total))
+
+        res = _decode_res_to_numpy(res)
+
+        if time_coord is None and time_l is not None:
+            time_coord = np.asarray(time_l)
+
+        # event grouping (matrix only)
+        if event_index_per_bin is not None:
+            event_index_per_bin = np.asarray(event_index_per_bin)
+            res['event_index_per_bin'] = event_index_per_bin
+            parsing_res = _parse_event_index_per_bin(event_index_per_bin)
+            res.update(parsing_res)
+            res['return_per_event'] = bool(return_per_event)
+
+            starts = np.asarray(res['starts']).astype(int)
+            ends = np.asarray(res['ends']).astype(int)
+            if 'log_marginal_l' in res and np.ndim(res['log_marginal_l']) == 1:
+                arr = np.asarray(res['log_marginal_l'])
+                res['log_marginal_per_event'] = np.asarray([np.sum(arr[s:e]) for s, e in zip(starts, ends)])
+                if bool(return_per_event):
+                    res['log_marginal_l_per_event'] = [arr[s:e] for s, e in zip(starts, ends)]
+
+            if bool(return_per_event):
+                n_time = int(np.asarray(spk_j).shape[0])
+                for k in [
+                    'log_likelihood',
+                    'log_posterior_all',
+                    'posterior_all',
+                    'log_posterior_latent_marg',
+                    'posterior_latent_marg',
+                    'posterior_dynamics_marg',
+                ]:
+                    if k in res and isinstance(res[k], np.ndarray) and res[k].ndim >= 1 and res[k].shape[0] == n_time:
+                        arr = np.asarray(res[k])
+                        res[f'{k}_per_event'] = [arr[s:e] for s, e in zip(starts, ends)]
+
+        # wrapping
+        if flat_idx_to_coord is not None:
+            res = _wrap_label_results_xr_by_maze_dynamics(
+                res,
+                flat_idx_to_coord=flat_idx_to_coord,
+                time_coord=time_coord,
+                event_index_per_bin=event_index_per_bin,
+                return_per_event=bool(return_per_event),
+            )
+        else:
+            if event_index_per_bin is not None:
+                res = _wrap_decode_res_xr_matrix_dynamics(
+                    res,
+                    time_coord=time_coord,
+                    event_index_per_bin=event_index_per_bin,
+                    return_per_event=bool(return_per_event),
+                )
+            elif time_coord is not None:
+                res = _wrap_decode_res_tsdframe_matrix_dynamics(res, time_coord=time_coord)
+        return res
+
+    if spk_j.ndim == 3:
+        # tensor mode: use decoder_trial.decode_trials_padded_vmapped
+        if tensor_pad_mask is None:
+            raise ValueError('tensor input requires tensor_pad_mask (n_trial, n_time, 1).')
+        if observation_model != 'poisson':
+            raise ValueError('tensor dynamics decoder currently supports observation_model="poisson" only (decoder_trial backend).')
+
+        prior_magnifier = float(kwargs.get('prior_magnifier', kwargs.get('likelihood_scale', 1.0)))
+        n_trial_per_chunk = int(kwargs.get('n_trial_per_chunk', 400))
+
+        # reduce ma_neuron to (n_neuron,) for decoder_trial
+        ma_neuron_np = np.asarray(_decode_res_to_numpy(ma_neuron))
+        if ma_neuron_np.ndim > 1:
+            ma_neuron_np = np.any(ma_neuron_np, axis=tuple(range(ma_neuron_np.ndim - 1)))
+        neuron_mask = ma_neuron_np.astype(bool)
+
+        res_trial = decoder_trial.decode_trials_padded_vmapped(
+            spk_j,
+            tuning_j,
+            log_latent_transition_kernel_l,
+            log_dynamics_transition_kernel,
+            tensor_pad_mask=tensor_pad_mask,
+            dt=float(dt),
+            gain=float(gain),
+            neuron_mask=neuron_mask,
+            ma_latent=ma_latent.astype(bool),
+            n_trial_per_chunk=n_trial_per_chunk,
+            prior_magnifier=prior_magnifier,
+            return_numpy=False,
+        )
+
+        # time-concat (valid bins) arrays
+        tensor_pad_mask_np = np.asarray(_decode_res_to_numpy(tensor_pad_mask)).astype(bool)
+        valid_mask = tensor_pad_mask_np[..., 0]
+        n_trial, t_max = valid_mask.shape
+        trial_lengths = valid_mask.sum(axis=1).astype(int)
+        ends = np.cumsum(trial_lengths)
+        starts = np.concatenate([np.array([0], dtype=int), ends[:-1]])
+
+        log_post_padded = np.asarray(_decode_res_to_numpy(res_trial['log_post_padded']))  # (n_trial, T, n_dyn, n_latent)
+        n_dyn = int(log_post_padded.shape[2])
+        log_post_flat = log_post_padded.reshape((n_trial * t_max, n_dyn, n_latent))
+        mask_flat = valid_mask.reshape((n_trial * t_max,))
+        log_posterior_all = log_post_flat[mask_flat]
+        posterior_all = np.exp(log_posterior_all)
+        posterior_latent_marg = posterior_all.sum(axis=1)
+        posterior_dynamics_marg = posterior_all.sum(axis=2)
+        log_posterior_latent_marg = np.asarray(jax.device_get(jscipy.special.logsumexp(jnp.asarray(log_posterior_all), axis=1)))
+
+        # log likelihood for valid bins (match matrix semantics: use tuning_eff as expected counts/bin)
+        tuning_eff = tuning_j * jnp.asarray(dt, dtype=jnp.float32) * jnp.asarray(gain, dtype=jnp.float32)
+        spk_flat = np.asarray(_decode_res_to_numpy(spk_j)).reshape((n_trial * t_max, int(spk_j.shape[-1])))
+        spk_valid = jnp.asarray(spk_flat[mask_flat])
+        ma_neuron_valid = jnp.ones_like(spk_valid) * jnp.asarray(neuron_mask, dtype=jnp.float32)[None, :]
+        hyperparam = {}
+        log_likelihood = np.asarray(jax.device_get(decoder.get_loglikelihood_ma_all(
+            spk_valid,
+            tuning_eff,
+            hyperparam,
+            ma_neuron_valid,
+            ma_latent,
+            observation_model='poisson',
+        )))
+
+        log_marginal_per_event = np.asarray(_decode_res_to_numpy(res_trial['log_marginal']))
+        log_marginal = float(np.sum(log_marginal_per_event))
+
+        def _split_by_trial(arr):
+            return [arr[s:e] for s, e in zip(starts, ends)]
+
+        res = {
+            'log_likelihood': log_likelihood,
+            'log_posterior_all': log_posterior_all,
+            'posterior_all': posterior_all,
+            'log_posterior_latent_marg': log_posterior_latent_marg,
+            'posterior_latent_marg': posterior_latent_marg,
+            'posterior_dynamics_marg': posterior_dynamics_marg,
+            'log_marginal_per_event': log_marginal_per_event,
+            'log_marginal': log_marginal,
+            'n_time_per_event': trial_lengths,
+            'starts': starts,
+            'ends': ends,
+            'tensor_pad_mask': tensor_pad_mask_np,
+            'log_latent_transition_kernel_l': np.asarray(_decode_res_to_numpy(log_latent_transition_kernel_l)),
+            'log_dynamics_transition_kernel': np.asarray(_decode_res_to_numpy(log_dynamics_transition_kernel)),
+        }
+
+        # per-event lists (trial-based)
+        res['log_likelihood_per_event'] = _split_by_trial(res['log_likelihood'])
+        res['log_posterior_all_per_event'] = _split_by_trial(res['log_posterior_all'])
+        res['posterior_all_per_event'] = _split_by_trial(res['posterior_all'])
+        res['log_posterior_latent_marg_per_event'] = _split_by_trial(res['log_posterior_latent_marg'])
+        res['posterior_latent_marg_per_event'] = _split_by_trial(res['posterior_latent_marg'])
+        res['posterior_dynamics_marg_per_event'] = _split_by_trial(res['posterior_dynamics_marg'])
+
+        if time_l is not None:
+            res['time_l'] = np.asarray(time_l)
+
+        if flat_idx_to_coord is not None:
+            res = _wrap_label_results_xr_by_maze_dynamics(res, flat_idx_to_coord=flat_idx_to_coord, time_coord=time_l)
+        else:
+            if time_l is not None:
+                res = _wrap_decode_res_tsdframe_tensor_dynamics(res, time_l=np.asarray(time_l))
+        return res
+
+    raise ValueError(f'Unsupported spk ndim={spk_j.ndim}; expected 2 or 3.')
 
 def get_latent_transition_kernel_multi_maze(coord_to_flat_idx,continuous_transition_movement_variance=1.):
     '''
