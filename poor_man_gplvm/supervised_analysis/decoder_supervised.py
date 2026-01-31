@@ -969,6 +969,8 @@ def decode_with_dynamics(
     Notes
     - Matrix mode uses `decoder.smooth_all_step_combined_ma_chunk` (supports poisson/gaussian).
     - Tensor mode uses `decoder_trial.decode_trials_padded_vmapped` (poisson only).
+    - Tensor mode masking: supports `tensor_pad_mask` (valid bins) + `ma_latent`, and only a global per-neuron mask
+      (no spatiotemporal neuron mask per trial/time bin).
 
     Cluster Jupyter examples
 

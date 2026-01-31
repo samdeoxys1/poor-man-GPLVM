@@ -39,7 +39,9 @@ def _init_log_posterior(n_dyn, ma_latent):
     ma_latent = jnp.asarray(ma_latent).astype(bool)
     n_latent_eff = jnp.maximum(jnp.sum(ma_latent).astype(jnp.float32), 1.0)
     logp = -jnp.log(jnp.asarray(n_dyn, dtype=jnp.float32) * n_latent_eff)
-    log_post = jnp.where(ma_latent[None, :], logp, -1e20)
+    # initialize uniform over (dyn, latent) on the valid latent support
+    log_post = jnp.full((int(n_dyn), int(ma_latent.shape[0])), logp, dtype=jnp.float32)
+    log_post = jnp.where(ma_latent[None, :], log_post, jnp.asarray(-1e20, dtype=jnp.float32))
     return log_post
 
 
