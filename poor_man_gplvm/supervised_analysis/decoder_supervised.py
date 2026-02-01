@@ -749,7 +749,7 @@ def _wrap_label_results_xr_by_maze_dynamics(res, flat_idx_to_coord, time_coord=N
     if 'posterior_dynamics_marg' in res2 and np.ndim(res2['posterior_dynamics_marg']) == 2:
         arr = np.asarray(res2['posterior_dynamics_marg'])
         n_dyn = int(arr.shape[1])
-        cols = ['move', 'jump'] if n_dyn == 2 else np.arange(n_dyn)
+        cols = ['continuous', 'jump'] if n_dyn == 2 else np.arange(n_dyn)
         dyn_tsdf = nap.TsdFrame(d=arr, t=np.asarray(time_coord), columns=cols)
         res2['posterior_dynamics_marg'] = dyn_tsdf
 
@@ -817,7 +817,7 @@ def _wrap_decode_res_tsdframe_matrix_dynamics(res, time_coord):
     if 'posterior_dynamics_marg' in res2 and np.ndim(res2['posterior_dynamics_marg']) == 2:
         arr = np.asarray(res2['posterior_dynamics_marg'])
         n_dyn = int(arr.shape[1])
-        cols = ['move', 'jump'] if n_dyn == 2 else np.arange(n_dyn)
+        cols = ['continuous', 'jump'] if n_dyn == 2 else np.arange(n_dyn)
         res2['posterior_dynamics_marg'] = nap.TsdFrame(d=arr, t=t, columns=cols)
     if 'log_marginal_l' in res2 and np.ndim(res2['log_marginal_l']) == 1:
         res2['log_marginal_l'] = nap.Tsd(d=np.asarray(res2['log_marginal_l']), t=t)
