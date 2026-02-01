@@ -50,7 +50,11 @@ coverage.xml
 
 # Jupyter Notebook
 .ipynb_checkpoints
-.ipynb
+*.ipynb
+
+# Track tutorial notebooks
+!tutorials/
+!tutorials/**/*.ipynb
 
 # IPython
 profile_default/
