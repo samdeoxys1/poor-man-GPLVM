@@ -8,7 +8,7 @@ from poor_man_gplvm.core import (
     AbstractGPLVMJump1D, PoissonGPLVMJump1D, GaussianGPLVMJump1D  # Models with dynamics
 )
 
-from poor_man_gplvm.supervised_analysis import (
+from poor_man_gplvm.supervised_analysis.get_tuning_supervised import (
     get_tuning_supervised,
 )
 
