@@ -1,5 +1,5 @@
 """
-Replay metrics for supervised replay analysis (ported from latent_reactivation HMM replay metrics).
+Replay metrics for supervised replay analysis.
 
 This module computes replay metrics from:
 - `label_posterior_marginal`: posterior over position/label bins, either as:
@@ -37,7 +37,7 @@ We define "continuous replay segments" (a.k.a. "move state segments") as:
 
 After splitting, we re-apply the minimum duration filter.
 
-### Metrics returned (LR-style keys; list-valued + scalar)
+### Metrics returned (keys; list-valued + scalar)
 State-level:
 - n_bins, binsize, duration_sec
 - state_{i}_fraction: mean posterior of dynamics state i across time
@@ -57,7 +57,7 @@ Spatial trajectory metrics (only if `position_key` successfully maps label bins 
 - median_segment_path_length, median_segment_max_span, median_segment_speed
 
 Notes:
-- "valid positions" follow LR semantics: position i is valid iff the step TO i was <= `stepsize_discard_thresh`.
+- "valid positions": position i is valid iff the step TO i was <= `stepsize_discard_thresh`.
   If `stepsize_discard_thresh=None` (default), all finite steps are treated as valid (no discarding).
 - If `position_key` is provided but label-bin coordinate parsing fails, we print a warning by default and
   spatial metrics are returned as zeros/empty lists. Set `warn_on_position_key_fail=False` to silence,
@@ -598,13 +598,13 @@ def _segment_break_between_from_pos(pos_seg, thr, is_2d):
     else:
         x = _as_numpy(pos_seg).astype(float)
         step_d = np.abs(np.diff(x))
-    # LR semantics: break on any step > thr and also on NaNs (comparison False => break True after negation)
+    # break on any step > thr and also on NaNs (comparison False => break True after negation)
     return ~(step_d <= thr)
 
 
 def _segment_spatial_metrics_from_pos(pos_seg, *, binsize, stepsize_discard_thresh, is_2d):
     """
-    Compute LR-style spatial metrics for one segment given decoded positions (already segment-sliced).
+    Compute spatial metrics for one segment given decoded positions (already segment-sliced).
     """
     n = int(_as_numpy(pos_seg[0]).shape[0]) if is_2d else int(_as_numpy(pos_seg).shape[0])
     if n < 2:
@@ -824,7 +824,7 @@ def _compute_replay_metrics_single(
     segments = [(s, e) for s, e in seg_split if (e - s + 1) >= min_bins]
 
     # -------------------------------------------------------------------------
-    # Aggregate segment metrics (LR-style)
+    # Aggregate segment metrics
     # -------------------------------------------------------------------------
     segment_durations = [int(e - s + 1) for s, e in segments]
     total_cont_bins = int(np.sum(segment_durations)) if len(segment_durations) else 0
@@ -982,7 +982,7 @@ def compute_replay_metrics(
     raise_on_position_key_fail=False,
 ):
     """
-    Compute LR-style replay metrics from supervised posteriors.
+    Compute replay metrics from supervised posteriors.
 
     See module docstring for definitions (especially continuous segment definition).
     Returns:
@@ -1061,7 +1061,7 @@ def compute_replay_metrics(
 
 def _metrics_list_to_df_and_summary(metrics):
     """
-    Convert list[dict] metrics to (metrics_df, summary) similar to LR compute_intervals_metrics.
+    Convert list[dict] metrics to (metrics_df, summary).
     """
     try:
         import pandas as pd
