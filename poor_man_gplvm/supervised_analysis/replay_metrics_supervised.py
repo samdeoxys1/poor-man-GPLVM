@@ -313,6 +313,74 @@ def _extract_positions_from_post(post, position_key):
     return _extract_positions_from_label_coord(label_coord, position_key)
 
 
+def _xr_map_positions_from_post(post, position_key):
+    """
+    Xarray-native MAP coordinate extraction:
+
+        post.idxmax(dim='label_bin')[coord_name]
+
+    This matches the user's suggested workflow and supports the common case where `x`/`y` are
+    separate coords defined on the `label_bin` dimension (not necessarily MultiIndex levels).
+
+    Returns:
+      is_2d (bool), pos_traj (np.ndarray (n_time,) or tuple(x,y)) or (False,None) on failure.
+    """
+    if post is None or position_key is None:
+        return False, None
+    if not (hasattr(post, "dims") and hasattr(post, "idxmax")):
+        return False, None
+    if "label_bin" not in getattr(post, "dims", ()):
+        return False, None
+    try:
+        idx = post.idxmax(dim="label_bin")
+    except Exception:
+        return False, None
+
+    if isinstance(position_key, (list, tuple)) and len(position_key) == 2:
+        kx, ky = position_key[0], position_key[1]
+        try:
+            x = _as_numpy(idx[kx].values).astype(float)
+            y = _as_numpy(idx[ky].values).astype(float)
+            return True, (x, y)
+        except Exception:
+            return True, None
+
+    k = position_key
+    try:
+        x = _as_numpy(idx[k].values).astype(float)
+        return False, x
+    except Exception:
+        return False, None
+
+
+def _xr_expected_positions_from_post(post, position_key):
+    """
+    Xarray-native posterior-weighted position:
+      E[x] = sum_{label_bin} post * coord(label_bin)
+    Returns (is_2d, pos_traj) or (False,None) on failure.
+    """
+    if post is None or position_key is None:
+        return False, None
+    if not (hasattr(post, "dims") and hasattr(post, "coords") and ("label_bin" in getattr(post, "dims", ()))):
+        return False, None
+    try:
+        if isinstance(position_key, (list, tuple)) and len(position_key) == 2:
+            kx, ky = position_key[0], position_key[1]
+            if (kx not in post.coords) or (ky not in post.coords):
+                return True, None
+            ex = (post * post.coords[kx]).sum(dim="label_bin")
+            ey = (post * post.coords[ky]).sum(dim="label_bin")
+            return True, (_as_numpy(ex.values).astype(float), _as_numpy(ey.values).astype(float))
+        k = position_key
+        if k not in post.coords:
+            return False, None
+        ex = (post * post.coords[k]).sum(dim="label_bin")
+        return False, _as_numpy(ex.values).astype(float)
+    except Exception:
+        if isinstance(position_key, (list, tuple)) and len(position_key) == 2:
+            return True, None
+        return False, None
+
 def _position_key_fail_reason(label_coord, position_key):
     if label_coord is None:
         return "label_bin coord missing"
@@ -710,22 +778,30 @@ def _compute_replay_metrics_single(
 
         # build decoded pos for this segment (within a single maze)
         if use_posterior_weighted:
-            w = _as_numpy(_slice_time(post_maze, s, e + 1))
-            if is_2d:
-                x_seg = np.sum(w * pos_per_bin[:, 0][None, :], axis=1)
-                y_seg = np.sum(w * pos_per_bin[:, 1][None, :], axis=1)
-                pos_seg = (x_seg, y_seg)
-            else:
-                pos_seg = np.sum(w * pos_per_bin[None, :], axis=1)
+            post_seg = _slice_time(post_maze, s, e + 1)
+            is2, pos_seg = _xr_expected_positions_from_post(post_seg, pk)
+            if pos_seg is None:
+                # fallback to numpy
+                w = _as_numpy(post_seg)
+                if is_2d:
+                    x_seg = np.sum(w * pos_per_bin[:, 0][None, :], axis=1)
+                    y_seg = np.sum(w * pos_per_bin[:, 1][None, :], axis=1)
+                    pos_seg = (x_seg, y_seg)
+                else:
+                    pos_seg = np.sum(w * pos_per_bin[None, :], axis=1)
         else:
-            if isinstance(label_posterior_marginal, dict):
-                idx = _as_numpy(map_label_idx_by_maze[maze][s : e + 1]).astype(int)
-            else:
-                idx = _as_numpy(map_label_idx[s : e + 1]).astype(int)
-            if is_2d:
-                pos_seg = (pos_per_bin[idx, 0], pos_per_bin[idx, 1])
-            else:
-                pos_seg = pos_per_bin[idx]
+            post_seg = _slice_time(post_maze, s, e + 1)
+            is2, pos_seg = _xr_map_positions_from_post(post_seg, pk)
+            if pos_seg is None:
+                # fallback to numpy argmax -> coord indexing
+                if isinstance(label_posterior_marginal, dict):
+                    idx = _as_numpy(map_label_idx_by_maze[maze][s : e + 1]).astype(int)
+                else:
+                    idx = _as_numpy(map_label_idx[s : e + 1]).astype(int)
+                if is_2d:
+                    pos_seg = (pos_per_bin[idx, 0], pos_per_bin[idx, 1])
+                else:
+                    pos_seg = pos_per_bin[idx]
 
         has_any_pos = True
         break_between = _segment_break_between_from_pos(pos_seg, stepsize_split_thresh, is_2d=is_2d)
@@ -805,22 +881,28 @@ def _compute_replay_metrics_single(
                 continue
 
             if use_posterior_weighted:
-                w = _as_numpy(_slice_time(post_maze, s, e + 1))
-                if is_2d:
-                    x_seg = np.sum(w * pos_per_bin[:, 0][None, :], axis=1)
-                    y_seg = np.sum(w * pos_per_bin[:, 1][None, :], axis=1)
-                    pos_seg = (x_seg, y_seg)
-                else:
-                    pos_seg = np.sum(w * pos_per_bin[None, :], axis=1)
+                post_seg = _slice_time(post_maze, s, e + 1)
+                is2, pos_seg = _xr_expected_positions_from_post(post_seg, pk)
+                if pos_seg is None:
+                    w = _as_numpy(post_seg)
+                    if is_2d:
+                        x_seg = np.sum(w * pos_per_bin[:, 0][None, :], axis=1)
+                        y_seg = np.sum(w * pos_per_bin[:, 1][None, :], axis=1)
+                        pos_seg = (x_seg, y_seg)
+                    else:
+                        pos_seg = np.sum(w * pos_per_bin[None, :], axis=1)
             else:
-                if isinstance(label_posterior_marginal, dict):
-                    idx = _as_numpy(map_label_idx_by_maze[maze][s : e + 1]).astype(int)
-                else:
-                    idx = _as_numpy(map_label_idx[s : e + 1]).astype(int)
-                if is_2d:
-                    pos_seg = (pos_per_bin[idx, 0], pos_per_bin[idx, 1])
-                else:
-                    pos_seg = pos_per_bin[idx]
+                post_seg = _slice_time(post_maze, s, e + 1)
+                is2, pos_seg = _xr_map_positions_from_post(post_seg, pk)
+                if pos_seg is None:
+                    if isinstance(label_posterior_marginal, dict):
+                        idx = _as_numpy(map_label_idx_by_maze[maze][s : e + 1]).astype(int)
+                    else:
+                        idx = _as_numpy(map_label_idx[s : e + 1]).astype(int)
+                    if is_2d:
+                        pos_seg = (pos_per_bin[idx, 0], pos_per_bin[idx, 1])
+                    else:
+                        pos_seg = pos_per_bin[idx]
 
             path_len, max_disp, max_span, avg_speed = _segment_spatial_metrics_from_pos(
                 pos_seg,
