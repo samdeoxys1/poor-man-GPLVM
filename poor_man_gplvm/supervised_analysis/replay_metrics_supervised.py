@@ -1239,6 +1239,264 @@ def compute_replay_metrics_one_event(
     return {"metrics": m, "slices": sl}
 
 
+def trace_replay_metrics_one_event(
+    label_posterior_marginal,
+    dynamics_posterior_marginal,
+    *,
+    starts,
+    ends,
+    event_i,
+    continuous_prob_thresh=0.8,
+    continuous_state_idx=0,
+    binsize=None,
+    min_segment_duration=0.06,
+    stepsize_discard_thresh=None,
+    stepsize_split_thresh=None,
+    position_key=None,
+    use_posterior_weighted=False,
+    strict_slice=True,
+    max_segments_to_trace=5,
+    raise_on_error=True,
+):
+    """
+    Trace/debug helper for ONE event.
+
+    Returns a dict with high-signal intermediates so you can inspect exactly what failed:
+    - slicing bounds, shapes/dims/coords summaries
+    - continuous segments before/after filtering
+    - winning maze trajectory summary (if label is dict)
+    - position_key extraction outcome + failure reasons (per maze)
+    - per-segment decoded positions + breakpoints summary (limited to max_segments_to_trace)
+
+    If `raise_on_error=True`, re-raises with a stage-tagged RuntimeError so you get a useful traceback.
+    """
+    dbg = {"event_i": int(event_i)}
+
+    def _stage_fail(stage, exc):
+        dbg["failed_stage"] = str(stage)
+        dbg["exception_type"] = type(exc).__name__
+        dbg["exception_str"] = str(exc)
+        if bool(raise_on_error):
+            raise RuntimeError(
+                f"trace_replay_metrics_one_event failed at stage='{stage}' "
+                f"(event_i={int(event_i)}). Inspect returned dbg if raise_on_error=False."
+            ) from exc
+        return dbg
+
+    # --- slice
+    try:
+        sl = slice_one_event(
+            label_posterior_marginal,
+            dynamics_posterior_marginal,
+            starts=starts,
+            ends=ends,
+            event_i=event_i,
+            strict=bool(strict_slice),
+        )
+        dbg["slice"] = {"start": int(sl["start"]), "end": int(sl["end"])}
+        dbg["label_summary"] = _brief_obj_summary(sl["label_event"] if not isinstance(sl["label_event"], dict) else None)
+        dbg["dyn_summary"] = _brief_obj_summary(sl["dyn_event"])
+        if isinstance(sl["label_event"], dict):
+            dbg["label_is_dict"] = True
+            dbg["label_keys"] = list(sl["label_event"].keys())
+            k0 = next(iter(sl["label_event"].keys())) if len(sl["label_event"]) else None
+            if k0 is not None:
+                dbg["label_first_key"] = k0
+                dbg["label_first_summary"] = _brief_obj_summary(sl["label_event"][k0])
+        else:
+            dbg["label_is_dict"] = False
+    except Exception as exc:
+        return _stage_fail("slice_one_event", exc)
+
+    # --- dyn basics + segments
+    try:
+        dyn, time_dyn = _get_dyn_array(sl["dyn_event"])
+        dbg["dyn_shape"] = tuple(dyn.shape)
+        dbg["time_dyn_present"] = bool(time_dyn is not None)
+
+        time_vec = None
+        if isinstance(sl["label_event"], dict):
+            maze0 = next(iter(sl["label_event"].keys()))
+            time_vec = _get_time_coord_from_xr(sl["label_event"][maze0])
+        else:
+            time_vec = _get_time_coord_from_xr(sl["label_event"]) if hasattr(sl["label_event"], "dims") else None
+        if time_vec is None:
+            time_vec = time_dyn
+        binsize_eff = _infer_binsize(time_vec, binsize=binsize)
+        dbg["binsize_eff"] = float(binsize_eff)
+
+        p_cont = dyn[:, int(continuous_state_idx)]
+        dbg["p_cont_stats"] = {
+            "min": float(np.min(p_cont)) if p_cont.size else None,
+            "max": float(np.max(p_cont)) if p_cont.size else None,
+            "mean": float(np.mean(p_cont)) if p_cont.size else None,
+        }
+        segments_all = _find_runs_above_threshold(p_cont, continuous_prob_thresh)
+        min_bins = int(math.ceil(float(min_segment_duration) / float(binsize_eff))) if float(min_segment_duration) > 0 else 0
+        segments = [(s, e) for s, e in segments_all if (e - s + 1) >= min_bins]
+        dbg["segments_all"] = list(segments_all)
+        dbg["min_bins"] = int(min_bins)
+        dbg["segments_after_min_dur"] = list(segments)
+    except Exception as exc:
+        return _stage_fail("dyn_and_segments", exc)
+
+    # --- label MAP trajectory + maze winner
+    try:
+        winning_maze = None
+        map_label_idx = None
+        map_label_idx_by_maze = None
+
+        n_time = int(dyn.shape[0])
+        if isinstance(sl["label_event"], dict):
+            winning_maze, map_label_idx_by_maze, map_label_idx = _get_global_map_trajectory(sl["label_event"])
+            if int(winning_maze.shape[0]) != n_time:
+                raise ValueError("label and dynamics posteriors must share time axis length.")
+            uniq, counts = np.unique(winning_maze, return_counts=True)
+            dbg["winning_maze_unique"] = [str(u) for u in uniq.tolist()]
+            dbg["winning_maze_counts"] = counts.astype(int).tolist()
+        else:
+            label_np = _as_numpy(sl["label_event"])
+            if label_np.ndim != 2:
+                raise ValueError(f"label_posterior_marginal must be 2D (time,label_bin). Got shape {label_np.shape}")
+            if int(label_np.shape[0]) != n_time:
+                raise ValueError("label and dynamics posteriors must share time axis length.")
+            map_label_idx, _ = _get_label_map_trajectory_single(label_np)
+        dbg["map_label_idx_shape"] = tuple(_as_numpy(map_label_idx).shape) if map_label_idx is not None else None
+
+        if winning_maze is not None and winning_maze.size >= 2:
+            maze_break_between = winning_maze[1:] != winning_maze[:-1]
+            segments = _split_segments_on_breakpoints(segments, maze_break_between)
+            segments = [(s, e) for s, e in segments if (e - s + 1) >= int(min_bins)]
+            dbg["segments_after_maze_break_split"] = list(segments)
+    except Exception as exc:
+        return _stage_fail("label_map_and_maze_split", exc)
+
+    # --- position_key extraction diagnostics (per maze)
+    try:
+        dbg["position_key"] = position_key
+        dbg["pos_extract"] = {}
+        if position_key is not None:
+            if isinstance(sl["label_event"], dict):
+                maze_list = list(sl["label_event"].keys())
+            else:
+                maze_list = [None]
+            for maze in maze_list:
+                pk = _position_key_for_maze(position_key, maze)
+                post_maze = sl["label_event"][maze] if isinstance(sl["label_event"], dict) else sl["label_event"]
+                if pk is None:
+                    dbg["pos_extract"][str(maze)] = {"pk": None, "ok": False, "reason": "position_key missing for maze"}
+                    continue
+                is_2d, pos_per_bin = _extract_positions_from_post(post_maze, pk)
+                if pos_per_bin is None:
+                    reason = _position_key_fail_reason_from_post(post_maze, pk)
+                    dbg["pos_extract"][str(maze)] = {"pk": pk, "ok": False, "reason": reason}
+                else:
+                    dbg["pos_extract"][str(maze)] = {
+                        "pk": pk,
+                        "ok": True,
+                        "is_2d": bool(is_2d),
+                        "pos_per_bin_shape": tuple(_as_numpy(pos_per_bin).shape),
+                    }
+    except Exception as exc:
+        return _stage_fail("position_key_extract", exc)
+
+    # --- per-segment trace of decoded positions + breakpoints
+    try:
+        seg_traces = []
+        n_trace = int(min(int(max_segments_to_trace), len(segments)))
+        for (s, e) in segments[:n_trace]:
+            s = int(s)
+            e = int(e)
+            maze = winning_maze[s] if winning_maze is not None else None
+            pk = _position_key_for_maze(position_key, maze)
+            post_maze = None
+            if isinstance(sl["label_event"], dict):
+                post_maze = sl["label_event"].get(maze, None)
+                if post_maze is None and maze is not None:
+                    post_maze = sl["label_event"].get(str(maze), None)
+            else:
+                post_maze = sl["label_event"]
+
+            one = {"s": s, "e": e, "maze": None if maze is None else str(maze), "pk": pk}
+            if pk is None or post_maze is None:
+                one["skipped"] = True
+                seg_traces.append(one)
+                continue
+
+            is_2d, pos_per_bin = _extract_positions_from_post(post_maze, pk)
+            if pos_per_bin is None:
+                one["pos_ok"] = False
+                one["pos_reason"] = _position_key_fail_reason_from_post(post_maze, pk)
+                seg_traces.append(one)
+                continue
+
+            post_seg = _slice_time(post_maze, s, e + 1)
+            if use_posterior_weighted:
+                is2, pos_seg = _xr_expected_positions_from_post(post_seg, pk)
+                if pos_seg is None:
+                    w = _as_numpy(post_seg)
+                    if is_2d:
+                        x_seg = np.sum(w * _as_numpy(pos_per_bin)[:, 0][None, :], axis=1)
+                        y_seg = np.sum(w * _as_numpy(pos_per_bin)[:, 1][None, :], axis=1)
+                        pos_seg = (x_seg, y_seg)
+                    else:
+                        pos_seg = np.sum(w * _as_numpy(pos_per_bin)[None, :], axis=1)
+            else:
+                is2, pos_seg = _xr_map_positions_from_post(post_seg, pk)
+                if pos_seg is None:
+                    if isinstance(sl["label_event"], dict):
+                        idx = _as_numpy(map_label_idx_by_maze[maze][s : e + 1]).astype(int)
+                    else:
+                        idx = _as_numpy(map_label_idx[s : e + 1]).astype(int)
+                    pos_per_bin_np = _as_numpy(pos_per_bin)
+                    if is_2d:
+                        pos_seg = (pos_per_bin_np[idx, 0], pos_per_bin_np[idx, 1])
+                    else:
+                        pos_seg = pos_per_bin_np[idx]
+
+            one["pos_ok"] = True
+            one["is_2d"] = bool(is_2d)
+            n_seg = int(_as_numpy(pos_seg[0]).shape[0]) if is_2d else int(_as_numpy(pos_seg).shape[0])
+            one["n_bins_seg"] = n_seg
+
+            break_between = _segment_break_between_from_pos(pos_seg, stepsize_split_thresh, is_2d=is_2d)
+            if break_between is None:
+                one["break_between_present"] = False
+            else:
+                bb = _as_numpy(break_between).astype(bool)
+                one["break_between_present"] = True
+                one["n_breaks"] = int(np.sum(bb))
+            seg_traces.append(one)
+
+        dbg["segment_traces"] = seg_traces
+    except Exception as exc:
+        return _stage_fail("segment_trace", exc)
+
+    # --- finally, run the actual core metrics (so you can compare)
+    try:
+        out = _compute_replay_metrics_single(
+            sl["label_event"],
+            sl["dyn_event"],
+            continuous_prob_thresh=continuous_prob_thresh,
+            continuous_state_idx=continuous_state_idx,
+            binsize=binsize,
+            min_segment_duration=min_segment_duration,
+            stepsize_discard_thresh=stepsize_discard_thresh,
+            stepsize_split_thresh=stepsize_split_thresh,
+            position_key=position_key,
+            use_posterior_weighted=use_posterior_weighted,
+            warn_on_position_key_fail=False,
+            raise_on_position_key_fail=False,
+        )
+        dbg["metrics_ok"] = True
+        dbg["metrics"] = out
+    except Exception as exc:
+        dbg["metrics_ok"] = False
+        return _stage_fail("compute_core_metrics", exc)
+
+    return dbg
+
+
 def _metrics_list_to_df_and_summary(metrics):
     """
     Convert list[dict] metrics to (metrics_df, summary) similar to LR compute_intervals_metrics.
