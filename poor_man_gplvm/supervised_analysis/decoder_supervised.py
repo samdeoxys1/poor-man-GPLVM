@@ -513,14 +513,16 @@ def _wrap_label_results_xr_by_maze(res, flat_idx_to_coord, time_coord=None, even
     def _default_time(n_time):
         return np.arange(int(n_time))
 
-    def _make_label_coord(pos_idx, maze):
+    def _make_label_coord(flat_idx, maze):
         if len(label_cols_all) == 0:
-            return np.arange(len(pos_idx))
+            return np.arange(len(flat_idx))
 
-        df_maze = df.iloc[pos_idx]
+        # IMPORTANT: use flat_idx (df.index) not row positions (iloc). In multi-maze pipelines
+        # `flat_idx_to_coord` may be re-ordered, but decoder outputs are indexed by flat_idx.
+        df_maze = df.loc[flat_idx]
         label_cols = [c for c in label_cols_all if df_maze[c].notna().any()]
         if len(label_cols) == 0:
-            return np.arange(len(pos_idx))
+            return np.arange(len(flat_idx))
 
         df_lab = df_maze.loc[:, label_cols].copy()
         for c in label_cols:
@@ -534,8 +536,8 @@ def _wrap_label_results_xr_by_maze(res, flat_idx_to_coord, time_coord=None, even
         out = {}
         arr_2d = np.asarray(arr_2d)
         for maze in maze_l:
-            pos_idx = np.where(np.asarray(df['maze']) == maze)[0]
-            out[maze] = arr_2d[:, pos_idx]
+            flat_idx = df.index[np.asarray(df['maze']) == maze].to_numpy(dtype=int)
+            out[maze] = arr_2d[:, flat_idx]
         return out
 
     n_time = int(np.asarray(res['log_likelihood']).shape[0])
@@ -563,8 +565,8 @@ def _wrap_label_results_xr_by_maze(res, flat_idx_to_coord, time_coord=None, even
         coords_time['event_index_per_bin'] = ('time', np.asarray(event_index_per_bin))
 
     for maze in maze_l:
-        pos_idx = np.where(np.asarray(df['maze']) == maze)[0]
-        label_coord = _make_label_coord(pos_idx, maze)
+        flat_idx = df.index[np.asarray(df['maze']) == maze].to_numpy(dtype=int)
+        label_coord = _make_label_coord(flat_idx, maze)
         ll_c = xr.DataArray(
             ll_by_maze[maze],
             dims=('time', 'label_bin'),
@@ -617,14 +619,16 @@ def _wrap_label_results_xr_by_maze_dynamics(res, flat_idx_to_coord, time_coord=N
     def _default_time(n_time):
         return np.arange(int(n_time))
 
-    def _make_label_coord(pos_idx):
+    def _make_label_coord(flat_idx):
         if len(label_cols_all) == 0:
-            return np.arange(len(pos_idx))
+            return np.arange(len(flat_idx))
 
-        df_maze = df.iloc[pos_idx]
+        # IMPORTANT: use flat_idx (df.index) not row positions (iloc). In multi-maze pipelines
+        # `flat_idx_to_coord` may be re-ordered, but decoder outputs are indexed by flat_idx.
+        df_maze = df.loc[flat_idx]
         label_cols = [c for c in label_cols_all if df_maze[c].notna().any()]
         if len(label_cols) == 0:
-            return np.arange(len(pos_idx))
+            return np.arange(len(flat_idx))
 
         df_lab = df_maze.loc[:, label_cols].copy()
         for c in label_cols:
@@ -638,16 +642,16 @@ def _wrap_label_results_xr_by_maze_dynamics(res, flat_idx_to_coord, time_coord=N
         out = {}
         arr = np.asarray(arr)
         for maze in maze_l:
-            pos_idx = np.where(np.asarray(df['maze']) == maze)[0]
-            out[maze] = arr[:, pos_idx]
+            flat_idx = df.index[np.asarray(df['maze']) == maze].to_numpy(dtype=int)
+            out[maze] = arr[:, flat_idx]
         return out
 
     def _split_dyn_latent(arr):
         out = {}
         arr = np.asarray(arr)
         for maze in maze_l:
-            pos_idx = np.where(np.asarray(df['maze']) == maze)[0]
-            out[maze] = arr[:, :, pos_idx]
+            flat_idx = df.index[np.asarray(df['maze']) == maze].to_numpy(dtype=int)
+            out[maze] = arr[:, :, flat_idx]
         return out
 
     # time coordinate
@@ -693,8 +697,8 @@ def _wrap_label_results_xr_by_maze_dynamics(res, flat_idx_to_coord, time_coord=N
         pa_by_maze = _split_dyn_latent(res['posterior_all'])
 
     for maze in maze_l:
-        pos_idx = np.where(np.asarray(df['maze']) == maze)[0]
-        label_coord = _make_label_coord(pos_idx)
+        flat_idx = df.index[np.asarray(df['maze']) == maze].to_numpy(dtype=int)
+        label_coord = _make_label_coord(flat_idx)
 
         if 'log_likelihood' in res:
             res2['log_likelihood'][maze] = xr.DataArray(
