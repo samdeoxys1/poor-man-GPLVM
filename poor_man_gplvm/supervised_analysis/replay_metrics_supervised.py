@@ -111,8 +111,7 @@ def _infer_binsize(time_vec, binsize):
     if t.size <= 1:
         return 1.0
     dt = np.diff(t)
-    # time can have duplicates / resets across events; only positive diffs define a binsize
-    dt = dt[np.isfinite(dt) & (dt > 0)]
+    dt = dt[np.isfinite(dt)]
     return float(np.median(dt)) if dt.size else 1.0
 
 
@@ -554,7 +553,12 @@ def _slice_label(label_posterior_marginal, s, e):
 
 def _position_key_for_maze(position_key, maze):
     if isinstance(position_key, dict):
-        return position_key.get(maze, None)
+        pk = position_key.get(maze, None)
+        if pk is not None:
+            return pk
+        if maze is not None:
+            return position_key.get(str(maze), None)
+        return None
     return position_key
 
 
@@ -762,6 +766,8 @@ def _compute_replay_metrics_single(
 
         if isinstance(label_posterior_marginal, dict):
             post_maze = label_posterior_marginal.get(maze, None)
+            if post_maze is None and maze is not None:
+                post_maze = label_posterior_marginal.get(str(maze), None)
             if post_maze is None:
                 seg_split.append((s, e))
                 continue
@@ -860,6 +866,8 @@ def _compute_replay_metrics_single(
 
             if isinstance(label_posterior_marginal, dict):
                 post_maze = label_posterior_marginal.get(maze, None)
+                if post_maze is None and maze is not None:
+                    post_maze = label_posterior_marginal.get(str(maze), None)
                 if post_maze is None:
                     seg_path.append(0.0)
                     seg_max_disp.append(0.0)
