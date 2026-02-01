@@ -1058,6 +1058,155 @@ def compute_replay_metrics(
     )
 
 
+def _brief_obj_summary(x):
+    """
+    Small helper for debug prints (no hard dependency on xarray/pandas).
+    """
+    if x is None:
+        return {"type": "None"}
+    out = {"type": type(x).__name__}
+    try:
+        out["shape"] = tuple(getattr(x, "shape", ()))
+    except Exception:
+        pass
+    try:
+        out["ndim"] = int(getattr(x, "ndim", 0))
+    except Exception:
+        pass
+    if hasattr(x, "dims"):
+        try:
+            out["dims"] = tuple(x.dims)
+        except Exception:
+            pass
+    if hasattr(x, "coords"):
+        try:
+            out["coords"] = tuple(list(x.coords.keys())[:20])
+        except Exception:
+            pass
+    return out
+
+
+def _slice_time_strict(obj, s, e):
+    """
+    Debug slicer: prefer xarray isel('time') and DO NOT swallow errors.
+    Uses half-open [s:e).
+    """
+    if obj is None:
+        return None
+    s = int(s)
+    e = int(e)
+    if hasattr(obj, "isel"):
+        if hasattr(obj, "dims") and ("time" not in getattr(obj, "dims", ())):
+            raise ValueError(f"Expected obj to have dim 'time'. dims={getattr(obj, 'dims', None)}")
+        return obj.isel(time=slice(s, e))
+    arr = _as_numpy(obj)
+    return arr[s:e]
+
+
+def slice_one_event(
+    label_posterior_marginal,
+    dynamics_posterior_marginal,
+    *,
+    starts,
+    ends,
+    event_i,
+    strict=True,
+):
+    """
+    Slice a single event (index `event_i`) out of time-concatenated posteriors.
+
+    Returns:
+      dict with keys:
+        - start, end: int (half-open [start:end))
+        - label_event, dyn_event: event-sliced objects
+    """
+    starts = _as_numpy(starts).astype(int)
+    ends = _as_numpy(ends).astype(int)
+    i = int(event_i)
+    s = int(starts[i])
+    e = int(ends[i])
+
+    slicer = _slice_time_strict if bool(strict) else _slice_time
+    if isinstance(label_posterior_marginal, dict):
+        lab_i = {k: slicer(v, s, e) for k, v in label_posterior_marginal.items()}
+    else:
+        lab_i = slicer(label_posterior_marginal, s, e)
+    dyn_i = slicer(dynamics_posterior_marginal, s, e)
+    return {"start": s, "end": e, "label_event": lab_i, "dyn_event": dyn_i}
+
+
+def compute_replay_metrics_one_event(
+    label_posterior_marginal,
+    dynamics_posterior_marginal,
+    *,
+    starts,
+    ends,
+    event_i,
+    continuous_prob_thresh=0.8,
+    continuous_state_idx=0,
+    binsize=None,
+    min_segment_duration=0.06,
+    stepsize_discard_thresh=None,
+    stepsize_split_thresh=None,
+    position_key=None,
+    use_posterior_weighted=False,
+    warn_on_position_key_fail=True,
+    raise_on_position_key_fail=False,
+    strict_slice=True,
+    debug_print=True,
+):
+    """
+    Single-event wrapper around the core logic in `_compute_replay_metrics_single`.
+
+    Compared to `compute_replay_metrics(..., starts=..., ends=...)`:
+    - slices ONE event (event_i)
+    - by default slices strictly (so xarray `.isel(time=...)` errors are not swallowed)
+    - optionally prints concise summaries (shapes/dims/coords)
+    """
+    sl = slice_one_event(
+        label_posterior_marginal,
+        dynamics_posterior_marginal,
+        starts=starts,
+        ends=ends,
+        event_i=event_i,
+        strict=bool(strict_slice),
+    )
+
+    if bool(debug_print):
+        print(
+            "[replay_metrics_supervised] one-event debug:",
+            f"event_i={int(event_i)}",
+            f"slice=[{sl['start']}:{sl['end']})",
+        )
+        if isinstance(sl["label_event"], dict):
+            print("[replay_metrics_supervised] label_event dict keys:", list(sl["label_event"].keys()))
+            k0 = next(iter(sl["label_event"].keys())) if len(sl["label_event"]) else None
+            if k0 is not None:
+                print("[replay_metrics_supervised] label_event[first] summary:", _brief_obj_summary(sl["label_event"][k0]))
+        else:
+            print("[replay_metrics_supervised] label_event summary:", _brief_obj_summary(sl["label_event"]))
+        print("[replay_metrics_supervised] dyn_event summary:", _brief_obj_summary(sl["dyn_event"]))
+
+    m = _compute_replay_metrics_single(
+        sl["label_event"],
+        sl["dyn_event"],
+        continuous_prob_thresh=continuous_prob_thresh,
+        continuous_state_idx=continuous_state_idx,
+        binsize=binsize,
+        min_segment_duration=min_segment_duration,
+        stepsize_discard_thresh=stepsize_discard_thresh,
+        stepsize_split_thresh=stepsize_split_thresh,
+        position_key=position_key,
+        use_posterior_weighted=use_posterior_weighted,
+        warn_on_position_key_fail=warn_on_position_key_fail,
+        raise_on_position_key_fail=raise_on_position_key_fail,
+    )
+    m["event_i"] = int(event_i)
+    m["start"] = int(sl["start"])
+    m["end"] = int(sl["end"])
+    return {"metrics": m, "slices": sl}
+
+
 def _metrics_list_to_df_and_summary(metrics):
     """
     Convert list[dict] metrics to (metrics_df, summary) similar to LR compute_intervals_metrics.
