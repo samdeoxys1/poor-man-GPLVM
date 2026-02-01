@@ -271,6 +271,48 @@ def _extract_positions_from_label_coord(label_coord, position_key):
     return False, x
 
 
+def _extract_positions_from_post(post, position_key):
+    """
+    Prefer reading coordinate arrays directly from xarray coords (e.g. coords['x'], coords['y'] on label_bin),
+    and fall back to MultiIndex level extraction if needed.
+
+    Returns:
+      is_2d (bool), pos_per_bin (np.ndarray) or None
+    """
+    if post is None or position_key is None:
+        return False, None
+
+    # 1) xarray-style: coords live on label_bin (your screenshot: coords include x,y as (label_bin,))
+    if hasattr(post, "coords"):
+        coords = post.coords
+        if isinstance(position_key, (list, tuple)) and len(position_key) == 2:
+            kx, ky = position_key[0], position_key[1]
+            if (kx in coords) and (ky in coords):
+                try:
+                    x = _as_numpy(coords[kx].values).astype(float)
+                except Exception:
+                    x = _as_numpy(coords[kx]).astype(float)
+                try:
+                    y = _as_numpy(coords[ky].values).astype(float)
+                except Exception:
+                    y = _as_numpy(coords[ky]).astype(float)
+                if x.ndim == 1 and y.ndim == 1 and x.shape[0] == y.shape[0]:
+                    return True, np.stack([x, y], axis=1)
+        else:
+            k = position_key
+            if k in coords:
+                try:
+                    x = _as_numpy(coords[k].values).astype(float)
+                except Exception:
+                    x = _as_numpy(coords[k]).astype(float)
+                if x.ndim == 1:
+                    return False, x
+
+    # 2) fallback: MultiIndex levels on label_bin coord
+    label_coord = _get_label_coord_from_post(post)
+    return _extract_positions_from_label_coord(label_coord, position_key)
+
+
 def _position_key_fail_reason(label_coord, position_key):
     if label_coord is None:
         return "label_bin coord missing"
@@ -287,6 +329,32 @@ def _position_key_fail_reason(label_coord, position_key):
     if position_key not in names:
         return f"position_key={position_key} missing level (available={names})"
     return None
+
+
+def _position_key_fail_reason_from_post(post, position_key):
+    if post is None:
+        return "post is None"
+    if position_key is None:
+        return "position_key is None"
+
+    if hasattr(post, "coords"):
+        coords = post.coords
+        if isinstance(position_key, (list, tuple)) and len(position_key) == 2:
+            kx, ky = position_key[0], position_key[1]
+            missing = [k for k in (kx, ky) if k not in coords]
+            if not missing:
+                return None
+            # don't spam huge coords repr
+            avail = list(coords.keys())
+            return f"missing coords {missing} (available coord keys include {avail[:10]})"
+        else:
+            if position_key in coords:
+                return None
+            avail = list(coords.keys())
+            return f"missing coord '{position_key}' (available coord keys include {avail[:10]})"
+
+    label_coord = _get_label_coord_from_post(post)
+    return _position_key_fail_reason(label_coord, position_key)
 
 
 def _compute_segment_spatial_metrics(pos_traj, segments, *, binsize, stepsize_discard_thresh, is_2d):
@@ -628,14 +696,12 @@ def _compute_replay_metrics_single(
             if post_maze is None:
                 seg_split.append((s, e))
                 continue
-            label_coord = _get_label_coord_from_post(post_maze)
         else:
             post_maze = label_posterior_marginal
-            label_coord = _get_label_coord_from_post(post_maze)
 
-        is_2d, pos_per_bin = _extract_positions_from_label_coord(label_coord, pk)
+        is_2d, pos_per_bin = _extract_positions_from_post(post_maze, pk)
         if pos_per_bin is None:
-            reason = _position_key_fail_reason(label_coord, pk)
+            reason = _position_key_fail_reason_from_post(post_maze, pk)
             if reason is None:
                 reason = "unknown coord parsing failure"
             pos_fail_reasons.append(f"maze={maze} {reason}")
@@ -726,10 +792,9 @@ def _compute_replay_metrics_single(
             else:
                 post_maze = label_posterior_marginal
 
-            label_coord = _get_label_coord_from_post(post_maze)
-            is_2d, pos_per_bin = _extract_positions_from_label_coord(label_coord, pk)
+            is_2d, pos_per_bin = _extract_positions_from_post(post_maze, pk)
             if pos_per_bin is None:
-                reason = _position_key_fail_reason(label_coord, pk)
+                reason = _position_key_fail_reason_from_post(post_maze, pk)
                 if reason is None:
                     reason = "unknown coord parsing failure"
                 pos_fail_reasons.append(f"maze={maze} {reason}")
