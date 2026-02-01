@@ -109,3 +109,18 @@ def pca_init(Y, latent_dim):
     
     return X 
 
+def restrict_xr(xr_data,intv,time_var='time'):
+    '''
+    restrict xarray dataarray to a given interval, similar to pynapple .restrict
+    xr_data: xarray dataarray
+    intv: interval, can be a tuple of (start, end) or a pynapple IntervalSet
+    '''
+    if not isinstance(intv,nap.IntervalSet):
+        intv = nap.IntervalSet(intv)
+    xr_data_restricted= []
+    for win in intv:
+        xr_data_ = xr_data.sel({time_var: slice(win[0,0], win[0,1])})
+        xr_data_restricted.append(xr_data_)
+    xr_data_restricted = xr.concat(xr_data_restricted,dim=time_var)
+    return xr_data_restricted
+
