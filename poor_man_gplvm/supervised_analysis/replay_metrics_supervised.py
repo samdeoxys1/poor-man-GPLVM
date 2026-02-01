@@ -944,8 +944,9 @@ def _compute_replay_metrics_single(
         result["median_segment_max_span"] = 0.0
         result["median_segment_speed"] = 0.0
 
-    # warn/error if user asked for coordinates but we couldn't use them (anywhere or partially)
-    if position_key is not None and (len(pos_fail_reasons) or (not has_any_pos)):
+    # warn/error if user asked for coordinates but we couldn't use them (anywhere or partially).
+    # If there are no continuous segments, spatial metrics are expected to be 0 without any coord extraction.
+    if position_key is not None and len(segments) and (len(pos_fail_reasons) or (not has_any_pos)):
         msg = "[replay_metrics_supervised] position_key coord extraction issue; some/all spatial metrics may be 0. "
         if len(pos_fail_reasons):
             uniq = []
