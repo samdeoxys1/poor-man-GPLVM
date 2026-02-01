@@ -979,6 +979,10 @@ def compute_replay_metrics(
     ends=None,
     warn_on_position_key_fail=True,
     raise_on_position_key_fail=False,
+    strict_slice=False,
+    raise_with_event_context=True,
+    debug_event_i=None,
+    debug_print=False,
 ):
     """
     Compute LR-style replay metrics from supervised posteriors.
@@ -1022,22 +1026,50 @@ def compute_replay_metrics(
         ends = _as_numpy(ends).astype(int)
         metrics = []
         for i, (s, e) in enumerate(zip(starts, ends)):
-            lab_i = _slice_label(label_posterior_marginal, s, e)
-            dyn_i = _slice_time(dynamics_posterior_marginal, s, e)
-            m = _compute_replay_metrics_single(
-                lab_i,
-                dyn_i,
-                continuous_prob_thresh=continuous_prob_thresh,
-                continuous_state_idx=continuous_state_idx,
-                binsize=binsize,
-                min_segment_duration=min_segment_duration,
-                stepsize_discard_thresh=stepsize_discard_thresh,
-                stepsize_split_thresh=stepsize_split_thresh,
-                position_key=position_key,
-                use_posterior_weighted=use_posterior_weighted,
-                warn_on_position_key_fail=warn_on_position_key_fail,
-                raise_on_position_key_fail=raise_on_position_key_fail,
-            )
+            slicer = _slice_time_strict if bool(strict_slice) else _slice_time
+            if isinstance(label_posterior_marginal, dict):
+                lab_i = {k: slicer(v, s, e) for k, v in label_posterior_marginal.items()}
+            else:
+                lab_i = slicer(label_posterior_marginal, s, e)
+            dyn_i = slicer(dynamics_posterior_marginal, s, e)
+
+            if debug_event_i is not None and int(i) == int(debug_event_i) and bool(debug_print):
+                print(
+                    "[replay_metrics_supervised] debug_event_i:",
+                    f"event_i={int(i)}",
+                    f"slice=[{int(s)}:{int(e)})",
+                )
+                if isinstance(lab_i, dict):
+                    print("[replay_metrics_supervised] label_event dict keys:", list(lab_i.keys()))
+                    k0 = next(iter(lab_i.keys())) if len(lab_i) else None
+                    if k0 is not None:
+                        print("[replay_metrics_supervised] label_event[first] summary:", _brief_obj_summary(lab_i[k0]))
+                else:
+                    print("[replay_metrics_supervised] label_event summary:", _brief_obj_summary(lab_i))
+                print("[replay_metrics_supervised] dyn_event summary:", _brief_obj_summary(dyn_i))
+
+            try:
+                m = _compute_replay_metrics_single(
+                    lab_i,
+                    dyn_i,
+                    continuous_prob_thresh=continuous_prob_thresh,
+                    continuous_state_idx=continuous_state_idx,
+                    binsize=binsize,
+                    min_segment_duration=min_segment_duration,
+                    stepsize_discard_thresh=stepsize_discard_thresh,
+                    stepsize_split_thresh=stepsize_split_thresh,
+                    position_key=position_key,
+                    use_posterior_weighted=use_posterior_weighted,
+                    warn_on_position_key_fail=warn_on_position_key_fail,
+                    raise_on_position_key_fail=raise_on_position_key_fail,
+                )
+            except Exception as exc:
+                if bool(raise_with_event_context):
+                    raise RuntimeError(
+                        "compute_replay_metrics failed for one event "
+                        f"(event_i={int(i)}, slice=[{int(s)}:{int(e)})])."
+                    ) from exc
+                raise
             m["event_i"] = int(i)
             metrics.append(m)
         return _metrics_list_to_df_and_summary(metrics)
