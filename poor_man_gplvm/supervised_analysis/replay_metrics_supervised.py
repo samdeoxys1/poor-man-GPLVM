@@ -32,8 +32,8 @@ We define "continuous replay segments" (a.k.a. "move state segments") as:
 4) **Hard discontinuities (large MAP steps)**:
    If you provide `position_key` so we can map bins to 1D or 2D coordinates, we compute a
    decoded position trajectory (MAP by default; set `use_posterior_weighted=True` to use E[x]).
-   Any time the step size exceeds `stepsize_discard_thresh` (in position units) we split the
-   segments at that boundary (same semantics as LR).
+   Any time the step size exceeds `stepsize_split_thresh` (in position units) we split the
+   segments at that boundary. Default `stepsize_split_thresh=None` (do not split on steps).
 
 After splitting, we re-apply the minimum duration filter.
 
@@ -58,6 +58,10 @@ Spatial trajectory metrics (only if `position_key` successfully maps label bins 
 
 Notes:
 - "valid positions" follow LR semantics: position i is valid iff the step TO i was <= `stepsize_discard_thresh`.
+  If `stepsize_discard_thresh=None` (default), all finite steps are treated as valid (no discarding).
+- If `position_key` is provided but label-bin coordinate parsing fails, we print a warning by default and
+  spatial metrics are returned as zeros/empty lists. Set `warn_on_position_key_fail=False` to silence,
+  or `raise_on_position_key_fail=True` to error.
 - If `position_key` is None or cannot be resolved from the label coordinates, spatial metrics are returned
   as empty lists and scalar spatial aggregates are 0.0.
 
@@ -267,6 +271,24 @@ def _extract_positions_from_label_coord(label_coord, position_key):
     return False, x
 
 
+def _position_key_fail_reason(label_coord, position_key):
+    if label_coord is None:
+        return "label_bin coord missing"
+    if not (hasattr(label_coord, "get_level_values") and hasattr(label_coord, "names")):
+        return f"label_bin coord not MultiIndex-like (type={type(label_coord)})"
+
+    names = list(label_coord.names) if label_coord.names is not None else []
+    if isinstance(position_key, (list, tuple)) and len(position_key) == 2:
+        missing = [k for k in position_key if k not in names]
+        if missing:
+            return f"position_key={position_key} missing levels={missing} (available={names})"
+        return None
+
+    if position_key not in names:
+        return f"position_key={position_key} missing level (available={names})"
+    return None
+
+
 def _compute_segment_spatial_metrics(pos_traj, segments, *, binsize, stepsize_discard_thresh, is_2d):
     if pos_traj is None:
         return {
@@ -401,10 +423,18 @@ def _position_key_for_maze(position_key, maze):
 
 def _get_label_coord_from_post(post):
     if hasattr(post, "coords") and ("label_bin" in post.coords):
+        coord = post.coords["label_bin"]
+        # xarray stores pandas.MultiIndex via a special coordinate; `.values` may drop to ndarray of tuples.
+        # Prefer `.to_index()` when available to preserve MultiIndex and support get_level_values().
         try:
-            return post.coords["label_bin"].values
+            if hasattr(coord, "to_index"):
+                return coord.to_index()
         except Exception:
-            return post.coords["label_bin"]
+            pass
+        try:
+            return coord.values
+        except Exception:
+            return coord
     return None
 
 
@@ -413,6 +443,8 @@ def _segment_break_between_from_pos(pos_seg, thr, is_2d):
     pos_seg: 1D array (n,) or tuple (x_seg,y_seg), each (n,)
     Returns break_between_mask: (n-1,) bool; True means break between i and i+1.
     """
+    if thr is None:
+        return None
     thr = float(thr)
     if not np.isfinite(thr):
         return None
@@ -437,7 +469,10 @@ def _segment_spatial_metrics_from_pos(pos_seg, *, binsize, stepsize_discard_thre
     if n < 2:
         return 0.0, 0.0, 0.0, 0.0
 
-    thr = float(stepsize_discard_thresh)
+    thr = stepsize_discard_thresh
+    if thr is None:
+        thr = np.inf
+    thr = float(thr)
     if is_2d:
         x_seg = _as_numpy(pos_seg[0]).astype(float)
         y_seg = _as_numpy(pos_seg[1]).astype(float)
@@ -452,8 +487,11 @@ def _segment_spatial_metrics_from_pos(pos_seg, *, binsize, stepsize_discard_thre
     valid_steps = step_d[valid_step]
     path_len = float(np.sum(valid_steps)) if valid_steps.size else 0.0
 
-    valid_pos = np.ones((n,), dtype=bool)
-    valid_pos[1:] = valid_step
+    if np.isfinite(thr):
+        valid_pos = np.ones((n,), dtype=bool)
+        valid_pos[1:] = valid_step
+    else:
+        valid_pos = np.ones((n,), dtype=bool)
 
     if is_2d:
         x_valid = x_seg[valid_pos]
@@ -496,9 +534,12 @@ def _compute_replay_metrics_single(
     continuous_state_idx=0,
     binsize=None,
     min_segment_duration=0.06,
-    stepsize_discard_thresh=10.0,
+    stepsize_discard_thresh=None,
+    stepsize_split_thresh=None,
     position_key=None,
     use_posterior_weighted=False,
+    warn_on_position_key_fail=True,
+    raise_on_position_key_fail=False,
 ):
     """
     Single-event metrics (internal). Returns one dict of metrics.
@@ -563,6 +604,7 @@ def _compute_replay_metrics_single(
     # Split segments on large steps (done per-segment so mixed 1D/2D per maze works)
     # -------------------------------------------------------------------------
     has_any_pos = False
+    pos_fail_reasons = []
     seg_split = []
     for s, e in segments:
         s = int(s)
@@ -593,6 +635,10 @@ def _compute_replay_metrics_single(
 
         is_2d, pos_per_bin = _extract_positions_from_label_coord(label_coord, pk)
         if pos_per_bin is None:
+            reason = _position_key_fail_reason(label_coord, pk)
+            if reason is None:
+                reason = "unknown coord parsing failure"
+            pos_fail_reasons.append(f"maze={maze} {reason}")
             seg_split.append((s, e))
             continue
 
@@ -616,7 +662,7 @@ def _compute_replay_metrics_single(
                 pos_seg = pos_per_bin[idx]
 
         has_any_pos = True
-        break_between = _segment_break_between_from_pos(pos_seg, stepsize_discard_thresh, is_2d=is_2d)
+        break_between = _segment_break_between_from_pos(pos_seg, stepsize_split_thresh, is_2d=is_2d)
         if break_between is None:
             seg_split.append((s, e))
             continue
@@ -683,6 +729,10 @@ def _compute_replay_metrics_single(
             label_coord = _get_label_coord_from_post(post_maze)
             is_2d, pos_per_bin = _extract_positions_from_label_coord(label_coord, pk)
             if pos_per_bin is None:
+                reason = _position_key_fail_reason(label_coord, pk)
+                if reason is None:
+                    reason = "unknown coord parsing failure"
+                pos_fail_reasons.append(f"maze={maze} {reason}")
                 seg_path.append(0.0)
                 seg_max_disp.append(0.0)
                 seg_max_span.append(0.0)
@@ -738,6 +788,23 @@ def _compute_replay_metrics_single(
         result["median_segment_max_span"] = 0.0
         result["median_segment_speed"] = 0.0
 
+    # warn/error if user asked for coordinates but we couldn't use them anywhere
+    if position_key is not None and (not has_any_pos):
+        msg = "[replay_metrics_supervised] position_key provided but could not extract label-bin coordinates; spatial metrics set to 0. "
+        if len(pos_fail_reasons):
+            # unique, limited
+            uniq = []
+            for r in pos_fail_reasons:
+                if r not in uniq:
+                    uniq.append(r)
+                if len(uniq) >= 6:
+                    break
+            msg += "Reasons (up to 6): " + "; ".join(uniq)
+        if bool(raise_on_position_key_fail):
+            raise ValueError(msg)
+        if bool(warn_on_position_key_fail):
+            print(msg)
+
     return result
 
 
@@ -749,11 +816,14 @@ def compute_replay_metrics(
     continuous_state_idx=0,
     binsize=None,
     min_segment_duration=0.06,
-    stepsize_discard_thresh=10.0,
+    stepsize_discard_thresh=None,
+    stepsize_split_thresh=None,
     position_key=None,
     use_posterior_weighted=False,
     starts=None,
     ends=None,
+    warn_on_position_key_fail=True,
+    raise_on_position_key_fail=False,
 ):
     """
     Compute LR-style replay metrics from supervised posteriors.
@@ -781,8 +851,11 @@ def compute_replay_metrics(
                 binsize=binsize,
                 min_segment_duration=min_segment_duration,
                 stepsize_discard_thresh=stepsize_discard_thresh,
+                stepsize_split_thresh=stepsize_split_thresh,
                 position_key=position_key,
                 use_posterior_weighted=use_posterior_weighted,
+                warn_on_position_key_fail=warn_on_position_key_fail,
+                raise_on_position_key_fail=raise_on_position_key_fail,
             )
             m["event_i"] = int(i)
             metrics.append(m)
@@ -804,8 +877,11 @@ def compute_replay_metrics(
                 binsize=binsize,
                 min_segment_duration=min_segment_duration,
                 stepsize_discard_thresh=stepsize_discard_thresh,
+                stepsize_split_thresh=stepsize_split_thresh,
                 position_key=position_key,
                 use_posterior_weighted=use_posterior_weighted,
+                warn_on_position_key_fail=warn_on_position_key_fail,
+                raise_on_position_key_fail=raise_on_position_key_fail,
             )
             m["event_i"] = int(i)
             metrics.append(m)
@@ -819,8 +895,11 @@ def compute_replay_metrics(
         binsize=binsize,
         min_segment_duration=min_segment_duration,
         stepsize_discard_thresh=stepsize_discard_thresh,
+        stepsize_split_thresh=stepsize_split_thresh,
         position_key=position_key,
         use_posterior_weighted=use_posterior_weighted,
+        warn_on_position_key_fail=warn_on_position_key_fail,
+        raise_on_position_key_fail=raise_on_position_key_fail,
     )
 
 
