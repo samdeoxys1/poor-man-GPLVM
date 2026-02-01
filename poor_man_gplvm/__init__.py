@@ -8,5 +8,11 @@ from poor_man_gplvm.core import (
     AbstractGPLVMJump1D, PoissonGPLVMJump1D, GaussianGPLVMJump1D  # Models with dynamics
 )
 
+from poor_man_gplvm.supervised_analysis import (
+    get_tuning_supervised,
+    decode_naive_bayes_supervised,
+    compute_replay_metrics_supervised,
+)
+
 # Import modules to enable pmg.core, pmg.utils access
 from . import core,test,utils,model_selection_helper,experimental,plot_helper,analysis_helper,distance_analysis

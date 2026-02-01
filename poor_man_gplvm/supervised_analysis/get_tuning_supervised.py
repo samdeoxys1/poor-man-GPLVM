@@ -801,3 +801,5 @@ def get_tuning(label_l, spk_mat, ep=None, custom_smooth_func=None,
         tuning_res['flat_idx_to_coord'] = pd.DataFrame(columns=['maze'])
     
     return tuning_res
+
+get_tuning_supervised = get_tuning
