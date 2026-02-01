@@ -742,6 +742,28 @@ def _wrap_label_results_xr_by_maze_dynamics(res, flat_idx_to_coord, time_coord=N
                 res2['posterior_all_per_event'][maze] = [res2['posterior_all'][maze].isel(time=slice(s, e)) for s, e in zip(starts, ends)]
 
     res2['maze_l'] = maze_l
+
+    # dynamics marginal is not maze-specific; keep it as pynapple time series for convenience
+    # (create once, then slice for per-event to avoid repeated TsdFrame construction)
+    dyn_tsdf = None
+    if 'posterior_dynamics_marg' in res2 and np.ndim(res2['posterior_dynamics_marg']) == 2:
+        arr = np.asarray(res2['posterior_dynamics_marg'])
+        n_dyn = int(arr.shape[1])
+        cols = ['move', 'jump'] if n_dyn == 2 else np.arange(n_dyn)
+        dyn_tsdf = nap.TsdFrame(d=arr, t=np.asarray(time_coord), columns=cols)
+        res2['posterior_dynamics_marg'] = dyn_tsdf
+
+    # if per-event requested upstream, prefer slicing the full pynapple object (fast) over re-wrapping numpy chunks
+    if dyn_tsdf is not None and ('starts' in res2) and ('ends' in res2) and (bool(return_per_event) or ('posterior_dynamics_marg_per_event' in res)):
+        starts = np.asarray(res2.get('starts', []), dtype=int)
+        ends = np.asarray(res2.get('ends', []), dtype=int)
+        if starts.size and ends.size:
+            res2['posterior_dynamics_marg_per_event'] = [
+                dyn_tsdf[s:e]
+                for s, e in zip(starts, ends)
+                if e > s
+            ]
+
     return res2
 
 
@@ -794,7 +816,8 @@ def _wrap_decode_res_tsdframe_matrix_dynamics(res, time_coord):
             res2[k] = nap.TsdFrame(d=arr, t=t, columns=cols)
     if 'posterior_dynamics_marg' in res2 and np.ndim(res2['posterior_dynamics_marg']) == 2:
         arr = np.asarray(res2['posterior_dynamics_marg'])
-        cols = np.arange(arr.shape[1])
+        n_dyn = int(arr.shape[1])
+        cols = ['move', 'jump'] if n_dyn == 2 else np.arange(n_dyn)
         res2['posterior_dynamics_marg'] = nap.TsdFrame(d=arr, t=t, columns=cols)
     if 'log_marginal_l' in res2 and np.ndim(res2['log_marginal_l']) == 1:
         res2['log_marginal_l'] = nap.Tsd(d=np.asarray(res2['log_marginal_l']), t=t)
@@ -824,19 +847,20 @@ def _wrap_decode_res_tsdframe_tensor_dynamics(res, time_l):
         if k in res2 and np.ndim(res2[k]) == 2:
             res2[k] = _wrap_2d(res2[k])
 
-    # per-event lists (trial-based)
-    for k in [
-        'log_likelihood_per_event',
-        'log_posterior_latent_marg_per_event',
-        'posterior_latent_marg_per_event',
-        'posterior_dynamics_marg_per_event',
+    # per-event lists (trial-based): slice the full TsdFrame (avoid rebuilding TsdFrames in a loop)
+    for k_full, k_per in [
+        ('log_likelihood', 'log_likelihood_per_event'),
+        ('log_posterior_latent_marg', 'log_posterior_latent_marg_per_event'),
+        ('posterior_latent_marg', 'posterior_latent_marg_per_event'),
+        ('posterior_dynamics_marg', 'posterior_dynamics_marg_per_event'),
     ]:
-        if k in res2 and isinstance(res2[k], list) and len(res2[k]) and np.ndim(res2[k][0]) == 2:
-            tsdf_l = []
-            for a, s, e in zip(res2[k], starts, ends):
-                cols = np.arange(np.asarray(a).shape[1])
-                tsdf_l.append(nap.TsdFrame(d=np.asarray(a), t=t[s:e], columns=cols))
-            res2[k] = tsdf_l
+        if k_per in res2 and k_full in res2 and isinstance(res2[k_full], nap.TsdFrame) and starts.size and ends.size:
+            tsdf = res2[k_full]
+            res2[k_per] = [
+                tsdf[s:e]
+                for s, e in zip(starts, ends)
+                if e > s
+            ]
 
     # 3D arrays (dyn, latent): leave as numpy for now (harder to represent cleanly in nap)
     # but still wrap per-event lists if desired in analysis code.
