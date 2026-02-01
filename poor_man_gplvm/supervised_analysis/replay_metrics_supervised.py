@@ -70,6 +70,17 @@ m = rms.compute_replay_metrics(label_post, dyn_post, position_key='lin', binsize
 
 # maze-split dict
 m = rms.compute_replay_metrics(label_post_by_maze, dyn_post, position_key=('x','y'))
+
+# per-event metrics from time-concat decode (e.g. tensor mode in decoder_supervised.decode_with_dynamics)
+out = rms.compute_replay_metrics(
+    res['posterior_latent_marg'],
+    res['posterior_dynamics_marg'],
+    starts=res['starts'],
+    ends=res['ends'],
+    binsize=0.02,
+    position_key={'familiar': ('x','y'), 'novel': 'lin'},
+)
+metrics_df = out['metrics_df']
 ```
 """
 
@@ -360,7 +371,124 @@ def _compute_segment_spatial_metrics(pos_traj, segments, *, binsize, stepsize_di
     }
 
 
-def compute_replay_metrics(
+def _slice_time(obj, s, e):
+    """
+    Slice time dimension for numpy arrays or xarray DataArray-like objects.
+    Uses half-open [s:e).
+    """
+    if obj is None:
+        return None
+    if hasattr(obj, "isel"):
+        try:
+            return obj.isel(time=slice(int(s), int(e)))
+        except Exception:
+            pass
+    arr = _as_numpy(obj)
+    return arr[int(s) : int(e)]
+
+
+def _slice_label(label_posterior_marginal, s, e):
+    if isinstance(label_posterior_marginal, dict):
+        return {k: _slice_time(v, s, e) for k, v in label_posterior_marginal.items()}
+    return _slice_time(label_posterior_marginal, s, e)
+
+
+def _position_key_for_maze(position_key, maze):
+    if isinstance(position_key, dict):
+        return position_key.get(maze, None)
+    return position_key
+
+
+def _get_label_coord_from_post(post):
+    if hasattr(post, "coords") and ("label_bin" in post.coords):
+        try:
+            return post.coords["label_bin"].values
+        except Exception:
+            return post.coords["label_bin"]
+    return None
+
+
+def _segment_break_between_from_pos(pos_seg, thr, is_2d):
+    """
+    pos_seg: 1D array (n,) or tuple (x_seg,y_seg), each (n,)
+    Returns break_between_mask: (n-1,) bool; True means break between i and i+1.
+    """
+    thr = float(thr)
+    if not np.isfinite(thr):
+        return None
+    if is_2d:
+        x = _as_numpy(pos_seg[0]).astype(float)
+        y = _as_numpy(pos_seg[1]).astype(float)
+        dx = np.diff(x)
+        dy = np.diff(y)
+        step_d = np.sqrt(dx**2 + dy**2)
+    else:
+        x = _as_numpy(pos_seg).astype(float)
+        step_d = np.abs(np.diff(x))
+    # LR semantics: break on any step > thr and also on NaNs (comparison False => break True after negation)
+    return ~(step_d <= thr)
+
+
+def _segment_spatial_metrics_from_pos(pos_seg, *, binsize, stepsize_discard_thresh, is_2d):
+    """
+    Compute LR-style spatial metrics for one segment given decoded positions (already segment-sliced).
+    """
+    n = int(_as_numpy(pos_seg[0]).shape[0]) if is_2d else int(_as_numpy(pos_seg).shape[0])
+    if n < 2:
+        return 0.0, 0.0, 0.0, 0.0
+
+    thr = float(stepsize_discard_thresh)
+    if is_2d:
+        x_seg = _as_numpy(pos_seg[0]).astype(float)
+        y_seg = _as_numpy(pos_seg[1]).astype(float)
+        dx = np.diff(x_seg)
+        dy = np.diff(y_seg)
+        step_d = np.sqrt(dx**2 + dy**2)
+    else:
+        x_seg = _as_numpy(pos_seg).astype(float)
+        step_d = np.abs(np.diff(x_seg))
+
+    valid_step = (step_d <= thr) & np.isfinite(step_d)
+    valid_steps = step_d[valid_step]
+    path_len = float(np.sum(valid_steps)) if valid_steps.size else 0.0
+
+    valid_pos = np.ones((n,), dtype=bool)
+    valid_pos[1:] = valid_step
+
+    if is_2d:
+        x_valid = x_seg[valid_pos]
+        y_valid = y_seg[valid_pos]
+        if x_valid.size:
+            dist_from_start = np.sqrt((x_valid - x_seg[0]) ** 2 + (y_valid - y_seg[0]) ** 2)
+            max_disp = float(np.max(dist_from_start))
+        else:
+            max_disp = 0.0
+
+        if x_valid.size >= 2:
+            dxp = x_valid[:, None] - x_valid[None, :]
+            dyp = y_valid[:, None] - y_valid[None, :]
+            pair = np.sqrt(dxp**2 + dyp**2)
+            max_span = float(np.max(pair))
+        else:
+            max_span = 0.0
+    else:
+        x_valid = x_seg[valid_pos]
+        if x_valid.size:
+            max_disp = float(np.max(np.abs(x_valid - x_seg[0])))
+        else:
+            max_disp = 0.0
+
+        if x_valid.size >= 2:
+            max_span = float(np.max(x_valid) - np.min(x_valid))
+        else:
+            max_span = 0.0
+
+    dur_sec = float(n) * float(binsize)
+    avg_speed = float(path_len / dur_sec) if dur_sec > 0 else 0.0
+    return path_len, max_disp, max_span, avg_speed
+
+
+def _compute_replay_metrics_single(
     label_posterior_marginal,
     dynamics_posterior_marginal,
     *,
@@ -373,10 +501,7 @@ def compute_replay_metrics(
     use_posterior_weighted=False,
 ):
     """
-    Compute LR-style replay metrics from supervised posteriors.
-
-    See module docstring for definitions (especially continuous segment definition).
-    Returns a dict (scalar + list-valued metrics).
+    Single-event metrics (internal). Returns one dict of metrics.
     """
     dyn, time_dyn = _get_dyn_array(dynamics_posterior_marginal)
     n_time = int(dyn.shape[0])
@@ -385,7 +510,6 @@ def compute_replay_metrics(
     # time coordinate preference: take from label if available (xarray), else from dynamics
     time_vec = None
     if isinstance(label_posterior_marginal, dict):
-        # pick first maze to extract time
         maze0 = next(iter(label_posterior_marginal.keys()))
         time_vec = _get_time_coord_from_xr(label_posterior_marginal[maze0])
     else:
@@ -399,14 +523,14 @@ def compute_replay_metrics(
     for i in range(n_dyn):
         state_fraction_dict[f"state_{i}_fraction"] = float(np.mean(dyn[:, i])) if n_time else 0.0
 
+    if not (0 <= int(continuous_state_idx) < n_dyn):
+        raise ValueError(f"continuous_state_idx={continuous_state_idx} out of range for n_dyn={n_dyn}")
+
     # -------------------------------------------------------------------------
     # Find continuous segments (threshold + min duration)
     # -------------------------------------------------------------------------
-    if not (0 <= int(continuous_state_idx) < n_dyn):
-        raise ValueError(f"continuous_state_idx={continuous_state_idx} out of range for n_dyn={n_dyn}")
     p_cont = dyn[:, int(continuous_state_idx)]
     segments_all = _find_runs_above_threshold(p_cont, continuous_prob_thresh)
-
     min_bins = int(math.ceil(float(min_segment_duration) / float(binsize))) if float(min_segment_duration) > 0 else 0
     segments = [(s, e) for s, e in segments_all if (e - s + 1) >= min_bins]
 
@@ -429,125 +553,80 @@ def compute_replay_metrics(
             raise ValueError("label and dynamics posteriors must share time axis length.")
         map_label_idx, _ = _get_label_map_trajectory_single(label_np)
 
-    # -------------------------------------------------------------------------
-    # Split on maze change (hard discontinuity) for multi-maze
-    # -------------------------------------------------------------------------
-    maze_break_between = None
+    # split on maze change first (hard discontinuity)
     if winning_maze is not None and winning_maze.size >= 2:
         maze_break_between = winning_maze[1:] != winning_maze[:-1]
         segments = _split_segments_on_breakpoints(segments, maze_break_between)
         segments = [(s, e) for s, e in segments if (e - s + 1) >= min_bins]
 
     # -------------------------------------------------------------------------
-    # Build decoded position trajectory (optional) and split on large steps
+    # Split segments on large steps (done per-segment so mixed 1D/2D per maze works)
     # -------------------------------------------------------------------------
-    is_2d = False
-    pos_traj = None
+    has_any_pos = False
+    seg_split = []
+    for s, e in segments:
+        s = int(s)
+        e = int(e)
+        if e <= s:
+            seg_split.append((s, e))
+            continue
 
-    if position_key is not None:
-        try:
-            if isinstance(label_posterior_marginal, dict):
-                # compute position per bin per maze (from label_bin coord)
-                pos_per_bin_by_maze = {}
-                is_2d_guess = None
-                for maze, post in label_posterior_marginal.items():
-                    label_coord = None
-                    if hasattr(post, "coords") and ("label_bin" in post.coords):
-                        label_coord = post.coords["label_bin"].values
-                    is2, pos_per_bin = _extract_positions_from_label_coord(label_coord, position_key)
-                    if is_2d_guess is None:
-                        is_2d_guess = bool(is2)
-                    pos_per_bin_by_maze[maze] = pos_per_bin
-                is_2d = bool(is_2d_guess) if is_2d_guess is not None else False
+        maze = None
+        if winning_maze is not None:
+            maze = winning_maze[s]
 
-                if use_posterior_weighted:
-                    # expectation within winning maze only (per time)
-                    if is_2d:
-                        x = np.full((n_time,), np.nan, dtype=float)
-                        y = np.full((n_time,), np.nan, dtype=float)
-                    else:
-                        x = np.full((n_time,), np.nan, dtype=float)
-                    for maze, post in label_posterior_marginal.items():
-                        pos_per_bin = pos_per_bin_by_maze.get(maze, None)
-                        if pos_per_bin is None:
-                            continue
-                        mask = winning_maze == maze
-                        if not np.any(mask):
-                            continue
-                        post_np = _as_numpy(post)
-                        if is_2d:
-                            px = pos_per_bin[:, 0][None, :]
-                            py = pos_per_bin[:, 1][None, :]
-                            w = post_np[mask]
-                            x[mask] = np.sum(w * px, axis=1)
-                            y[mask] = np.sum(w * py, axis=1)
-                        else:
-                            px = pos_per_bin[None, :]
-                            w = post_np[mask]
-                            x[mask] = np.sum(w * px, axis=1)
-                    pos_traj = (x, y) if is_2d else x
-                else:
-                    # MAP position from winning maze's MAP bin per time
-                    if is_2d:
-                        x = np.full((n_time,), np.nan, dtype=float)
-                        y = np.full((n_time,), np.nan, dtype=float)
-                    else:
-                        x = np.full((n_time,), np.nan, dtype=float)
-                    for maze in label_posterior_marginal.keys():
-                        pos_per_bin = pos_per_bin_by_maze.get(maze, None)
-                        if pos_per_bin is None:
-                            continue
-                        mask = winning_maze == maze
-                        if not np.any(mask):
-                            continue
-                        idx = map_label_idx_by_maze[maze][mask]
-                        if is_2d:
-                            x[mask] = pos_per_bin[idx, 0]
-                            y[mask] = pos_per_bin[idx, 1]
-                        else:
-                            x[mask] = pos_per_bin[idx]
-                    pos_traj = (x, y) if is_2d else x
+        # resolve coordinate map for this maze
+        pk = _position_key_for_maze(position_key, maze)
+        if pk is None:
+            seg_split.append((s, e))
+            continue
+
+        if isinstance(label_posterior_marginal, dict):
+            post_maze = label_posterior_marginal.get(maze, None)
+            if post_maze is None:
+                seg_split.append((s, e))
+                continue
+            label_coord = _get_label_coord_from_post(post_maze)
+        else:
+            post_maze = label_posterior_marginal
+            label_coord = _get_label_coord_from_post(post_maze)
+
+        is_2d, pos_per_bin = _extract_positions_from_label_coord(label_coord, pk)
+        if pos_per_bin is None:
+            seg_split.append((s, e))
+            continue
+
+        # build decoded pos for this segment (within a single maze)
+        if use_posterior_weighted:
+            w = _as_numpy(_slice_time(post_maze, s, e + 1))
+            if is_2d:
+                x_seg = np.sum(w * pos_per_bin[:, 0][None, :], axis=1)
+                y_seg = np.sum(w * pos_per_bin[:, 1][None, :], axis=1)
+                pos_seg = (x_seg, y_seg)
             else:
-                # single maze xarray or numpy
-                post = label_posterior_marginal
-                label_coord = None
-                if hasattr(post, "coords") and ("label_bin" in post.coords):
-                    label_coord = post.coords["label_bin"].values
-                is_2d, pos_per_bin = _extract_positions_from_label_coord(label_coord, position_key)
-                if pos_per_bin is not None:
-                    if use_posterior_weighted:
-                        post_np = _as_numpy(post)
-                        if is_2d:
-                            x = np.sum(post_np * pos_per_bin[:, 0][None, :], axis=1)
-                            y = np.sum(post_np * pos_per_bin[:, 1][None, :], axis=1)
-                            pos_traj = (x, y)
-                        else:
-                            pos_traj = np.sum(post_np * pos_per_bin[None, :], axis=1)
-                    else:
-                        if is_2d:
-                            pos_traj = (pos_per_bin[map_label_idx, 0], pos_per_bin[map_label_idx, 1])
-                        else:
-                            pos_traj = pos_per_bin[map_label_idx]
-        except Exception:
-            # if coord parsing fails, silently degrade to non-spatial metrics (per module docstring)
-            pos_traj = None
+                pos_seg = np.sum(w * pos_per_bin[None, :], axis=1)
+        else:
+            if isinstance(label_posterior_marginal, dict):
+                idx = _as_numpy(map_label_idx_by_maze[maze][s : e + 1]).astype(int)
+            else:
+                idx = _as_numpy(map_label_idx[s : e + 1]).astype(int)
+            if is_2d:
+                pos_seg = (pos_per_bin[idx, 0], pos_per_bin[idx, 1])
+            else:
+                pos_seg = pos_per_bin[idx]
 
-    # split on large steps if we have pos_traj and threshold is finite
-    if pos_traj is not None:
-        try:
-            thr = float(stepsize_discard_thresh)
-            if np.isfinite(thr):
-                if is_2d:
-                    dx = np.diff(_as_numpy(pos_traj[0]).astype(float))
-                    dy = np.diff(_as_numpy(pos_traj[1]).astype(float))
-                    step_d = np.sqrt(dx ** 2 + dy ** 2)
-                else:
-                    step_d = np.abs(np.diff(_as_numpy(pos_traj).astype(float)))
-                break_between = ~(step_d <= thr)  # matches LR: NaNs -> break (comparison False -> ~False True)
-                segments = _split_segments_on_breakpoints(segments, break_between)
-                segments = [(s, e) for s, e in segments if (e - s + 1) >= min_bins]
-        except Exception:
-            pass
+        has_any_pos = True
+        break_between = _segment_break_between_from_pos(pos_seg, stepsize_discard_thresh, is_2d=is_2d)
+        if break_between is None:
+            seg_split.append((s, e))
+            continue
+
+        # split local indices then shift back
+        local = _split_segments_on_breakpoints([(0, e - s)], break_between)
+        for ls, le in local:
+            seg_split.append((s + ls, s + le))
+
+    segments = [(s, e) for s, e in seg_split if (e - s + 1) >= min_bins]
 
     # -------------------------------------------------------------------------
     # Aggregate segment metrics (LR-style)
@@ -565,27 +644,221 @@ def compute_replay_metrics(
         "frac_continuous": float(total_cont_bins / n_time) if n_time else 0.0,
         "duration_sec": float(n_time) * float(binsize),
         "binsize": float(binsize),
-        "is_2d": bool(is_2d),
     }
     result.update(state_fraction_dict)
 
-    # spatial/path metrics (optional)
-    if pos_traj is not None:
-        spatial = _compute_segment_spatial_metrics(
-            pos_traj,
-            segments,
-            binsize=binsize,
-            stepsize_discard_thresh=stepsize_discard_thresh,
-            is_2d=is_2d,
-        )
+    # spatial/path metrics: compute per-segment (handles mixed 1D/2D across mazes)
+    seg_path = []
+    seg_max_disp = []
+    seg_max_span = []
+    seg_speed = []
+
+    if position_key is not None and has_any_pos and len(segments):
+        for s, e in segments:
+            s = int(s)
+            e = int(e)
+            maze = None
+            if winning_maze is not None:
+                maze = winning_maze[s]
+
+            pk = _position_key_for_maze(position_key, maze)
+            if pk is None:
+                seg_path.append(0.0)
+                seg_max_disp.append(0.0)
+                seg_max_span.append(0.0)
+                seg_speed.append(0.0)
+                continue
+
+            if isinstance(label_posterior_marginal, dict):
+                post_maze = label_posterior_marginal.get(maze, None)
+                if post_maze is None:
+                    seg_path.append(0.0)
+                    seg_max_disp.append(0.0)
+                    seg_max_span.append(0.0)
+                    seg_speed.append(0.0)
+                    continue
+            else:
+                post_maze = label_posterior_marginal
+
+            label_coord = _get_label_coord_from_post(post_maze)
+            is_2d, pos_per_bin = _extract_positions_from_label_coord(label_coord, pk)
+            if pos_per_bin is None:
+                seg_path.append(0.0)
+                seg_max_disp.append(0.0)
+                seg_max_span.append(0.0)
+                seg_speed.append(0.0)
+                continue
+
+            if use_posterior_weighted:
+                w = _as_numpy(_slice_time(post_maze, s, e + 1))
+                if is_2d:
+                    x_seg = np.sum(w * pos_per_bin[:, 0][None, :], axis=1)
+                    y_seg = np.sum(w * pos_per_bin[:, 1][None, :], axis=1)
+                    pos_seg = (x_seg, y_seg)
+                else:
+                    pos_seg = np.sum(w * pos_per_bin[None, :], axis=1)
+            else:
+                if isinstance(label_posterior_marginal, dict):
+                    idx = _as_numpy(map_label_idx_by_maze[maze][s : e + 1]).astype(int)
+                else:
+                    idx = _as_numpy(map_label_idx[s : e + 1]).astype(int)
+                if is_2d:
+                    pos_seg = (pos_per_bin[idx, 0], pos_per_bin[idx, 1])
+                else:
+                    pos_seg = pos_per_bin[idx]
+
+            path_len, max_disp, max_span, avg_speed = _segment_spatial_metrics_from_pos(
+                pos_seg,
+                binsize=binsize,
+                stepsize_discard_thresh=stepsize_discard_thresh,
+                is_2d=is_2d,
+            )
+            seg_path.append(float(path_len))
+            seg_max_disp.append(float(max_disp))
+            seg_max_span.append(float(max_span))
+            seg_speed.append(float(avg_speed))
+
+    result["segment_path_lengths"] = seg_path if len(seg_path) else []
+    result["segment_max_displacements"] = seg_max_disp if len(seg_max_disp) else []
+    result["segment_max_spans"] = seg_max_span if len(seg_max_span) else []
+    result["segment_avg_speeds"] = seg_speed if len(seg_speed) else []
+
+    if len(seg_path):
+        result["total_path_length"] = float(np.sum(seg_path))
+        result["max_displacement"] = float(np.max(seg_max_disp)) if len(seg_max_disp) else 0.0
+        result["max_span"] = float(np.max(seg_max_span)) if len(seg_max_span) else 0.0
+        result["median_segment_path_length"] = float(np.median(seg_path))
+        result["median_segment_max_span"] = float(np.median(seg_max_span)) if len(seg_max_span) else 0.0
+        result["median_segment_speed"] = float(np.median(seg_speed)) if len(seg_speed) else 0.0
     else:
-        spatial = _compute_segment_spatial_metrics(
-            None,
-            segments,
-            binsize=binsize,
-            stepsize_discard_thresh=stepsize_discard_thresh,
-            is_2d=False,
-        )
-    result.update(spatial)
+        result["total_path_length"] = 0.0
+        result["max_displacement"] = 0.0
+        result["max_span"] = 0.0
+        result["median_segment_path_length"] = 0.0
+        result["median_segment_max_span"] = 0.0
+        result["median_segment_speed"] = 0.0
 
     return result
+
+
+def compute_replay_metrics(
+    label_posterior_marginal,
+    dynamics_posterior_marginal,
+    *,
+    continuous_prob_thresh=0.8,
+    continuous_state_idx=0,
+    binsize=None,
+    min_segment_duration=0.06,
+    stepsize_discard_thresh=10.0,
+    position_key=None,
+    use_posterior_weighted=False,
+    starts=None,
+    ends=None,
+):
+    """
+    Compute LR-style replay metrics from supervised posteriors.
+
+    See module docstring for definitions (especially continuous segment definition).
+    Returns:
+    - if `starts/ends` are None and inputs are not lists: a single metrics dict
+    - if `starts/ends` are provided OR inputs are lists: a dict with:
+        - 'metrics_df': pd.DataFrame of scalar metrics (one row per event)
+        - 'metrics': list of per-event metrics dicts (includes list-valued fields)
+        - 'summary': pooled summary dict (median-style; minimal)
+    """
+    # list inputs => per-event
+    if isinstance(label_posterior_marginal, list) or isinstance(dynamics_posterior_marginal, list):
+        label_l = label_posterior_marginal if isinstance(label_posterior_marginal, list) else [label_posterior_marginal]
+        dyn_l = dynamics_posterior_marginal if isinstance(dynamics_posterior_marginal, list) else [dynamics_posterior_marginal]
+        n = min(len(label_l), len(dyn_l))
+        metrics = []
+        for i in range(n):
+            m = _compute_replay_metrics_single(
+                label_l[i],
+                dyn_l[i],
+                continuous_prob_thresh=continuous_prob_thresh,
+                continuous_state_idx=continuous_state_idx,
+                binsize=binsize,
+                min_segment_duration=min_segment_duration,
+                stepsize_discard_thresh=stepsize_discard_thresh,
+                position_key=position_key,
+                use_posterior_weighted=use_posterior_weighted,
+            )
+            m["event_i"] = int(i)
+            metrics.append(m)
+        return _metrics_list_to_df_and_summary(metrics)
+
+    # starts/ends => slice a time-concat decode into per-event metrics
+    if starts is not None and ends is not None:
+        starts = _as_numpy(starts).astype(int)
+        ends = _as_numpy(ends).astype(int)
+        metrics = []
+        for i, (s, e) in enumerate(zip(starts, ends)):
+            lab_i = _slice_label(label_posterior_marginal, s, e)
+            dyn_i = _slice_time(dynamics_posterior_marginal, s, e)
+            m = _compute_replay_metrics_single(
+                lab_i,
+                dyn_i,
+                continuous_prob_thresh=continuous_prob_thresh,
+                continuous_state_idx=continuous_state_idx,
+                binsize=binsize,
+                min_segment_duration=min_segment_duration,
+                stepsize_discard_thresh=stepsize_discard_thresh,
+                position_key=position_key,
+                use_posterior_weighted=use_posterior_weighted,
+            )
+            m["event_i"] = int(i)
+            metrics.append(m)
+        return _metrics_list_to_df_and_summary(metrics)
+
+    return _compute_replay_metrics_single(
+        label_posterior_marginal,
+        dynamics_posterior_marginal,
+        continuous_prob_thresh=continuous_prob_thresh,
+        continuous_state_idx=continuous_state_idx,
+        binsize=binsize,
+        min_segment_duration=min_segment_duration,
+        stepsize_discard_thresh=stepsize_discard_thresh,
+        position_key=position_key,
+        use_posterior_weighted=use_posterior_weighted,
+    )
+
+
+def _metrics_list_to_df_and_summary(metrics):
+    """
+    Convert list[dict] metrics to (metrics_df, summary) similar to LR compute_intervals_metrics.
+    """
+    try:
+        import pandas as pd
+    except Exception:
+        pd = None
+
+    list_cols = {
+        "segment_durations",
+        "segment_path_lengths",
+        "segment_max_displacements",
+        "segment_max_spans",
+        "segment_avg_speeds",
+    }
+
+    if pd is not None:
+        scalar_metrics = [{k: v for k, v in m.items() if k not in list_cols} for m in metrics]
+        metrics_df = pd.DataFrame(scalar_metrics)
+    else:
+        metrics_df = None
+
+    if len(metrics):
+        summary = {
+            "n_events": int(len(metrics)),
+            "total_continuous_segments": int(np.sum([m.get("n_continuous_segments", 0) for m in metrics])),
+            "median_frac_continuous": float(np.median([m.get("frac_continuous", 0.0) for m in metrics])),
+            "median_total_path_length": float(np.median([m.get("total_path_length", 0.0) for m in metrics])),
+        }
+    else:
+        summary = {"n_events": 0}
+
+    return {
+        "metrics_df": metrics_df,
+        "metrics": metrics,
+        "summary": summary,
+    }
