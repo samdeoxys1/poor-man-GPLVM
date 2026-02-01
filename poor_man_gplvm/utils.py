@@ -108,7 +108,7 @@ def pca_init(Y, latent_dim):
     X = U[:, :latent_dim] * S[:latent_dim]
     
     return X 
-
+import xarray
 def restrict_xr(xr_data,intv,time_var='time'):
     '''
     restrict xarray dataarray to a given interval, similar to pynapple .restrict
