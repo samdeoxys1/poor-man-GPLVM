@@ -111,7 +111,8 @@ def _infer_binsize(time_vec, binsize):
     if t.size <= 1:
         return 1.0
     dt = np.diff(t)
-    dt = dt[np.isfinite(dt)]
+    # time can have duplicates / resets across events; only positive diffs define a binsize
+    dt = dt[np.isfinite(dt) & (dt > 0)]
     return float(np.median(dt)) if dt.size else 1.0
 
 
@@ -935,18 +936,17 @@ def _compute_replay_metrics_single(
         result["median_segment_max_span"] = 0.0
         result["median_segment_speed"] = 0.0
 
-    # warn/error if user asked for coordinates but we couldn't use them anywhere
-    if position_key is not None and (not has_any_pos):
-        msg = "[replay_metrics_supervised] position_key provided but could not extract label-bin coordinates; spatial metrics set to 0. "
+    # warn/error if user asked for coordinates but we couldn't use them (anywhere or partially)
+    if position_key is not None and (len(pos_fail_reasons) or (not has_any_pos)):
+        msg = "[replay_metrics_supervised] position_key coord extraction issue; some/all spatial metrics may be 0. "
         if len(pos_fail_reasons):
-            # unique, limited
             uniq = []
             for r in pos_fail_reasons:
                 if r not in uniq:
                     uniq.append(r)
-                if len(uniq) >= 6:
+                if len(uniq) >= 8:
                     break
-            msg += "Reasons (up to 6): " + "; ".join(uniq)
+            msg += "Reasons (up to 8): " + "; ".join(uniq)
         if bool(raise_on_position_key_fail):
             raise ValueError(msg)
         if bool(warn_on_position_key_fail):
