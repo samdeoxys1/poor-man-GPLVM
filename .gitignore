@@ -93,3 +93,8 @@ dmypy.json
 *.swp
 *.swo .DS_Store
 .DS_Store
+
+# Tutorials: only track notebooks (ignore outputs like pkl)
+tutorials/**
+!tutorials/**/
+!tutorials/**/*.ipynb
