@@ -1535,17 +1535,17 @@ def plot_replay_posterior_trajectory_2d(posterior_position_one,position_tsdf,sta
 
     extent = [x[0] - dx/2,x[-1] + dx/2, y[0] - dy/2, y[-1] + dy/2]
 
-    if binarize_thresh_quantile is None:
-        thr = float(binarize_thresh)
-    else:
-        thr = float(np.nanquantile(np.asarray(posterior_position_one, dtype=float), float(binarize_thresh_quantile)))
-
     toplot=np.zeros((*posterior_position_one.shape[1:],4))
     cmap = plt.colormaps.get_cmap(cmap_name)
     for tt in range(posterior_position_one.shape[0]):
         tt_normalized=tt/posterior_position_one.shape[0]
         c=cmap(tt_normalized)
-        ma = np.asarray(posterior_position_one[tt], dtype=float) > thr
+        frame = np.asarray(posterior_position_one[tt], dtype=float)
+        if binarize_thresh_quantile is None:
+            thr = float(binarize_thresh)
+        else:
+            thr = float(np.nanquantile(frame, float(binarize_thresh_quantile)))
+        ma = frame > thr
         toplot[ma] = np.array(c)
     toplot=toplot.swapaxes(0,1)# make x the horizontal in imshow
     if ax is None:
