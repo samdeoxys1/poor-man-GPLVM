@@ -1527,7 +1527,7 @@ def mark_times_top_triangles(t_l, ax, c='red', y=1.02, s=60, **kwargs):
 
 
 #=============plot decoded posterior 2D=============#
-def plot_replay_posterior_trajectory_2d(posterior_position_one,position_tsdf,start_time=None,duration=None,fig=None,ax=None,despine=True,figsize=(2,2),plot_colorbar=False,start_time_x=0.1,start_time_y=0.95,duration_x=0.9,duration_y=0.95,fontsize=10,cmap_name='plasma',maze_alpha=0.5,x_key='x',y_key='y'):
+def plot_replay_posterior_trajectory_2d(posterior_position_one,position_tsdf,start_time=None,duration=None,fig=None,ax=None,despine=True,figsize=(2,2),plot_colorbar=False,start_time_x=0.1,start_time_y=0.95,duration_x=0.9,duration_y=0.95,fontsize=10,cmap_name='plasma',maze_alpha=0.5,x_key='x',y_key='y',binarize_thresh=0.01,binarize_thresh_quantile=None):
     x = posterior_position_one[x_key]
     y=posterior_position_one[y_key]
     dx = (x[-1] - x[0]) / (len(x) - 1) if len(x) > 1 else 1.0
@@ -1535,13 +1535,17 @@ def plot_replay_posterior_trajectory_2d(posterior_position_one,position_tsdf,sta
 
     extent = [x[0] - dx/2,x[-1] + dx/2, y[0] - dy/2, y[-1] + dy/2]
 
-    binarize_thresh=0.01
+    if binarize_thresh_quantile is None:
+        thr = float(binarize_thresh)
+    else:
+        thr = float(np.nanquantile(np.asarray(posterior_position_one, dtype=float), float(binarize_thresh_quantile)))
+
     toplot=np.zeros((*posterior_position_one.shape[1:],4))
     cmap = plt.colormaps.get_cmap(cmap_name)
     for tt in range(posterior_position_one.shape[0]):
         tt_normalized=tt/posterior_position_one.shape[0]
         c=cmap(tt_normalized)
-        ma = posterior_position_one[tt] > binarize_thresh
+        ma = np.asarray(posterior_position_one[tt], dtype=float) > thr
         toplot[ma] = np.array(c)
     toplot=toplot.swapaxes(0,1)# make x the horizontal in imshow
     if ax is None:
