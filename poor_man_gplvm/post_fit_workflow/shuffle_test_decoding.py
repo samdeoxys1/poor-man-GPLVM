@@ -366,8 +366,8 @@ print(res['is_sig_overall'].mean())
     event_df = pd.DataFrame(
         {
             'event_i': event_l,
-            'starts': starts,
-            'ends': ends,
+            'start_index': starts,
+            'end_index': ends,
             'log_marginal_per_event_true': log_marginal_per_event_true,
             'id_shuffle_thresh': id_thresh,
             'circular_shuffle_thresh': circ_thresh,
