@@ -1548,7 +1548,7 @@ def plot_replay_posterior_trajectory_2d(posterior_position_one,position_tsdf,sta
         fig,ax=plt.subplots(figsize=figsize,constrained_layout=True)
     # Keep posterior (imshow) visually on top of the maze trajectory
     ax.imshow(toplot,aspect='auto',extent=extent,origin='lower', zorder=2)
-    ax.plot(position_tsdf['x'],position_tsdf['y'],c='grey',alpha=maze_alpha, zorder=1)
+    ax.plot(position_tsdf[x_key],position_tsdf[y_key],c='grey',alpha=maze_alpha, zorder=1)
     if despine:
         sns.despine(ax=ax,left=True,bottom=True)
         ax.set_xticks([])
@@ -1603,10 +1603,10 @@ def plot_replay_posterior_trajectory_2d(posterior_position_one,position_tsdf,sta
 
 def plot_replay_map_trajectory_2d(
     map_position_one,
-    posterior_state_one=None,
+    p_continuous=None,
     continuous_prob_thresh=0.8,
-    continuous_state_idx=0,
-    stepsize_discard_thresh=50.0,
+    stepsize_discard_thresh=None,
+    stepsize_split_thresh=None,
     fig=None,
     ax=None,
     color='cyan',
@@ -1622,15 +1622,23 @@ def plot_replay_map_trajectory_2d(
     """
     Plot decoded replay MAP trajectory with solid segments for "continuous" bins and dotted in-between.
 
-    Continuous segment definition (for plotting):
-    - P(continuous_state_idx) > continuous_prob_thresh (if posterior_state_one is provided), AND
-    - do NOT connect across steps with distance > stepsize_discard_thresh.
+    Continuous segment definition (for plotting) matches the intent of
+    `poor_man_gplvm.supervised_analysis.replay_metrics_supervised`:
+    - Mark time bins where: P(continuous) > continuous_prob_thresh
+    - Optional: split segments at large MAP steps (stepsize_split_thresh)
+    - Optional: do not connect lines across steps > stepsize_discard_thresh (purely visual)
+
+    Notes:
+    - This is a plotting helper (not the metrics implementation). The goal is to make the
+      visual segmentation consistent with replay metrics defaults/logic.
 
     Args:
         map_position_one: xr.Dataset with DataArrays 'x','y' (time,) or nap.TsdFrame with 'x','y'
-        posterior_state_one: xr.DataArray (time,state) or nap.TsdFrame with state_0, state_1, ... columns
+        p_continuous: array-like (time,) or nap.TsdFrame.
+            If nap.TsdFrame with 2 columns, we use column 0 as P(continuous) (your dynamics decoder convention).
             If None, all bins are treated as continuous (solid overlay everywhere).
-        stepsize_discard_thresh: float; break connections when step distance exceeds this
+        stepsize_split_thresh: float or None; if not None, split continuous segments when MAP step distance exceeds this.
+        stepsize_discard_thresh: float or None; if not None, do not connect lines across steps > thresh (visual only).
         fig, ax: optional; if ax is None, creates a new fig/ax with constrained_layout=True
         style: configurable via kwargs above (colors/linewidths/alphas/linestyles)
 
@@ -1657,35 +1665,46 @@ def plot_replay_map_trajectory_2d(
         return fig, ax, dict(n=0, segments=[])
 
     # -------------------------
-    # P(continuous) mask
+    # P(continuous) mask (threshold)
     # -------------------------
-    if posterior_state_one is None:
-        p_cont = np.ones(n, dtype=bool)
+    if p_continuous is None:
+        is_cont = np.ones(n, dtype=bool)
     else:
-        if isinstance(posterior_state_one, nap.TsdFrame):
-            col_name = f'state_{int(continuous_state_idx)}'
-            p = np.asarray(posterior_state_one[col_name].values)
+        if isinstance(p_continuous, nap.TsdFrame):
+            p = np.asarray(p_continuous.d)
+            if p.ndim == 2:
+                p = p[:, 0]
         else:
-            # xarray
-            p = np.asarray(posterior_state_one.isel(state=int(continuous_state_idx)).values)
-        p_cont = p > float(continuous_prob_thresh)
-        if len(p_cont) != n:
+            p = np.asarray(p_continuous)
+            if p.ndim == 2:
+                p = p[:, 0]
+        is_cont = p > float(continuous_prob_thresh)
+        if len(is_cont) != n:
             # best-effort alignment: truncate to shortest
-            n2 = int(min(len(p_cont), n))
+            n2 = int(min(len(is_cont), n))
             x = x[:n2]
             y = y[:n2]
-            p_cont = p_cont[:n2]
+            is_cont = is_cont[:n2]
             n = n2
 
     # -------------------------
-    # step distances (connection breaks)
+    # step distances + optional break masks
     # -------------------------
     if n >= 2:
         step_d = np.sqrt(np.diff(x)**2 + np.diff(y)**2)
-        connect_ok = step_d <= float(stepsize_discard_thresh)
+        if stepsize_discard_thresh is None:
+            connect_ok = np.ones_like(step_d, dtype=bool)
+        else:
+            connect_ok = step_d <= float(stepsize_discard_thresh)
+
+        if stepsize_split_thresh is None:
+            split_break_between = np.zeros_like(step_d, dtype=bool)
+        else:
+            split_break_between = step_d > float(stepsize_split_thresh)
     else:
         step_d = np.array([])
         connect_ok = np.array([], dtype=bool)
+        split_break_between = np.array([], dtype=bool)
 
     # -------------------------
     # dotted base trajectory
@@ -1701,21 +1720,26 @@ def plot_replay_map_trajectory_2d(
         )
 
     # -------------------------
-    # solid segments (continuous + no large jumps)
+    # solid segments (continuous bins; split on large steps; optionally break on discard threshold)
     # -------------------------
     segments = []
     in_seg = False
     seg_start = 0
     for i in range(n):
-        ok_here = bool(p_cont[i])
+        ok_here = bool(is_cont[i])
         if not in_seg and ok_here:
             in_seg = True
             seg_start = i
 
         if in_seg:
             is_last = (i == n - 1)
-            next_connect_ok = (not is_last) and bool(connect_ok[i]) and bool(p_cont[i+1])
-            if (not next_connect_ok) or is_last:
+            next_ok = (
+                (not is_last)
+                and bool(is_cont[i+1])
+                and bool(connect_ok[i])
+                and (not bool(split_break_between[i]))
+            )
+            if (not next_ok) or is_last:
                 seg_end = i
                 if seg_end >= seg_start:
                     segments.append((int(seg_start), int(seg_end)))
@@ -1731,10 +1755,194 @@ def plot_replay_map_trajectory_2d(
                         )
                 in_seg = False
 
+    if p_continuous is None:
+        p_cont_out = None
+    else:
+        if isinstance(p_continuous, nap.TsdFrame):
+            p_cont_out = np.asarray(p_continuous.d)
+            if p_cont_out.ndim == 2:
+                p_cont_out = p_cont_out[:, 0]
+        else:
+            p_cont_out = np.asarray(p_continuous)
+            if p_cont_out.ndim == 2:
+                p_cont_out = p_cont_out[:, 0]
+
     return fig, ax, dict(
         n=n,
         segments=segments,
-        p_cont=p_cont,
+        is_cont=is_cont,
+        p_continuous=p_cont_out,
         step_d=step_d,
         connect_ok=connect_ok,
+        split_break_between=split_break_between,
+        continuous_prob_thresh=float(continuous_prob_thresh),
+        stepsize_discard_thresh=None if stepsize_discard_thresh is None else float(stepsize_discard_thresh),
+        stepsize_split_thresh=None if stepsize_split_thresh is None else float(stepsize_split_thresh),
+    )
+
+
+def plot_replay_posterior_and_map_2d(
+    posterior_label_one,
+    position_tsdf,
+    *,
+    p_continuous=None,
+    x_key='x',
+    y_key='y',
+    continuous_prob_thresh=0.8,
+    stepsize_discard_thresh=None,
+    stepsize_split_thresh=None,
+    fig=None,
+    ax=None,
+    map_traj_kwargs=None,
+    **posterior_kwargs,
+):
+    """
+    Plot 2D posterior (time-progression colormap) and overlay MAP trajectory (within-maze) in one call.
+
+    Expected posterior input (current supervised decoder format):
+    - `posterior_label_one`: xarray DataArray with dims ('time','label_bin'), where `label_bin` is a MultiIndex
+      that includes `x_key` and `y_key`. Typical workflow:
+        decode_res['posterior_latent_marg_per_event'][maze][event_i]  # (time,label_bin)
+    This function will unstack to (time, x_key, y_key) internally.
+
+    MAP overlay segmentation:
+    - Uses `p_continuous > continuous_prob_thresh` to decide solid segments (continuous) vs dotted base.
+    - If `stepsize_split_thresh` is not None, splits segments when MAP step distance exceeds this threshold.
+    - These defaults/behaviors are intended to be consistent with
+      `poor_man_gplvm.supervised_analysis.replay_metrics_supervised` (visual counterpart).
+
+    Returns:
+      fig, ax, out_dict
+        out_dict keys: 'posterior_2d', 'map_position', 'map_info'
+    """
+    post = posterior_label_one
+    if hasattr(post, "dims") and ("label_bin" in getattr(post, "dims", ())):
+        try:
+            post2d = post.unstack("label_bin")
+        except Exception:
+            post2d = post.unstack()
+    else:
+        post2d = post
+
+    # prefer consistent dim ordering for downstream assumptions
+    if hasattr(post2d, "dims") and ("time" in getattr(post2d, "dims", ())) and (x_key in post2d.dims) and (y_key in post2d.dims):
+        try:
+            post2d = post2d.transpose("time", x_key, y_key)
+        except Exception:
+            pass
+
+    out = plot_replay_posterior_trajectory_2d(
+        post2d,
+        position_tsdf,
+        fig=fig,
+        ax=ax,
+        x_key=x_key,
+        y_key=y_key,
+        **posterior_kwargs,
+    )
+    if isinstance(out, tuple) and (len(out) == 3):
+        fig, ax, _ = out
+    else:
+        fig, ax = out
+
+    # MAP within-maze from unstacked 2D posterior
+    arr = np.asarray(post2d)
+    n_time = int(arr.shape[0])
+    x_coords = np.asarray(post2d[x_key])
+    y_coords = np.asarray(post2d[y_key])
+    flat = arr.reshape(n_time, -1)
+    map_flat = np.nanargmax(flat, axis=1).astype(int)
+    ny = int(arr.shape[2])
+    ix = map_flat // ny
+    iy = map_flat % ny
+    map_x = x_coords[ix]
+    map_y = y_coords[iy]
+
+    if hasattr(post2d, "coords") and ("time" in getattr(post2d, "coords", {})):
+        try:
+            t = np.asarray(post2d.coords["time"].values)
+        except Exception:
+            t = np.asarray(post2d.coords["time"])
+    else:
+        t = np.arange(n_time, dtype=float)
+
+    map_position = nap.TsdFrame(
+        t=t,
+        d=np.stack([map_x, map_y], axis=1),
+        columns=["x", "y"],
+    )
+
+    if map_traj_kwargs is None:
+        map_traj_kwargs = {}
+    fig, ax, map_info = plot_replay_map_trajectory_2d(
+        map_position,
+        p_continuous=p_continuous,
+        continuous_prob_thresh=continuous_prob_thresh,
+        stepsize_discard_thresh=stepsize_discard_thresh,
+        stepsize_split_thresh=stepsize_split_thresh,
+        fig=fig,
+        ax=ax,
+        **map_traj_kwargs,
+    )
+
+    return fig, ax, dict(
+        posterior_2d=post2d,
+        map_position=map_position,
+        map_info=map_info,
+    )
+
+
+def plot_decode_res_posterior_and_map_2d(
+    decode_res,
+    maze,
+    event_i,
+    position_tsdf,
+    *,
+    x_key="x",
+    y_key="y",
+    p_continuous=None,
+    continuous_prob_thresh=0.8,
+    stepsize_discard_thresh=None,
+    stepsize_split_thresh=None,
+    fig=None,
+    ax=None,
+    map_traj_kwargs=None,
+    **posterior_kwargs,
+):
+    """
+    Convenience wrapper for the supervised dynamics decode output format.
+
+    - Posterior source (within-maze): decode_res['posterior_latent_marg_per_event'][maze][event_i]
+    - p_continuous default source: decode_res['posterior_dynamics_marg_per_event'][event_i], column 0
+
+    Notes:
+    - This plots MAP *within the selected maze* for now (your requested default).
+      A future extension could compute global MAP across mazes (see logic in
+      `poor_man_gplvm.supervised_analysis.replay_metrics_supervised._get_global_map_trajectory`).
+    """
+    post_one = decode_res["posterior_latent_marg_per_event"][maze][int(event_i)]
+
+    if p_continuous is None:
+        dyn = decode_res.get("posterior_dynamics_marg_per_event", None)
+        if dyn is not None:
+            dyn_one = dyn[int(event_i)]
+            if isinstance(dyn_one, nap.TsdFrame):
+                p_continuous = np.asarray(dyn_one.d)[:, 0]
+            else:
+                p = np.asarray(dyn_one)
+                p_continuous = p[:, 0] if p.ndim == 2 else p
+
+    return plot_replay_posterior_and_map_2d(
+        post_one,
+        position_tsdf,
+        p_continuous=p_continuous,
+        x_key=x_key,
+        y_key=y_key,
+        continuous_prob_thresh=continuous_prob_thresh,
+        stepsize_discard_thresh=stepsize_discard_thresh,
+        stepsize_split_thresh=stepsize_split_thresh,
+        fig=fig,
+        ax=ax,
+        map_traj_kwargs=map_traj_kwargs,
+        **posterior_kwargs,
     )
