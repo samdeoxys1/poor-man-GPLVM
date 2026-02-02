@@ -1404,3 +1404,27 @@ def get_latent_transition_kernel_multi_maze(coord_to_flat_idx,continuous_transit
             K_global[ii, ii] = 1.0
 
     return K_global
+
+
+
+def smooth_std_d_to_movement_variance_d(smooth_std_d):
+    '''
+    a quick way of mirroring the structure of smooth_std_d to movement_variance_d
+    '''
+    movement_variance_d = {}
+    for k in smooth_std_d:
+        v = smooth_std_d[k]
+        if v is None:
+            movement_variance_d[k] = None
+            continue
+
+        v_arr = np.atleast_1d(v)
+        out = []
+        for x in v_arr:
+            if x is None:
+                out.append(None)
+            else:
+                out.append(float(x) ** 2)
+        movement_variance_d[k] = out[0] if np.size(v) == 1 else np.array(out, dtype=object)
+    return movement_variance_d
+
