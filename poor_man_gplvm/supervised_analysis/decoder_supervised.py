@@ -972,7 +972,6 @@ def decode_with_dynamics(
     p_move_to_jump=0.02,
     p_jump_to_move=0.02,
     custom_continuous_transition_kernel=None,
-    per_event_latent_with_xr=False,
     **kwargs
 ):
     '''
@@ -993,10 +992,6 @@ def decode_with_dynamics(
       - start_index: (n_event,) start indices into the time-concat arrays
       - end_index: (n_event,) end indices (exclusive)
       (No `starts`/`ends` in the public output.)
-    - per_event_latent_with_xr: bool. Tensor-mode only; if True (and flat_idx_to_coord is provided),
-      return per-event latent outputs as xarray objects by slicing the already-wrapped concat xarray
-      (avoid splitting numpy -> wrapping xr per event).
-
     Transition params
     - continuous_transition_movement_variance: controls Gaussian smoothing width (variance in label units^2) for the move kernel
     - p_move_to_jump / p_jump_to_move: define the 2x2 dynamics transition matrix
@@ -1292,8 +1287,9 @@ res_t = dec_sup.decode_with_dynamics(
         }
 
         # per-event lists (trial-based)
-        # If user wants per-event xarray (and we're going to wrap by maze), avoid splitting numpy here.
-        want_per_event_xr = bool(per_event_latent_with_xr) and (flat_idx_to_coord is not None)
+        # Default behavior: if we're doing maze-aware xarray wrapping (flat_idx_to_coord is provided),
+        # create per-event xarray by slicing the already-wrapped concat xarray (no numpy->xr per event).
+        want_per_event_xr = (flat_idx_to_coord is not None)
         if not want_per_event_xr:
             res['log_likelihood_per_event'] = _split_by_trial(res['log_likelihood'])
             res['log_posterior_all_per_event'] = _split_by_trial(res['log_posterior_all'])
@@ -1318,7 +1314,7 @@ res_t = dec_sup.decode_with_dynamics(
                 res,
                 flat_idx_to_coord=flat_idx_to_coord,
                 time_coord=time_l,
-                return_per_event=bool(want_per_event_xr),
+                return_per_event=True,
             )
         else:
             if time_l is not None:
