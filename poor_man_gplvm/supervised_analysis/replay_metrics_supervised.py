@@ -33,7 +33,7 @@ We define "continuous replay segments" (a.k.a. "move state segments") as:
    If you provide `position_key` so we can map bins to 1D or 2D coordinates, we compute a
    decoded position trajectory (MAP by default; set `use_posterior_weighted=True` to use E[x]).
    Any time the step size exceeds `stepsize_split_thresh` (in position units) we split the
-   segments at that boundary. Default `stepsize_split_thresh=None` (do not split on steps).
+   segments at that boundary. Default `stepsize_split_thresh=10.0`.
 
 After splitting, we re-apply the minimum duration filter.
 
@@ -676,7 +676,7 @@ def _compute_replay_metrics_single(
     binsize=None,
     min_segment_duration=0.06,
     stepsize_discard_thresh=None,
-    stepsize_split_thresh=None,
+    stepsize_split_thresh=10.0,
     position_key=None,
     use_posterior_weighted=False,
     warn_on_position_key_fail=True,
@@ -973,7 +973,7 @@ def compute_replay_metrics(
     binsize=None,
     min_segment_duration=0.06,
     stepsize_discard_thresh=None,
-    stepsize_split_thresh=None,
+    stepsize_split_thresh=10.0,
     position_key=None,
     use_posterior_weighted=False,
     start_index=None,

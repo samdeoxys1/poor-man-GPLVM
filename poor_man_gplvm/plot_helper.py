@@ -1606,7 +1606,7 @@ def plot_replay_map_trajectory_2d(
     p_continuous=None,
     continuous_prob_thresh=0.8,
     stepsize_discard_thresh=None,
-    stepsize_split_thresh=None,
+    stepsize_split_thresh=10.0,
     fig=None,
     ax=None,
     color='cyan',
