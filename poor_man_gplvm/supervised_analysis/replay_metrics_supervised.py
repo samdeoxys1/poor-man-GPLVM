@@ -79,8 +79,8 @@ m = rms.compute_replay_metrics(label_post_by_maze, dyn_post, position_key=('x','
 out = rms.compute_replay_metrics(
     res['posterior_latent_marg'],
     res['posterior_dynamics_marg'],
-    starts=res['starts'],
-    ends=res['ends'],
+    start_index=res['start_index'],
+    end_index=res['end_index'],
     binsize=0.02,
     position_key={'familiar': ('x','y'), 'novel': 'lin'},
 )
@@ -976,8 +976,8 @@ def compute_replay_metrics(
     stepsize_split_thresh=None,
     position_key=None,
     use_posterior_weighted=False,
-    starts=None,
-    ends=None,
+    start_index=None,
+    end_index=None,
     warn_on_position_key_fail=True,
     raise_on_position_key_fail=False,
 ):
@@ -986,8 +986,8 @@ def compute_replay_metrics(
 
     See module docstring for definitions (especially continuous segment definition).
     Returns:
-    - if `starts/ends` are None and inputs are not lists: a single metrics dict
-    - if `starts/ends` are provided OR inputs are lists: a dict with:
+    - if `start_index/end_index` are None and inputs are not lists: a single metrics dict
+    - if `start_index/end_index` are provided OR inputs are lists: a dict with:
         - 'metrics_df': pd.DataFrame of scalar metrics (one row per event)
         - 'metrics': list of per-event metrics dicts (includes list-valued fields)
         - 'summary': pooled summary dict (median-style; minimal)
@@ -1017,10 +1017,10 @@ def compute_replay_metrics(
             metrics.append(m)
         return _metrics_list_to_df_and_summary(metrics)
 
-    # starts/ends => slice a time-concat decode into per-event metrics
-    if starts is not None and ends is not None:
-        starts = _as_numpy(starts).astype(int)
-        ends = _as_numpy(ends).astype(int)
+    # start_index/end_index => slice a time-concat decode into per-event metrics
+    if start_index is not None and end_index is not None:
+        starts = _as_numpy(start_index).astype(int)
+        ends = _as_numpy(end_index).astype(int)
         metrics = []
         for i, (s, e) in enumerate(zip(starts, ends)):
             lab_i = _slice_label(label_posterior_marginal, s, e)

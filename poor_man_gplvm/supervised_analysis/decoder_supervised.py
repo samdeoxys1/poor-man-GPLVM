@@ -988,6 +988,10 @@ def decode_with_dynamics(
     - flat_idx_to_coord: optional pd.DataFrame (index=flat_idx, includes column 'maze') for maze-aware xarray wrapping.
     - event_index_per_bin: matrix-mode only, (n_time,) event id per time bin (for per-event slicing).
     - return_per_event: matrix-mode only; if True, also returns *_per_event lists for time-indexed arrays.
+      When event_index_per_bin is provided, this function returns event boundaries as:
+      - start_index: (n_event,) start indices into the time-concat arrays
+      - end_index: (n_event,) end indices (exclusive)
+      (No `starts`/`ends` in the public output.)
 
     Transition params
     - continuous_transition_movement_variance: controls Gaussian smoothing width (variance in label units^2) for the move kernel
@@ -1138,13 +1142,16 @@ res_t = dec_sup.decode_with_dynamics(
             res.update(parsing_res)
             res['return_per_event'] = bool(return_per_event)
 
-            starts = np.asarray(res['starts']).astype(int)
-            ends = np.asarray(res['ends']).astype(int)
+            # preferred naming: start_index/end_index (exclusive end). Keep starts/ends for backwards compatibility.
+            start_index = np.asarray(res['starts']).astype(int)
+            end_index = np.asarray(res['ends']).astype(int)
+            res['start_index'] = start_index
+            res['end_index'] = end_index
             if 'log_marginal_l' in res and np.ndim(res['log_marginal_l']) == 1:
                 arr = np.asarray(res['log_marginal_l'])
-                res['log_marginal_per_event'] = np.asarray([np.sum(arr[s:e]) for s, e in zip(starts, ends)])
+                res['log_marginal_per_event'] = np.asarray([np.sum(arr[s:e]) for s, e in zip(start_index, end_index)])
                 if bool(return_per_event):
-                    res['log_marginal_l_per_event'] = [arr[s:e] for s, e in zip(starts, ends)]
+                    res['log_marginal_l_per_event'] = [arr[s:e] for s, e in zip(start_index, end_index)]
 
             if bool(return_per_event):
                 n_time = int(np.asarray(spk_j).shape[0])
@@ -1158,7 +1165,7 @@ res_t = dec_sup.decode_with_dynamics(
                 ]:
                     if k in res and isinstance(res[k], np.ndarray) and res[k].ndim >= 1 and res[k].shape[0] == n_time:
                         arr = np.asarray(res[k])
-                        res[f'{k}_per_event'] = [arr[s:e] for s, e in zip(starts, ends)]
+                        res[f'{k}_per_event'] = [arr[s:e] for s, e in zip(start_index, end_index)]
 
         # wrapping
         if flat_idx_to_coord is not None:
@@ -1179,6 +1186,14 @@ res_t = dec_sup.decode_with_dynamics(
                 )
             elif time_coord is not None:
                 res = _wrap_decode_res_tsdframe_matrix_dynamics(res, time_coord=time_coord)
+
+        # public API: expose start_index/end_index, do not expose starts/ends
+        if ('start_index' not in res) and ('starts' in res):
+            res['start_index'] = np.asarray(res['starts']).astype(int)
+        if ('end_index' not in res) and ('ends' in res):
+            res['end_index'] = np.asarray(res['ends']).astype(int)
+        res.pop('starts', None)
+        res.pop('ends', None)
         return res
 
     if spk_j.ndim == 3:
@@ -1219,6 +1234,8 @@ res_t = dec_sup.decode_with_dynamics(
         trial_lengths = valid_mask.sum(axis=1).astype(int)
         ends = np.cumsum(trial_lengths)
         starts = np.concatenate([np.array([0], dtype=int), ends[:-1]])
+        start_index = starts
+        end_index = ends
 
         log_post_padded = np.asarray(_decode_res_to_numpy(res_trial['log_post_padded']))  # (n_trial, T, n_dyn, n_latent)
         n_dyn = int(log_post_padded.shape[2])
@@ -1261,6 +1278,8 @@ res_t = dec_sup.decode_with_dynamics(
             'log_marginal_per_event': log_marginal_per_event,
             'log_marginal': log_marginal,
             'n_time_per_event': trial_lengths,
+            'start_index': start_index,
+            'end_index': end_index,
             'starts': starts,
             'ends': ends,
             'tensor_pad_mask': tensor_pad_mask_np,
@@ -1284,6 +1303,14 @@ res_t = dec_sup.decode_with_dynamics(
         else:
             if time_l is not None:
                 res = _wrap_decode_res_tsdframe_tensor_dynamics(res, time_l=np.asarray(time_l))
+
+        # public API: do not expose starts/ends
+        if ('start_index' not in res) and ('starts' in res):
+            res['start_index'] = np.asarray(res['starts']).astype(int)
+        if ('end_index' not in res) and ('ends' in res):
+            res['end_index'] = np.asarray(res['ends']).astype(int)
+        res.pop('starts', None)
+        res.pop('ends', None)
         return res
 
     raise ValueError(f'Unsupported spk ndim={spk_j.ndim}; expected 2 or 3.')
