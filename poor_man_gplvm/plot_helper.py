@@ -1524,3 +1524,79 @@ def mark_times_top_triangles(t_l, ax, c='red', y=1.02, s=60, **kwargs):
     kwargs.setdefault('zorder', 10)
 
     return ax.scatter(t, np.full_like(t, y), transform=blend, s=s, **kwargs)
+
+
+#=============plot decoded posterior 2D=============#
+def plot_replay_posterior_trajectory_2d(posterior_position_one,position_tsdf,start_time=None,duration=None,fig=None,ax=None,despine=True,figsize=(2,2),plot_colorbar=False,start_time_x=0.1,start_time_y=0.95,duration_x=0.9,duration_y=0.95,fontsize=10,cmap_name='plasma',maze_alpha=0.5,x_key='x',y_key='y'):
+    x = posterior_position_one[x_key]
+    y=posterior_position_one[y_key]
+    dx = (x[-1] - x[0]) / (len(x) - 1) if len(x) > 1 else 1.0
+    dy = (y[-1] - y[0]) / (len(y) - 1) if len(y) > 1 else 1.0
+
+    extent = [x[0] - dx/2,x[-1] + dx/2, y[0] - dy/2, y[-1] + dy/2]
+
+    binarize_thresh=0.01
+    toplot=np.zeros((*posterior_position_one.shape[1:],4))
+    cmap = plt.colormaps.get_cmap(cmap_name)
+    for tt in range(posterior_position_one.shape[0]):
+        tt_normalized=tt/posterior_position_one.shape[0]
+        c=cmap(tt_normalized)
+        ma = posterior_position_one[tt] > binarize_thresh
+        toplot[ma] = np.array(c)
+    toplot=toplot.swapaxes(0,1)# make x the horizontal in imshow
+    if ax is None:
+        fig,ax=plt.subplots(figsize=figsize,constrained_layout=True)
+    # Keep posterior (imshow) visually on top of the maze trajectory
+    ax.imshow(toplot,aspect='auto',extent=extent,origin='lower', zorder=2)
+    ax.plot(position_tsdf['x'],position_tsdf['y'],c='grey',alpha=maze_alpha, zorder=1)
+    if despine:
+        sns.despine(ax=ax,left=True,bottom=True)
+        ax.set_xticks([])
+        ax.set_yticks([])
+    
+    if start_time is not None:
+        hour=start_time / 60
+        minute=start_time % 60
+        ax.text(start_time_x,start_time_y,f'{int(hour)}:{int(minute)}',fontsize=fontsize,transform=ax.transAxes)
+    if duration is not None:
+        ax.text(duration_x,duration_y,f'{duration:.02f}s',fontsize=fontsize,transform=ax.transAxes)
+    if plot_colorbar:
+        # generic time-progression colorbar (independent of RGBA imshow)
+        norm = plt.Normalize(0, 1)
+        sm = plt.cm.ScalarMappable(cmap=plt.colormaps.get_cmap(cmap_name), norm=norm)
+        sm.set_array([])
+        try:
+            cbar = fig.colorbar(
+                sm, ax=ax, orientation='horizontal',
+                location='top', pad=0.02, fraction=0.08
+            )
+        except Exception:
+            # fallback for older matplotlib / layout engines
+            from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+            cax = inset_axes(
+                ax, width="80%", height="6%", loc='upper center',
+                bbox_to_anchor=(0.5, 1.08, 0, 0),
+                bbox_transform=ax.transAxes, borderpad=0
+            )
+            cbar = fig.colorbar(sm, cax=cax, orientation='horizontal')
+        cbar.set_ticks([0.0, 1.0])
+        cbar.set_ticklabels(['early', 'late'])
+        try:
+            cbar.ax.xaxis.set_ticks_position('top')
+        except Exception:
+            pass
+        # hide tick marks but keep labels
+        try:
+            cbar.ax.tick_params(axis='x', which='both', length=0)
+        except Exception:
+            pass
+        try:
+            cbar.outline.set_visible(False)
+        except Exception:
+            pass
+        return fig, ax, cbar
+    try:
+        plt.tight_layout()
+    except Exception:
+        pass
+    return fig, ax
