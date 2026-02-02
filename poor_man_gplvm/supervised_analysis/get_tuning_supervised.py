@@ -486,7 +486,7 @@ def get_smoothing_matrix(bin_centers_l, grid_shape, smooth_std=None, custom_smoo
 # get_tuning: main function
 # ============================================================================
 
-def get_tuning(label_l, spk_mat, ep=None, custom_smooth_func=None,
+def get_tuning(spk_mat, label_l, ep=None, custom_smooth_func=None,
                label_bin_size=1., smooth_std=None, occupancy_threshold=None,
                label_min=None, label_max=None, categorical_labels=None):
     '''
