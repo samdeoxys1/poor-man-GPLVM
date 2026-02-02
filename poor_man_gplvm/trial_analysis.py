@@ -43,7 +43,7 @@ def bin_spike_train_to_trial_based(spike_train,trial_intervals,binsize=0.02):
 
     return:
     spike_mat: concatenated binned counts (nap.TsdFrame-like), from spike_train.count
-    spike_mat_padded: n_trial x n_bin x n_neuron; padded with 0 
+    spike_tensor: n_trial x n_bin x n_neuron; padded with 0 
     mask: n_trial x n_bin x 1; True for valid bins
     event_index_per_bin: n_bin; index of the event for each bin
     n_bin_per_trial: n_trial; number of bins per trial
@@ -61,22 +61,22 @@ def bin_spike_train_to_trial_based(spike_train,trial_intervals,binsize=0.02):
     time_per_trial = [time_l[event_index_per_bin == i] for i in range(n_trial)]
 
     # padded tensor
-    spike_mat_padded = nap.build_tensor(spike_mat,ep=trial_intervals,bin_size=binsize) # n_neuron x n_trial x n_bin
-    spike_mat_padded = spike_mat_padded.swapaxes(0,1).swapaxes(1,2) # n_trial x n_bin x n_neuron
+    spike_tensor = nap.build_tensor(spike_mat,ep=trial_intervals,bin_size=binsize) # n_neuron x n_trial x n_bin
+    spike_tensor = spike_tensor.swapaxes(0,1).swapaxes(1,2) # n_trial x n_bin x n_neuron
 
     # mask
-    mask_full = np.logical_not(np.isnan(spike_mat_padded))
+    mask_full = np.logical_not(np.isnan(spike_tensor))
     mask = mask_full[:,:,[0]] # n_trial x n_bin x 1
 
     # n_bin of each trial
     n_bin_per_trial = np.squeeze(mask_full.sum(axis=1))
 
     # repad with 0 to avoid nan
-    spike_mat_padded[np.logical_not(mask_full)] = 0
+    spike_tensor[np.logical_not(mask_full)] = 0
 
     bin_spk_res = {
         'spike_mat': spike_mat,
-        'spike_mat_padded': spike_mat_padded,
+        'spike_tensor': spike_tensor,
         'mask': mask,
         'event_index_per_bin': event_index_per_bin,
         'n_bin_per_trial': n_bin_per_trial,
