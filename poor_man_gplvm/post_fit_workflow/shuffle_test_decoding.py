@@ -365,6 +365,7 @@ print(res['is_sig_overall'].mean())
 
     event_df = pd.DataFrame(
         {
+            'event_i': event_l,
             'starts': starts,
             'ends': ends,
             'log_marginal_per_event_true': log_marginal_per_event_true,
@@ -374,7 +375,6 @@ print(res['is_sig_overall'].mean())
             'is_sig_circular_shuffle': is_sig_circular_shuffle,
             'is_sig_overall': is_sig_overall,
         },
-        index=pd.Index(event_l, name='event_l'),
     )
 
     is_sig_frac = pd.Series(
@@ -387,7 +387,7 @@ print(res['is_sig_overall'].mean())
     )
 
     print('[shuffle_test_naive_bayes_marginal_l] chunk: expand is_sig_overall to time bins')
-    event_id_l = np.asarray(event_df.index)
+    event_id_l = np.asarray(event_df['event_i'].to_numpy())
     sig_event_l = np.asarray(event_df['is_sig_overall'].to_numpy(dtype=bool))
     if event_id_l.size:
         max_event_id = int(np.max(event_id_l))
