@@ -52,8 +52,9 @@ coverage.xml
 .ipynb_checkpoints
 *.ipynb
 
-# Track tutorial notebooks
-!tutorials/
+# Tutorials: keep tutorials in-repo, but only track notebooks (not outputs)
+tutorials/**
+!tutorials/**/
 !tutorials/**/*.ipynb
 
 # IPython
