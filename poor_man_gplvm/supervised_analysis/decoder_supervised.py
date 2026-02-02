@@ -972,6 +972,7 @@ def decode_with_dynamics(
     p_move_to_jump=0.02,
     p_jump_to_move=0.02,
     custom_continuous_transition_kernel=None,
+    per_event_latent_with_xr=False,
     **kwargs
 ):
     '''
@@ -992,6 +993,9 @@ def decode_with_dynamics(
       - start_index: (n_event,) start indices into the time-concat arrays
       - end_index: (n_event,) end indices (exclusive)
       (No `starts`/`ends` in the public output.)
+    - per_event_latent_with_xr: bool. Tensor-mode only; if True (and flat_idx_to_coord is provided),
+      return per-event latent outputs as xarray objects by slicing the already-wrapped concat xarray
+      (avoid splitting numpy -> wrapping xr per event).
 
     Transition params
     - continuous_transition_movement_variance: controls Gaussian smoothing width (variance in label units^2) for the move kernel
@@ -1288,18 +1292,34 @@ res_t = dec_sup.decode_with_dynamics(
         }
 
         # per-event lists (trial-based)
-        res['log_likelihood_per_event'] = _split_by_trial(res['log_likelihood'])
-        res['log_posterior_all_per_event'] = _split_by_trial(res['log_posterior_all'])
-        res['posterior_all_per_event'] = _split_by_trial(res['posterior_all'])
-        res['log_posterior_latent_marg_per_event'] = _split_by_trial(res['log_posterior_latent_marg'])
-        res['posterior_latent_marg_per_event'] = _split_by_trial(res['posterior_latent_marg'])
-        res['posterior_dynamics_marg_per_event'] = _split_by_trial(res['posterior_dynamics_marg'])
+        # If user wants per-event xarray (and we're going to wrap by maze), avoid splitting numpy here.
+        want_per_event_xr = bool(per_event_latent_with_xr) and (flat_idx_to_coord is not None)
+        if not want_per_event_xr:
+            res['log_likelihood_per_event'] = _split_by_trial(res['log_likelihood'])
+            res['log_posterior_all_per_event'] = _split_by_trial(res['log_posterior_all'])
+            res['posterior_all_per_event'] = _split_by_trial(res['posterior_all'])
+            res['log_posterior_latent_marg_per_event'] = _split_by_trial(res['log_posterior_latent_marg'])
+            res['posterior_latent_marg_per_event'] = _split_by_trial(res['posterior_latent_marg'])
+            res['posterior_dynamics_marg_per_event'] = _split_by_trial(res['posterior_dynamics_marg'])
+        else:
+            # placeholders so the wrapper knows to generate these keys
+            res['log_likelihood_per_event'] = True
+            res['log_posterior_all_per_event'] = True
+            res['posterior_all_per_event'] = True
+            res['log_posterior_latent_marg_per_event'] = True
+            res['posterior_latent_marg_per_event'] = True
+            res['posterior_dynamics_marg_per_event'] = True
 
         if time_l is not None:
             res['time_l'] = np.asarray(time_l)
 
         if flat_idx_to_coord is not None:
-            res = _wrap_label_results_xr_by_maze_dynamics(res, flat_idx_to_coord=flat_idx_to_coord, time_coord=time_l)
+            res = _wrap_label_results_xr_by_maze_dynamics(
+                res,
+                flat_idx_to_coord=flat_idx_to_coord,
+                time_coord=time_l,
+                return_per_event=bool(want_per_event_xr),
+            )
         else:
             if time_l is not None:
                 res = _wrap_decode_res_tsdframe_tensor_dynamics(res, time_l=np.asarray(time_l))

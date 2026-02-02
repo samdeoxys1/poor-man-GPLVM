@@ -1600,3 +1600,141 @@ def plot_replay_posterior_trajectory_2d(posterior_position_one,position_tsdf,sta
     except Exception:
         pass
     return fig, ax
+
+def plot_replay_map_trajectory_2d(
+    map_position_one,
+    posterior_state_one=None,
+    continuous_prob_thresh=0.8,
+    continuous_state_idx=0,
+    stepsize_discard_thresh=50.0,
+    fig=None,
+    ax=None,
+    color='cyan',
+    lw_solid=2.0,
+    lw_dotted=1.5,
+    alpha_solid=1.0,
+    alpha_dotted=1,
+    linestyle_dotted=':',
+    zorder_solid=6,
+    zorder_dotted=5,
+    plot_dotted_base=True,
+):
+    """
+    Plot decoded replay MAP trajectory with solid segments for "continuous" bins and dotted in-between.
+
+    Continuous segment definition (for plotting):
+    - P(continuous_state_idx) > continuous_prob_thresh (if posterior_state_one is provided), AND
+    - do NOT connect across steps with distance > stepsize_discard_thresh.
+
+    Args:
+        map_position_one: xr.Dataset with DataArrays 'x','y' (time,) or nap.TsdFrame with 'x','y'
+        posterior_state_one: xr.DataArray (time,state) or nap.TsdFrame with state_0, state_1, ... columns
+            If None, all bins are treated as continuous (solid overlay everywhere).
+        stepsize_discard_thresh: float; break connections when step distance exceeds this
+        fig, ax: optional; if ax is None, creates a new fig/ax with constrained_layout=True
+        style: configurable via kwargs above (colors/linewidths/alphas/linestyles)
+
+    Returns:
+        fig, ax, info_dict
+    """
+    if ax is None:
+        fig, ax = plt.subplots(constrained_layout=True)
+    else:
+        fig = ax.figure
+
+    # -------------------------
+    # read MAP x/y
+    # -------------------------
+    if isinstance(map_position_one, nap.TsdFrame):
+        x = np.asarray(map_position_one['x'].values)
+        y = np.asarray(map_position_one['y'].values)
+    else:
+        x = np.asarray(map_position_one['x'])
+        y = np.asarray(map_position_one['y'])
+
+    n = int(len(x))
+    if n == 0:
+        return fig, ax, dict(n=0, segments=[])
+
+    # -------------------------
+    # P(continuous) mask
+    # -------------------------
+    if posterior_state_one is None:
+        p_cont = np.ones(n, dtype=bool)
+    else:
+        if isinstance(posterior_state_one, nap.TsdFrame):
+            col_name = f'state_{int(continuous_state_idx)}'
+            p = np.asarray(posterior_state_one[col_name].values)
+        else:
+            # xarray
+            p = np.asarray(posterior_state_one.isel(state=int(continuous_state_idx)).values)
+        p_cont = p > float(continuous_prob_thresh)
+        if len(p_cont) != n:
+            # best-effort alignment: truncate to shortest
+            n2 = int(min(len(p_cont), n))
+            x = x[:n2]
+            y = y[:n2]
+            p_cont = p_cont[:n2]
+            n = n2
+
+    # -------------------------
+    # step distances (connection breaks)
+    # -------------------------
+    if n >= 2:
+        step_d = np.sqrt(np.diff(x)**2 + np.diff(y)**2)
+        connect_ok = step_d <= float(stepsize_discard_thresh)
+    else:
+        step_d = np.array([])
+        connect_ok = np.array([], dtype=bool)
+
+    # -------------------------
+    # dotted base trajectory
+    # -------------------------
+    if plot_dotted_base and n >= 2:
+        ax.plot(
+            x, y,
+            color=color,
+            linewidth=float(lw_dotted),
+            alpha=float(alpha_dotted),
+            linestyle=linestyle_dotted,
+            zorder=int(zorder_dotted),
+        )
+
+    # -------------------------
+    # solid segments (continuous + no large jumps)
+    # -------------------------
+    segments = []
+    in_seg = False
+    seg_start = 0
+    for i in range(n):
+        ok_here = bool(p_cont[i])
+        if not in_seg and ok_here:
+            in_seg = True
+            seg_start = i
+
+        if in_seg:
+            is_last = (i == n - 1)
+            next_connect_ok = (not is_last) and bool(connect_ok[i]) and bool(p_cont[i+1])
+            if (not next_connect_ok) or is_last:
+                seg_end = i
+                if seg_end >= seg_start:
+                    segments.append((int(seg_start), int(seg_end)))
+                    if seg_end > seg_start:
+                        ax.plot(
+                            x[seg_start:seg_end+1],
+                            y[seg_start:seg_end+1],
+                            color=color,
+                            linewidth=float(lw_solid),
+                            alpha=float(alpha_solid),
+                            linestyle='-',
+                            zorder=int(zorder_solid),
+                        )
+                in_seg = False
+
+    return fig, ax, dict(
+        n=n,
+        segments=segments,
+        p_cont=p_cont,
+        step_d=step_d,
+        connect_ok=connect_ok,
+    )
