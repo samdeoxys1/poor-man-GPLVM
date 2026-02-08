@@ -545,9 +545,9 @@ res = shuf.sweep_gain_shuffle_test_naive_bayes_marginal_l(
     event_index_per_bin,
     tuning=tuning_res['tuning_flat'],  # supervised tuning (Hz)
     dt=0.02,
-    min_gain=0.5,
-    max_gain=3.0,
-    gain_step=0.25,
+    min_gain=1,
+    max_gain=10,
+    gain_step=1,
     train_frac=0.5,
     train_seed=0,
     n_shuffle=200,
