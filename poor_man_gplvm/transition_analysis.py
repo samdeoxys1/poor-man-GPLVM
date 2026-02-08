@@ -401,7 +401,6 @@ def decode_compare_transition_kernels(
     gain: float = 1.0,
     model_fit_dt: float = 0.1,
     kernel_names: Optional[List[str]] = None,
-    keep_posteriors: bool = False,
     neuron_mask=None,
     ma_latent=None,
     n_trial_per_chunk: int = 400,
@@ -441,8 +440,6 @@ def decode_compare_transition_kernels(
         Default 0.1.
     kernel_names : list of str, optional
         If provided, must match number of kernels and sets output ordering.
-    keep_posteriors : bool
-        If True, store posterior_latent_marginal_list for each kernel.
 
     Returns
     -------
@@ -450,7 +447,7 @@ def decode_compare_transition_kernels(
         kernel_names : list of str
         log_marginal : dict, kernel_name -> (n_trial,) array of log marginal likelihoods
         log_marginal_total : dict, kernel_name -> sum of log_marginal across trials
-        posteriors (optional) : dict, kernel_name -> posterior_latent_marginal_list
+        posterior_latent_marginal_list : dict, kernel_name -> posterior_latent_marginal_list
     """
     if isinstance(continuous_transition_mat_d, dict):
         if kernel_names is None:
@@ -481,7 +478,7 @@ def decode_compare_transition_kernels(
 
     log_marginal_d = {}
     log_marginal_total_d = {}
-    posteriors_d = {}
+    posterior_latent_marginal_list_d = {}
 
     try:
         for name, kernel in zip(kernel_names, kernels):
@@ -503,8 +500,7 @@ def decode_compare_transition_kernels(
             lml = res["log_marginal"]
             log_marginal_d[name] = lml
             log_marginal_total_d[name] = float(np.sum(lml))
-            if keep_posteriors:
-                posteriors_d[name] = res["posterior_latent_marginal_list"]
+            posterior_latent_marginal_list_d[name] = res["posterior_latent_marginal_list"]
             print(f"[decode_compare_transition_kernels] {name}: log_marginal_total={log_marginal_total_d[name]:.2f}")
     finally:
         # restore original
@@ -514,9 +510,8 @@ def decode_compare_transition_kernels(
         "kernel_names": kernel_names,
         "log_marginal": log_marginal_d,
         "log_marginal_total": log_marginal_total_d,
-        
+        "posterior_latent_marginal_list": posterior_latent_marginal_list_d,
     }
-    out.update(posteriors_d)
     return out
 
 
