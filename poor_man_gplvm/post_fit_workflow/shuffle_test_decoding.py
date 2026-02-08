@@ -236,6 +236,10 @@ def shuffle_test_naive_bayes_marginal_l(
     sig_thresh=0.95,
     q_l=None,
     seed=0,
+    dt=0.02,
+    gain=1.0,
+    model_fit_dt=0.1,
+    tuning_is_count_per_bin=False,
     decoding_kwargs=None,
     dosave=False,
     force_reload=False,
@@ -248,6 +252,11 @@ def shuffle_test_naive_bayes_marginal_l(
 
     - Test statistic: log_marginal_per_event = sum_t log_marginal_l[t] within each event
     - Significance: true > quantile(sig_thresh) of shuffle distribution (per event)
+
+    Notes
+    - dt / gain are taken out of decoding_kwargs (like `transition_analysis.decode_compare_transition_kernels`).
+    - model_fit_dt is only for scaling LVM tuning (counts/bin) into Hz; for supervised tuning (already Hz), keep
+      tuning_is_count_per_bin=False and model_fit_dt is ignored.
 
     Cluster Jupyter example
 
@@ -264,7 +273,9 @@ res = shuf.shuffle_test_naive_bayes_marginal_l(
     n_shuffle=200,
     sig_thresh=0.95,
     seed=0,
-    decoding_kwargs={'dt': 0.02, 'gain': 1.0, 'n_time_per_chunk': 20000},
+    dt=0.02,
+    gain=1.0,
+    decoding_kwargs={'n_time_per_chunk': 20000},
     dosave=True,
     force_reload=False,
     save_dir='/mnt/home/szheng/ceph/<project_name>/data/<session>/shuffle_test',
@@ -287,6 +298,10 @@ print(res['is_sig_overall'].mean())
     tuning = np.asarray(tuning)
     n_shuffle = int(n_shuffle)
     decoding_kwargs = {} if decoding_kwargs is None else dict(decoding_kwargs)
+    if 'dt' in decoding_kwargs:
+        dt = decoding_kwargs.pop('dt')
+    if 'gain' in decoding_kwargs:
+        gain = decoding_kwargs.pop('gain')
     q_l = np.linspace(0, 1, 41) if q_l is None else np.asarray(q_l)
 
     keep = event_index_per_bin >= 0
@@ -300,12 +315,19 @@ print(res['is_sig_overall'].mean())
     n_event = int(len(event_l))
     n_time, n_neuron = spk.shape
 
+    if bool(tuning_is_count_per_bin):
+        tuning_hz = tuning / float(model_fit_dt)
+    else:
+        tuning_hz = tuning
+
     print('[shuffle_test_naive_bayes_marginal_l] chunk: decode true')
     res_true = decoder_supervised.decode_naive_bayes(
         spk,
-        tuning,
+        tuning_hz,
         event_index_per_bin=event_index_per_bin,
         return_per_event=False,
+        dt=float(dt),
+        gain=float(gain),
         **decoding_kwargs,
     )
     log_marginal_per_event_true = np.asarray(res_true['log_marginal_per_event'])
@@ -338,16 +360,20 @@ print(res['is_sig_overall'].mean())
 
         res_id = decoder_supervised.decode_naive_bayes(
             spk_id,
-            tuning,
+            tuning_hz,
             event_index_per_bin=event_index_per_bin,
             return_per_event=False,
+            dt=float(dt),
+            gain=float(gain),
             **decoding_kwargs,
         )
         res_c = decoder_supervised.decode_naive_bayes(
             spk_circ,
-            tuning,
+            tuning_hz,
             event_index_per_bin=event_index_per_bin,
             return_per_event=False,
+            dt=float(dt),
+            gain=float(gain),
             **decoding_kwargs,
         )
         log_marginal_per_event_id_shuffle[si] = np.asarray(res_id['log_marginal_per_event'])
@@ -431,6 +457,10 @@ print(res['is_sig_overall'].mean())
             'n_event': int(n_event),
             'n_shuffle': int(n_shuffle),
             'seed': int(seed),
+            'dt': float(dt),
+            'gain': float(gain),
+            'model_fit_dt': float(model_fit_dt),
+            'tuning_is_count_per_bin': bool(tuning_is_count_per_bin),
             'decoding_kwargs': decoding_kwargs,
             'return_shuffle': bool(return_shuffle),
             'sig_thresh': float(sig_thresh),
