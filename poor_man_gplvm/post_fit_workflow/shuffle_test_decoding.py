@@ -504,3 +504,218 @@ print(res['is_sig_overall'].mean())
             })
     return out
 
+
+def sweep_gain_shuffle_test_naive_bayes_marginal_l(
+    spk_mat,
+    event_index_per_bin,
+    tuning,
+    *,
+    min_gain=1,
+    max_gain=10,
+    gain_step=2,
+    train_frac=0.5,
+    train_seed=0,
+    n_shuffle=100,
+    sig_thresh=0.95,
+    q_l=None,
+    seed=0,
+    dt=0.02,
+    model_fit_dt=0.1,
+    tuning_is_count_per_bin=False,
+    decoding_kwargs=None,
+    dosave=False,
+    force_reload=False,
+    save_dir=None,
+    save_fn='sweep_gain_shuffle_test_naive_bayes_marginal_l.pkl',
+    return_full_res=False,
+):
+    '''
+    Sweep gain for shuffle_test_naive_bayes_marginal_l with an event-based train/test split.
+
+    Stop rule: stop at max_gain or when test frac_sig_overall decreased for the past two gains
+    (unless total gains to try < 7, then run all).
+
+    Cluster Jupyter example
+
+```python
+import poor_man_gplvm.post_fit_workflow.shuffle_test_decoding as shuf
+
+res = shuf.sweep_gain_shuffle_test_naive_bayes_marginal_l(
+    spk_mat,
+    event_index_per_bin,
+    tuning=tuning_res['tuning_flat'],  # supervised tuning (Hz)
+    dt=0.02,
+    min_gain=0.5,
+    max_gain=3.0,
+    gain_step=0.25,
+    train_frac=0.5,
+    train_seed=0,
+    n_shuffle=200,
+    seed=0,
+    decoding_kwargs={'n_time_per_chunk': 20000},
+    dosave=False,
+)
+print(res['best_gain'], res['best_test_frac_sig'])
+```
+    '''
+    if bool(dosave):
+        if save_dir is None:
+            raise ValueError('dosave=True requires save_dir.')
+        save_paths = _resolve_save_paths(save_dir, save_fn)
+        if (not bool(force_reload)) and os.path.exists(save_paths['pkl_path']):
+            return _load_pickle(save_paths['pkl_path'])
+        if (not bool(force_reload)) and os.path.exists(save_paths['npz_path']):
+            return _load_npz_dict(save_paths['npz_path'])
+
+    decoding_kwargs = {} if decoding_kwargs is None else dict(decoding_kwargs)
+    if 'dt' in decoding_kwargs:
+        dt = decoding_kwargs.pop('dt')
+    if 'gain' in decoding_kwargs:
+        decoding_kwargs.pop('gain')
+
+    spk = np.asarray(spk_mat)
+    event_index_per_bin = np.asarray(event_index_per_bin)
+    keep = event_index_per_bin >= 0
+    event_index_keep = event_index_per_bin[keep]
+    parsing = _parse_event_index_per_bin(event_index_keep)
+    event_l = np.asarray(parsing['event_l'])
+    n_event = int(event_l.size)
+
+    rng = np.random.default_rng(int(train_seed))
+    n_train = int(np.round(float(train_frac) * n_event))
+    n_train = max(0, min(n_event, n_train))
+    train_idx = np.sort(rng.choice(n_event, size=n_train, replace=False)) if n_train else np.asarray([], dtype=int)
+    train_event_l = event_l[train_idx]
+    is_train = np.zeros((n_event,), dtype=bool)
+    is_train[train_idx] = True
+    test_event_l = event_l[~is_train]
+    print(f'[sweep_gain_shuffle_test_naive_bayes_marginal_l] event split: n_event={n_event} n_train={int(train_event_l.size)} n_test={int(test_event_l.size)}')
+
+    gain_l = np.arange(float(min_gain), float(max_gain) + 1e-12, float(gain_step), dtype=float)
+    if gain_l.size == 0:
+        gain_l = np.asarray([float(min_gain)], dtype=float)
+
+    early_stop = bool(gain_l.size >= 7)
+    gain_tried_l = []
+    train_frac_sig_l = []
+    test_frac_sig_l = []
+    shuffle_res_l = [] if bool(return_full_res) else None
+    best_res = None
+    best_gain = float('nan')
+    best_test_frac = -np.inf
+
+    for gi, gain in enumerate(gain_l):
+        print(f'[sweep_gain_shuffle_test_naive_bayes_marginal_l] gain {gi+1}/{int(gain_l.size)}: {float(gain):.6g}')
+        res = shuffle_test_naive_bayes_marginal_l(
+            spk,
+            event_index_per_bin,
+            tuning=tuning,
+            n_shuffle=int(n_shuffle),
+            sig_thresh=float(sig_thresh),
+            q_l=q_l,
+            seed=int(seed),
+            dt=float(dt),
+            gain=float(gain),
+            model_fit_dt=float(model_fit_dt),
+            tuning_is_count_per_bin=bool(tuning_is_count_per_bin),
+            decoding_kwargs=decoding_kwargs,
+            dosave=False,
+            force_reload=False,
+            return_shuffle=False,
+        )
+
+        event_df = res['event_df']
+        ev_id = np.asarray(event_df['event_i'].to_numpy())
+        sig = np.asarray(event_df['is_sig_overall'].to_numpy(dtype=bool))
+        m_train = np.isin(ev_id, train_event_l)
+        m_test = np.isin(ev_id, test_event_l)
+        frac_train = float(np.mean(sig[m_train])) if np.any(m_train) else float('nan')
+        frac_test = float(np.mean(sig[m_test])) if np.any(m_test) else float('nan')
+
+        gain_tried_l.append(float(gain))
+        train_frac_sig_l.append(frac_train)
+        test_frac_sig_l.append(frac_test)
+        if shuffle_res_l is not None:
+            shuffle_res_l.append(res)
+
+        frac_test_cmp = float(frac_test) if np.isfinite(frac_test) else -np.inf
+        if (best_res is None) or (frac_test_cmp > float(best_test_frac)):
+            best_res = res
+            best_gain = float(gain)
+            best_test_frac = float(frac_test_cmp)
+
+        if early_stop and len(test_frac_sig_l) >= 3:
+            if (test_frac_sig_l[-1] < test_frac_sig_l[-2]) and (test_frac_sig_l[-2] < test_frac_sig_l[-3]):
+                print('[sweep_gain_shuffle_test_naive_bayes_marginal_l] early stop: test frac_sig decreased for past two gains')
+                break
+
+    gain_tried_l = np.asarray(gain_tried_l, dtype=float)
+    train_frac_sig_l = np.asarray(train_frac_sig_l, dtype=float)
+    test_frac_sig_l = np.asarray(test_frac_sig_l, dtype=float)
+    if best_res is None and gain_tried_l.size:
+        # fallback (shouldn't happen)
+        best_res = shuffle_test_naive_bayes_marginal_l(
+            spk,
+            event_index_per_bin,
+            tuning=tuning,
+            n_shuffle=int(n_shuffle),
+            sig_thresh=float(sig_thresh),
+            q_l=q_l,
+            seed=int(seed),
+            dt=float(dt),
+            gain=float(gain_tried_l[0]),
+            model_fit_dt=float(model_fit_dt),
+            tuning_is_count_per_bin=bool(tuning_is_count_per_bin),
+            decoding_kwargs=decoding_kwargs,
+            dosave=False,
+            force_reload=False,
+            return_shuffle=False,
+        )
+        best_gain = float(gain_tried_l[0])
+        best_test_frac = float(test_frac_sig_l[0]) if test_frac_sig_l.size else float('nan')
+
+    out = {
+        'gain_l': gain_tried_l,
+        'train_frac_sig_overall_l': train_frac_sig_l,
+        'test_frac_sig_overall_l': test_frac_sig_l,
+        'best_gain': float(best_gain),
+        'best_test_frac_sig': float(best_test_frac) if np.isfinite(best_test_frac) else float('nan'),
+        'best_shuffle_test_res': best_res,
+        'train_event_l': np.asarray(train_event_l),
+        'test_event_l': np.asarray(test_event_l),
+        'meta': {
+            'min_gain': float(min_gain),
+            'max_gain': float(max_gain),
+            'gain_step': float(gain_step),
+            'train_frac': float(train_frac),
+            'train_seed': int(train_seed),
+            'n_shuffle': int(n_shuffle),
+            'sig_thresh': float(sig_thresh),
+            'seed': int(seed),
+            'dt': float(dt),
+            'model_fit_dt': float(model_fit_dt),
+            'tuning_is_count_per_bin': bool(tuning_is_count_per_bin),
+            'decoding_kwargs': decoding_kwargs,
+            'early_stop_enabled': bool(early_stop),
+            'return_full_res': bool(return_full_res),
+        },
+    }
+    if shuffle_res_l is not None:
+        out['shuffle_res_l'] = np.asarray(shuffle_res_l, dtype=object)
+
+    if bool(dosave):
+        os.makedirs(str(save_dir), exist_ok=True)
+        save_paths = _resolve_save_paths(save_dir, save_fn)
+        _save_pickle(save_paths['pkl_path'], out)
+        _save_npz_dict(save_paths['npz_path'], {
+            'gain_l': gain_tried_l,
+            'train_frac_sig_overall_l': train_frac_sig_l,
+            'test_frac_sig_overall_l': test_frac_sig_l,
+            'best_gain': np.asarray(out['best_gain']),
+            'best_test_frac_sig': np.asarray(out['best_test_frac_sig']),
+            'train_event_l': np.asarray(train_event_l),
+            'test_event_l': np.asarray(test_event_l),
+            'meta': np.asarray(out['meta'], dtype=object),
+        })
+
+    return out

@@ -743,3 +743,52 @@ def get_null_contrastive_projection(spk_mat,tuning_fit,posterior_latent_map,jump
     
     return proj_sh_peri_event_l,sh_seq_l
 
+
+def analyze_replay_unsupervised():
+    '''
+    main function to analyze replay unsupervised
+    given fitted model and data
+    - find pbe (can load)
+    - bin spikes
+    - get behavior classification
+    - get transition per behavior type
+    - sweep gain on shuffle test to find best gain
+    - decode with transition per behavior type
+    - gather unsupervised replay classification + shuffle test significance (without dynamics)
+    '''
+
+    # get pbe
+    spk_times_pyr=spk_times[spk_times['is_pyr']]
+    pbe_save_dir=os.path.join(data_dir_full,'py_data')
+    save_fn='pbe.p'#'pbe_wake_and_sleep_all.p'#
+    ep_full = prep_res['full_ep']
+
+    pbe_res=gew.detect_population_burst_event(spk_times_pyr, mask=None, ep=ep_full,threshold_ep=prep_res['sleep_state_intervals_NREMepisode'], bin_size=0.002, smooth_std=0.0075, 
+                                    z_thresh=3.0, min_duration=0.05, max_duration=0.5,
+                                    ripple_intervals=prep_res['ripple_intervals'],force_reload=False,dosave=False,save_dir=pbe_save_dir,return_population_rate=False,save_fn=save_fn)
+
+    
+    # bin spikes into tensor and mat
+    binsize=0.02
+    spk_tensor_res=tri.bin_spike_train_to_trial_based(spk_times_pyr,pbe_res['event_windows'],binsize=binsize)
+    spk_tensor=spk_tensor_res['spike_tensor']
+    spk_mat_pbe=spk_tensor_res['spike_mat']
+    tensor_pad_mask=spk_tensor_res['mask']
+    time_l=spk_tensor_res['time_l']
+    event_index_per_bin=spk_tensor_res['event_index_per_bin']
+
+
+    # classsify behavior and get transition per behavior type
+    decode_res=model_fit.decode_latent(spk_mat)
+    posterior_latent_marg = decode_res['posterior_latent_marg']
+    bc_ep_d=bct.get_behavior_ep_d(position_tsdf,speed_tsd,)['ep_d']
+    trans_mat_d = trans.transition_by_epoch(posterior_latent_marg,bc_ep_d)['trans_mat']
+
+    # sweep gain on shuffle test to find best gain
+    
+    model_fit_dt = np.median(np.diff(spk_mat.t))
+    gain_l = np.arange(1, 10, 2)
+    shuffle_test_res = shuffle_test_naive_bayes_marginal_l(spk_mat_pbe, event_index_per_bin, tuning_fit, n_shuffle=100, sig_thresh=0.95, q_l=None, seed=0, dt=binsize, gain=gain, model_fit_dt=model_fit_dt, tuning_is_count_per_bin=False, decoding_kwargs=None, dosave=False, force_reload=False, save_dir=None, save_fn='shuffle_test_naive_bayes_marginal_l.npz', return_shuffle=False)
+
+
+
