@@ -601,6 +601,7 @@ print(res['best_gain'], res['best_test_frac_sig'])
     test_frac_sig_l = []
     shuffle_res_l = [] if bool(return_full_res) else None
     best_res = None
+    best_res_full = None
     best_gain = float('nan')
     best_test_frac = -np.inf
 
@@ -643,6 +644,23 @@ print(res['best_gain'], res['best_test_frac_sig'])
             best_res = res
             best_gain = float(gain)
             best_test_frac = float(frac_test_cmp)
+            best_res_full = shuffle_test_naive_bayes_marginal_l(
+                spk,
+                event_index_per_bin,
+                tuning=tuning,
+                n_shuffle=int(n_shuffle),
+                sig_thresh=float(sig_thresh),
+                q_l=q_l,
+                seed=int(seed),
+                dt=float(dt),
+                gain=float(best_gain),
+                model_fit_dt=float(model_fit_dt),
+                tuning_is_count_per_bin=bool(tuning_is_count_per_bin),
+                decoding_kwargs=decoding_kwargs,
+                dosave=False,
+                force_reload=False,
+                return_shuffle=True,
+            )
 
         if early_stop and len(test_frac_sig_l) >= 3:
             if (test_frac_sig_l[-1] < test_frac_sig_l[-2]) and (test_frac_sig_l[-2] < test_frac_sig_l[-3]):
@@ -680,7 +698,7 @@ print(res['best_gain'], res['best_test_frac_sig'])
         'test_frac_sig_overall_l': test_frac_sig_l,
         'best_gain': float(best_gain),
         'best_test_frac_sig': float(best_test_frac) if np.isfinite(best_test_frac) else float('nan'),
-        'best_shuffle_test_res': best_res,
+        'best_shuffle_test_res': best_res_full if best_res_full is not None else best_res,
         'train_event_l': np.asarray(train_event_l),
         'test_event_l': np.asarray(test_event_l),
         'meta': {
