@@ -454,8 +454,9 @@ def decode_compare_transition_kernels(
         in trial-major concatenation order (same convention as
         `poor_man_gplvm.supervised_analysis.decoder_supervised` tensor mode).
         Length must equal the number of valid bins across all events.
-        When provided, the function also returns concatenated `nap.TsdFrame`s and
-        `event_slices` so you can reshape back into per-event chunks.
+        When provided, the function wraps time-concat posteriors into `nap.TsdFrame`
+        and returns per-event posteriors by slicing those `TsdFrame`s using
+        `start_index` / `end_index`.
     kernel_names : list of str, optional
         If provided, must match number of kernels and sets output ordering.
 
@@ -465,13 +466,15 @@ def decode_compare_transition_kernels(
         kernel_names : list of str
         log_marginal : dict, kernel_name -> (n_trial,) array of log marginal likelihoods
         log_marginal_total : dict, kernel_name -> sum of log_marginal across trials
-        posterior_latent_marginal_list : dict, kernel_name -> list of (T_i, n_latent) arrays
-        posterior_dynamics_marginal_list : dict, kernel_name -> list of (T_i, n_dyn) arrays
+        posterior_latent_marg : dict, kernel_name -> (n_valid, n_latent) array or nap.TsdFrame (if time_l provided)
+        posterior_dynamics_marg : dict, kernel_name -> (n_valid, n_dyn) array or nap.TsdFrame (if time_l provided)
+        posterior_latent_marg_per_event : dict, kernel_name -> list of per-event arrays/TsdFrames
+        posterior_dynamics_marg_per_event : dict, kernel_name -> list of per-event arrays/TsdFrames
         log_marginal_category_per_event_df : pd.DataFrame (n_event x n_category)
         prob_category_per_event_df : pd.DataFrame (n_event x n_category)
-        (if time_l provided) posterior_latent_marginal_concat_tsdf : dict, kernel_name -> nap.TsdFrame
-        (if time_l provided) posterior_dynamics_marginal_concat_tsdf : dict, kernel_name -> nap.TsdFrame
-        (if time_l provided) event_slices : list of slice, length n_event, mapping into concatenated arrays
+        n_time_per_event : (n_event,) array of valid-bin counts per event
+        start_index : (n_event,) start indices into valid-bin concat arrays
+        end_index : (n_event,) end indices (exclusive) into valid-bin concat arrays
     """
     if isinstance(continuous_transition_mat_d, dict):
         if kernel_names is None:
@@ -494,9 +497,9 @@ def decode_compare_transition_kernels(
     trial_lengths = valid_mask_all.sum(axis=1).astype(int)
     ends = np.cumsum(trial_lengths).astype(int)
     starts = np.concatenate([np.array([0], dtype=int), ends[:-1]])
-    event_slices = []
-    for s, e in zip(starts, ends):
-        event_slices.append(slice(int(s), int(e)))
+    start_index = starts
+    end_index = ends
+    n_time_per_event = trial_lengths
 
     if neuron_mask is None:
         neuron_mask = getattr(model_copy, "neuron_mask", None)
@@ -509,10 +512,10 @@ def decode_compare_transition_kernels(
 
     log_marginal_d = {}
     log_marginal_total_d = {}
-    posterior_latent_marginal_list_d = {}
-    posterior_dynamics_marginal_list_d = {}
-    posterior_latent_marginal_concat_tsdf_d = {}
-    posterior_dynamics_marginal_concat_tsdf_d = {}
+    posterior_latent_marg_d = {}
+    posterior_dynamics_marg_d = {}
+    posterior_latent_marg_per_event_d = {}
+    posterior_dynamics_marg_per_event_d = {}
 
     time_l_ = None
     if time_l is not None:
@@ -555,20 +558,28 @@ def decode_compare_transition_kernels(
             posterior_latent_marg = posterior_all.sum(axis=1)    # (n_valid, n_latent)
             posterior_dynamics_marg = posterior_all.sum(axis=2)  # (n_valid, n_dyn)
 
-            posterior_latent_marginal_list_d[name] = [posterior_latent_marg[s:e] for s, e in zip(starts, ends)]
-            posterior_dynamics_marginal_list_d[name] = [posterior_dynamics_marg[s:e] for s, e in zip(starts, ends)]
-
             if time_l_ is not None:
-                posterior_latent_marginal_concat_tsdf_d[name] = nap.TsdFrame(
+                posterior_latent_marg_d[name] = nap.TsdFrame(
                     t=time_l_,
                     d=posterior_latent_marg,
                     columns=np.arange(n_latent),
                 )
-                posterior_dynamics_marginal_concat_tsdf_d[name] = nap.TsdFrame(
+                dyn_cols = ['continuous', 'jump'] if int(n_dyn) == 2 else np.arange(n_dyn)
+                posterior_dynamics_marg_d[name] = nap.TsdFrame(
                     t=time_l_,
                     d=posterior_dynamics_marg,
-                    columns=np.arange(n_dyn),
+                    columns=dyn_cols,
                 )
+                # per-event: slice the big TsdFrame (decoder_supervised convention)
+                lat_tsdf = posterior_latent_marg_d[name]
+                dyn_tsdf = posterior_dynamics_marg_d[name]
+                posterior_latent_marg_per_event_d[name] = [lat_tsdf[s:e] for s, e in zip(starts, ends) if e > s]
+                posterior_dynamics_marg_per_event_d[name] = [dyn_tsdf[s:e] for s, e in zip(starts, ends) if e > s]
+            else:
+                posterior_latent_marg_d[name] = posterior_latent_marg
+                posterior_dynamics_marg_d[name] = posterior_dynamics_marg
+                posterior_latent_marg_per_event_d[name] = [posterior_latent_marg[s:e] for s, e in zip(starts, ends)]
+                posterior_dynamics_marg_per_event_d[name] = [posterior_dynamics_marg[s:e] for s, e in zip(starts, ends)]
 
             print(f"[decode_compare_transition_kernels] {name}: log_marginal_total={log_marginal_total_d[name]:.2f}")
     finally:
@@ -587,15 +598,18 @@ def decode_compare_transition_kernels(
         "kernel_names": kernel_names,
         "log_marginal": log_marginal_d,
         "log_marginal_total": log_marginal_total_d,
-        "posterior_latent_marginal_list": posterior_latent_marginal_list_d,
-        "posterior_dynamics_marginal_list": posterior_dynamics_marginal_list_d,
+        "posterior_latent_marg": posterior_latent_marg_d,
+        "posterior_dynamics_marg": posterior_dynamics_marg_d,
+        "posterior_latent_marg_per_event": posterior_latent_marg_per_event_d,
+        "posterior_dynamics_marg_per_event": posterior_dynamics_marg_per_event_d,
         "log_marginal_category_per_event_df": log_marginal_category_per_event_df,
         "prob_category_per_event_df": prob_category_per_event_df,
+        "n_time_per_event": n_time_per_event,
+        "start_index": start_index,
+        "end_index": end_index,
     }
     if time_l_ is not None:
-        out["posterior_latent_marginal_concat_tsdf"] = posterior_latent_marginal_concat_tsdf_d
-        out["posterior_dynamics_marginal_concat_tsdf"] = posterior_dynamics_marginal_concat_tsdf_d
-        out["event_slices"] = event_slices
+        out["time_l"] = time_l_
     return out
 
 
