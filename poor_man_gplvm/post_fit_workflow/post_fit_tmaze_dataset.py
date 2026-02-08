@@ -3,6 +3,9 @@ For Roman Huszar's T-maze dataset
 '''
 import numpy as np
 import pandas as pd
+import os
+import time
+import json
 from sklearn.cluster import dbscan
 import pynapple as nap
 import matplotlib.pyplot as plt
@@ -14,6 +17,11 @@ import poor_man_gplvm.plot_helper as ph
 import tqdm
 import poor_man_gplvm.analysis_helper as ah
 import poor_man_gplvm.verify_latent_jump as vlj
+import poor_man_gplvm.post_fit_workflow.get_event_windows as gew
+import poor_man_gplvm.trial_analysis as tri
+import poor_man_gplvm.post_fit_workflow.behavior_classification_tmaze as bct
+import poor_man_gplvm.transition_analysis as trans
+import poor_man_gplvm.post_fit_workflow.shuffle_test_decoding as shuf
 
 def get_latent_occurance_index_per_speed_level(map_latent,speed_tsd,speed_thresh_bins=[5]):
     '''
@@ -744,7 +752,21 @@ def get_null_contrastive_projection(spk_mat,tuning_fit,posterior_latent_map,jump
     return proj_sh_peri_event_l,sh_seq_l
 
 
-def analyze_replay_unsupervised():
+def analyze_replay_unsupervised(
+    prep_res,
+    pbe_bin_size=0.02,
+    data_dir_full='./',
+    *,
+    force_reload=False,
+    dosave=True,
+    save_dir=None,
+    save_fn='analyze_replay_unsupervised.pkl',
+    pbe_kwargs=None,
+    behavior_kwargs=None,
+    gain_sweep_kwargs=None,
+    decode_compare_kwargs=None,
+    verbose=True,
+):
     '''
     main function to analyze replay unsupervised
     given fitted model and data
@@ -756,43 +778,236 @@ def analyze_replay_unsupervised():
     - decode with transition per behavior type
     - gather unsupervised replay classification + shuffle test significance (without dynamics)
     '''
+    def _json_default(o):
+        try:
+            return float(o)
+        except Exception:
+            return str(o)
 
-    # get pbe
-    spk_times_pyr=spk_times[spk_times['is_pyr']]
-    pbe_save_dir=os.path.join(data_dir_full,'py_data')
-    save_fn='pbe.p'#'pbe_wake_and_sleep_all.p'#
+    if save_dir is None:
+        save_dir = os.path.join(str(data_dir_full), 'py_data', 'analyze_replay_unsupervised')
+    save_path = os.path.join(str(save_dir), str(save_fn))
+    config_path = save_path + '.hyperparams.json'
+
+    if os.path.exists(save_path) and (not bool(force_reload)):
+        out = pd.read_pickle(save_path)
+        print(f'[analyze_replay_unsupervised] exists; loading: {save_path}')
+        return out
+
+    os.makedirs(save_dir, exist_ok=True)
+
+    pbe_kwargs_ = {
+        'bin_size': 0.002,
+        'smooth_std': 0.0075,
+        'z_thresh': 3.0,
+        'min_duration': 0.05,
+        'max_duration': 0.5,
+        'return_population_rate': False,
+        'save_dir': os.path.join(str(data_dir_full), 'py_data'),
+        'save_fn': 'pbe.pkl',
+        'force_reload': False,
+        'dosave': True,
+    }
+    if pbe_kwargs is not None:
+        pbe_kwargs_.update(dict(pbe_kwargs))
+
+    behavior_kwargs_ = {
+        'offmaze_method': 'from_lin',
+        'speed_immo_thresh': 2.5,
+        'speed_loco_thresh': 5.0,
+    }
+    if behavior_kwargs is not None:
+        behavior_kwargs_.update(dict(behavior_kwargs))
+
+    gain_sweep_kwargs_ = {
+        'min_gain': 1,
+        'max_gain': 10,
+        'gain_step': 2,
+        'train_frac': 0.5,
+        'train_seed': 123,
+        'n_shuffle': 100,
+        'sig_thresh': 0.95,
+        'q_l': None,
+        'seed': 0,
+        'tuning_is_count_per_bin': True,
+        'decoding_kwargs': None,
+        'return_full_res': False,
+        'dosave': False,
+        'force_reload': False,
+        'save_dir': None,
+        'save_fn': 'sweep_gain_shuffle_test_naive_bayes_marginal_l.pkl',
+    }
+    if gain_sweep_kwargs is not None:
+        gain_sweep_kwargs_.update(dict(gain_sweep_kwargs))
+
+    decode_compare_kwargs_ = {
+        'n_trial_per_chunk': 400,
+        'prior_magnifier': 1.0,
+        'return_numpy': True,
+    }
+    if decode_compare_kwargs is not None:
+        decode_compare_kwargs_.update(dict(decode_compare_kwargs))
+
+    hyperparams = {
+        'pbe_bin_size': float(pbe_bin_size),
+        'pbe_kwargs': pbe_kwargs_,
+        'behavior_kwargs': behavior_kwargs_,
+        'gain_sweep_kwargs': gain_sweep_kwargs_,
+        'decode_compare_kwargs': decode_compare_kwargs_,
+        'save_dir': str(save_dir),
+        'save_fn': str(save_fn),
+        'data_dir_full': str(data_dir_full),
+    }
+
+    if bool(verbose):
+        print('[analyze_replay_unsupervised] start')
+        print(f'[analyze_replay_unsupervised] save_path: {save_path}')
+
+    t0 = time.perf_counter()
+
+    # ---- pull inputs ----
+    model_fit = prep_res['model_fit']
+    spk_mat = prep_res['spk_mat']
+    position_tsdf = prep_res['position_tsdf']
+    speed_tsd = prep_res['speed_tsd']
+    spk_times = prep_res['spk_times']
     ep_full = prep_res['full_ep']
+    sleep_ep = prep_res['sleep_state_intervals_NREMepisode']
+    ripple_intervals = prep_res['ripple_intervals']
 
-    pbe_res=gew.detect_population_burst_event(spk_times_pyr, mask=None, ep=ep_full,threshold_ep=prep_res['sleep_state_intervals_NREMepisode'], bin_size=0.002, smooth_std=0.0075, 
-                                    z_thresh=3.0, min_duration=0.05, max_duration=0.5,
-                                    ripple_intervals=prep_res['ripple_intervals'],force_reload=False,dosave=False,save_dir=pbe_save_dir,return_population_rate=False,save_fn=save_fn)
+    tuning_fit = prep_res.get('tuning_fit', None)
+    if tuning_fit is None:
+        tuning_fit = model_fit.tuning
 
-    
-    # bin spikes into tensor and mat
-    binsize=0.02
-    spk_tensor_res=tri.bin_spike_train_to_trial_based(spk_times_pyr,pbe_res['event_windows'],binsize=binsize)
-    spk_tensor=spk_tensor_res['spike_tensor']
-    spk_mat_pbe=spk_tensor_res['spike_mat']
-    tensor_pad_mask=spk_tensor_res['mask']
-    time_l=spk_tensor_res['time_l']
-    event_index_per_bin=spk_tensor_res['event_index_per_bin']
+    model_fit_dt = float(np.median(np.diff(np.asarray(spk_mat.t))))
+    if bool(verbose):
+        print(f'[analyze_replay_unsupervised] model_fit_dt={model_fit_dt:.6g}s')
 
+    # ---- 1) PBE detection ----
+    if bool(verbose):
+        print('[analyze_replay_unsupervised] 1/6 detect PBE')
+    spk_times_pyr = spk_times[spk_times['is_pyr']]
+    pbe_res = gew.detect_population_burst_event(
+        spk_times_pyr,
+        mask=None,
+        ep=ep_full,
+        threshold_ep=sleep_ep,
+        bin_size=float(pbe_kwargs_['bin_size']),
+        smooth_std=float(pbe_kwargs_['smooth_std']),
+        z_thresh=float(pbe_kwargs_['z_thresh']),
+        min_duration=float(pbe_kwargs_['min_duration']),
+        max_duration=float(pbe_kwargs_['max_duration']),
+        ripple_intervals=ripple_intervals,
+        return_population_rate=bool(pbe_kwargs_['return_population_rate']),
+        save_dir=str(pbe_kwargs_['save_dir']),
+        save_fn=str(pbe_kwargs_['save_fn']),
+        force_reload=bool(pbe_kwargs_['force_reload']),
+        dosave=bool(pbe_kwargs_['dosave']),
+    )  # output
 
-    # classsify behavior and get transition per behavior type
-    decode_res=model_fit.decode_latent(spk_mat)
+    # ---- 2) bin spikes into event tensor/mat ----
+    if bool(verbose):
+        print('[analyze_replay_unsupervised] 2/6 bin spikes in PBE')
+    binsize = float(pbe_bin_size)  # output
+    spk_tensor_res = tri.bin_spike_train_to_trial_based(spk_times_pyr, pbe_res['event_windows'], binsize=binsize)  # output
+    spk_tensor = spk_tensor_res['spike_tensor']
+    spk_mat_pbe = spk_tensor_res['spike_mat']
+    tensor_pad_mask = spk_tensor_res['mask']
+    time_l = spk_tensor_res['time_l']
+    event_index_per_bin = spk_tensor_res['event_index_per_bin']
+
+    # ---- 3) behavior epochs ----
+    if bool(verbose):
+        print('[analyze_replay_unsupervised] 3/6 behavior epochs')
+    bc_res = bct.get_behavior_ep_d(
+        position_tsdf,
+        speed_tsd,
+        offmaze_method=str(behavior_kwargs_['offmaze_method']),
+        speed_immo_thresh=float(behavior_kwargs_['speed_immo_thresh']),
+        speed_loco_thresh=float(behavior_kwargs_['speed_loco_thresh']),
+    )
+    bc_ep_d = bc_res['ep_d']  # output
+
+    # ---- 4) transitions by behavior ----
+    if bool(verbose):
+        print('[analyze_replay_unsupervised] 4/6 transitions by behavior')
+    decode_res = model_fit.decode_latent(spk_mat)
     posterior_latent_marg = decode_res['posterior_latent_marg']
-    bc_ep_d=bct.get_behavior_ep_d(position_tsdf,speed_tsd,)['ep_d']
-    trans_mat_d = trans.transition_by_epoch(posterior_latent_marg,bc_ep_d)['trans_mat']
+    trans_mat_d = trans.transition_by_epoch(posterior_latent_marg, bc_ep_d)['trans_mat']  # output
 
-    # sweep gain on shuffle test to find best gain
-    
-    model_fit_dt = np.median(np.diff(spk_mat.t))
-    gain_l = np.arange(1, 10, 2)
-    sweep_gain_res = sweep_gain_shuffle_test_naive_bayes_marginal_l(spk_mat_pbe, event_index_per_bin, tuning_fit, n_shuffle=100,min_gain=1, max_gain=10, gain_step=2, train_frac=0.5, train_seed=123, sig_thresh=0.95, q_l=None, seed=0, dt=binsize, model_fit_dt=model_fit_dt, tuning_is_count_per_bin=True, decoding_kwargs=None, dosave=False, force_reload=False, save_dir=None, save_fn='shuffle_test_naive_bayes_marginal_l.npz', return_shuffle=False)
-
+    # ---- 5) gain sweep for shuffle test ----
+    if bool(verbose):
+        print('[analyze_replay_unsupervised] 5/6 sweep gain (shuffle test)')
+    sweep_gain_res = shuf.sweep_gain_shuffle_test_naive_bayes_marginal_l(
+        spk_mat_pbe,
+        event_index_per_bin,
+        tuning=tuning_fit,
+        min_gain=float(gain_sweep_kwargs_['min_gain']),
+        max_gain=float(gain_sweep_kwargs_['max_gain']),
+        gain_step=float(gain_sweep_kwargs_['gain_step']),
+        train_frac=float(gain_sweep_kwargs_['train_frac']),
+        train_seed=int(gain_sweep_kwargs_['train_seed']),
+        n_shuffle=int(gain_sweep_kwargs_['n_shuffle']),
+        sig_thresh=float(gain_sweep_kwargs_['sig_thresh']),
+        q_l=gain_sweep_kwargs_['q_l'],
+        seed=int(gain_sweep_kwargs_['seed']),
+        dt=float(binsize),
+        model_fit_dt=float(model_fit_dt),
+        tuning_is_count_per_bin=bool(gain_sweep_kwargs_['tuning_is_count_per_bin']),
+        decoding_kwargs=gain_sweep_kwargs_['decoding_kwargs'],
+        dosave=bool(gain_sweep_kwargs_['dosave']),
+        force_reload=bool(gain_sweep_kwargs_['force_reload']),
+        save_dir=gain_sweep_kwargs_['save_dir'],
+        save_fn=str(gain_sweep_kwargs_['save_fn']),
+        return_full_res=bool(gain_sweep_kwargs_['return_full_res']),
+    )  # output
+    best_gain = float(sweep_gain_res['best_gain'])  # output
     event_df = sweep_gain_res['best_shuffle_test_res']['event_df']
-    
+    if bool(verbose):
+        print(f'[analyze_replay_unsupervised] best_gain={best_gain:.6g}')
 
+    # ---- 6) decode PBE under behavior-specific transitions ----
+    if bool(verbose):
+        print('[analyze_replay_unsupervised] 6/6 decode PBE under behavior-specific transitions')
+    pbe_compare_transition_res = trans.decode_compare_transition_kernels(
+        spk_tensor,
+        model_fit,
+        trans_mat_d,
+        tensor_pad_mask=tensor_pad_mask,
+        time_l=time_l,
+        dt=float(binsize),
+        gain=float(best_gain),
+        model_fit_dt=float(model_fit_dt),
+        n_trial_per_chunk=int(decode_compare_kwargs_['n_trial_per_chunk']),
+        prior_magnifier=float(decode_compare_kwargs_['prior_magnifier']),
+        return_numpy=bool(decode_compare_kwargs_['return_numpy']),
+    )  # output
+    prob_category_per_event_df = pbe_compare_transition_res['prob_category_per_event_df']
+    event_df_joint = pd.concat([event_df, prob_category_per_event_df], axis=1)  # output
+
+    unsup_res = {
+        'hyperparams': hyperparams,
+        'pbe_res': pbe_res,  # output
+        'spk_tensor_res': spk_tensor_res,  # output
+        'bc_ep_d': bc_ep_d,  # output
+        'trans_mat_d': trans_mat_d,  # output
+        'sweep_gain_res': sweep_gain_res,  # output
+        'best_gain': best_gain,  # output
+        'pbe_compare_transition_res': pbe_compare_transition_res,  # output
+        'event_df_joint': event_df_joint,  # output
+    }
+
+    if bool(dosave):
+        pd.to_pickle(unsup_res, save_path)
+        print(f'[analyze_replay_unsupervised] saved: {save_path}')
+        with open(config_path, 'w') as f:
+            json.dump(hyperparams, f, indent=2, sort_keys=True, default=_json_default)
+        print(f'[analyze_replay_unsupervised] saved: {config_path}')
+
+    if bool(verbose):
+        dt_s = time.perf_counter() - t0
+        print(f'[analyze_replay_unsupervised] done in {dt_s:.2f}s; n_event={len(event_df_joint)}')
+    return unsup_res
     
 
 
