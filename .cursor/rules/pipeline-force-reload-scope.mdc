@@ -1,0 +1,29 @@
+---
+description: force_reload/do_save scope rules for pipelines
+alwaysApply: true
+---
+
+# force_reload / do_save scope
+
+- Top-level `force_reload` / `do_save` (or `dosave`) **only controls the top-level analysis cache/output**.
+- Do **NOT** propagate top-level `force_reload`/`do_save` into sub-functions (PBE detection, binning, decoding, shuffle tests, etc.).
+- Every sub-step must have its **own** explicit kwargs dict (e.g. `pbe_kwargs`, `gain_sweep_kwargs`) that carries its own `force_reload`/`dosave` if needed.
+
+Example pattern:
+
+```python
+def analysis(..., *, force_reload=False, dosave=True, save_path=..., pbe_kwargs=None):
+    if os.path.exists(save_path) and (not force_reload):
+        return load(save_path)
+
+    pbe_kwargs_ = {'force_reload': False, 'dosave': True}
+    if pbe_kwargs is not None:
+        pbe_kwargs_.update(pbe_kwargs)
+    pbe = detect_pbe(..., **pbe_kwargs_)
+
+    out = {...}
+    if dosave:
+        save(out, save_path)
+    return out
+```
+
