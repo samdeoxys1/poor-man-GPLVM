@@ -429,7 +429,8 @@ def decode_compare_transition_kernels(
         - dict: name -> (K, K) kernel
         - list: list of (K, K) kernels (names auto-generated unless kernel_names is provided)
     tensor_pad_mask : (n_trial, T_max, 1) bool, optional
-        If None, uses `model_copy.tensor_pad_mask`.
+        Trial padding mask from `trial_analysis.bin_spike_train_to_trial_based`.
+        If None, treat all bins as valid (i.e. no padding).
     dt : float
         Decode bin size (seconds). Passed to `decoder_trial.decode_trials_padded_vmapped`.
     gain : float
@@ -466,9 +467,8 @@ def decode_compare_transition_kernels(
 
     tensor_pad_mask_ = tensor_pad_mask
     if tensor_pad_mask_ is None:
-        tensor_pad_mask_ = getattr(model_copy, "tensor_pad_mask", None)
-    if tensor_pad_mask_ is None:
-        raise ValueError("tensor_pad_mask is required (argument or model.tensor_pad_mask)")
+        n_trial, t_max = int(spk_tensor.shape[0]), int(spk_tensor.shape[1])
+        tensor_pad_mask_ = np.ones((n_trial, t_max, 1), dtype=bool)
 
     if neuron_mask is None:
         neuron_mask = getattr(model_copy, "neuron_mask", None)
