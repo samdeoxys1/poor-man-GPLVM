@@ -790,6 +790,7 @@ def analyze_replay_unsupervised():
     gain_l = np.arange(1, 10, 2)
     sweep_gain_res = sweep_gain_shuffle_test_naive_bayes_marginal_l(spk_mat_pbe, event_index_per_bin, tuning_fit, n_shuffle=100,min_gain=1, max_gain=10, gain_step=2, train_frac=0.5, train_seed=123, sig_thresh=0.95, q_l=None, seed=0, dt=binsize, model_fit_dt=model_fit_dt, tuning_is_count_per_bin=True, decoding_kwargs=None, dosave=False, force_reload=False, save_dir=None, save_fn='shuffle_test_naive_bayes_marginal_l.npz', return_shuffle=False)
 
+    event_df = sweep_gain_res['best_shuffle_test_res']['event_df']
     
 
     

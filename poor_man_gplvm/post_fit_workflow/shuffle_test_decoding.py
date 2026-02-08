@@ -290,8 +290,6 @@ print(res['is_sig_overall'].mean())
         save_paths = _resolve_save_paths(save_dir, save_fn)
         if (not bool(force_reload)) and os.path.exists(save_paths['pkl_path']):
             return _load_pickle(save_paths['pkl_path'])
-        if (not bool(force_reload)) and os.path.exists(save_paths['npz_path']):
-            return _load_npz_dict(save_paths['npz_path'])
 
     spk = np.asarray(spk_mat)
     event_index_per_bin = np.asarray(event_index_per_bin)
@@ -692,10 +690,16 @@ print(res['best_gain'], res['best_test_frac_sig'])
         best_gain = float(gain_tried_l[0])
         best_test_frac = float(test_frac_sig_l[0]) if test_frac_sig_l.size else float('nan')
 
+    gain_df = pd.DataFrame(
+        {
+            'gain': gain_tried_l,
+            'train_frac_sig_overall': train_frac_sig_l,
+            'test_frac_sig_overall': test_frac_sig_l,
+        }
+    )
+
     out = {
-        'gain_l': gain_tried_l,
-        'train_frac_sig_overall_l': train_frac_sig_l,
-        'test_frac_sig_overall_l': test_frac_sig_l,
+        'gain_df': gain_df,
         'best_gain': float(best_gain),
         'best_test_frac_sig': float(best_test_frac) if np.isfinite(best_test_frac) else float('nan'),
         'best_shuffle_test_res': best_res_full if best_res_full is not None else best_res,
@@ -725,15 +729,5 @@ print(res['best_gain'], res['best_test_frac_sig'])
         os.makedirs(str(save_dir), exist_ok=True)
         save_paths = _resolve_save_paths(save_dir, save_fn)
         _save_pickle(save_paths['pkl_path'], out)
-        _save_npz_dict(save_paths['npz_path'], {
-            'gain_l': gain_tried_l,
-            'train_frac_sig_overall_l': train_frac_sig_l,
-            'test_frac_sig_overall_l': test_frac_sig_l,
-            'best_gain': np.asarray(out['best_gain']),
-            'best_test_frac_sig': np.asarray(out['best_test_frac_sig']),
-            'train_event_l': np.asarray(train_event_l),
-            'test_event_l': np.asarray(test_event_l),
-            'meta': np.asarray(out['meta'], dtype=object),
-        })
 
     return out
