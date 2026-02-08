@@ -107,6 +107,66 @@ class AbstractGPLVM1D(ABC):
 
         # initialize the params and tuning
         self.initialize_params(self.rng_init)
+
+    @property
+    def custom_transition_kernel(self):
+        """
+        Custom latent transition kernel for the *continuous* dynamics.
+
+        Note: assigning to this attribute also refreshes cached log-transition matrices
+        (e.g. `log_latent_transition_kernel` / `log_latent_transition_kernel_l`) so any
+        post-fit decoder that consumes the cached logs will be consistent.
+
+        Backward-compat: old pickles may have a raw `custom_transition_kernel` entry in
+        `__dict__` (pre-property). We read it if `_custom_transition_kernel` is absent.
+        """
+        d = object.__getattribute__(self, "__dict__")
+        if "_custom_transition_kernel" in d:
+            return d["_custom_transition_kernel"]
+        if "custom_transition_kernel" in d:
+            return d["custom_transition_kernel"]
+        return None
+
+    @custom_transition_kernel.setter
+    def custom_transition_kernel(self, custom_transition_kernel):
+        d = object.__getattribute__(self, "__dict__")
+        # remove legacy storage key if present (old pickles)
+        if "custom_transition_kernel" in d:
+            d.pop("custom_transition_kernel", None)
+        d["_custom_transition_kernel"] = custom_transition_kernel
+        self._refresh_transition_cache()
+
+    def _refresh_transition_cache(self):
+        """
+        Refresh cached transition kernels derived from `custom_transition_kernel`.
+        Latent-only models cache `log_latent_transition_kernel` (and `latent_transition_kernel`).
+        """
+        latent_transition_kernel, log_latent_transition_kernel = gpk.create_transition_prob_latent_1d(
+            self.possible_latent_bin,
+            self.movement_variance,
+            custom_kernel=self.custom_transition_kernel,
+        )
+        self.latent_transition_kernel = latent_transition_kernel
+        self.log_latent_transition_kernel = log_latent_transition_kernel
+        return self
+
+    def _post_unpickle_fixup_transition_cache(self):
+        """
+        Best-effort compatibility for old pickles:
+        - migrate legacy `custom_transition_kernel` -> `_custom_transition_kernel`
+        - (re)create cached log kernels if missing
+        """
+        d = object.__getattribute__(self, "__dict__")
+        if "_custom_transition_kernel" not in d:
+            if "custom_transition_kernel" in d:
+                d["_custom_transition_kernel"] = d.pop("custom_transition_kernel")
+            else:
+                d["_custom_transition_kernel"] = None
+        if "possible_latent_bin" not in d and "n_latent_bin" in d:
+            self.possible_latent_bin = jnp.arange(self.n_latent_bin)
+        if "log_latent_transition_kernel" not in d:
+            self._refresh_transition_cache()
+        return self
     
     @abstractmethod
     def get_tuning(self, params, hyperparam, tuning_basis):
@@ -391,6 +451,8 @@ class AbstractGPLVM1D(ABC):
         """
         Convenience setter so a pickled/restored model can swap transition behavior without re-init.
         For latent-only models, this is a n_latent x n_latent transition matrix (row-normalized inside decoder).
+
+        Side-effect: updates cached `log_latent_transition_kernel`.
         """
         self.custom_transition_kernel = custom_transition_kernel
         return self
@@ -445,6 +507,77 @@ class AbstractGPLVMJump1D(ABC):
 
         # initialize the params and tuning
         self.initialize_params(self.rng_init)
+
+    @property
+    def custom_transition_kernel(self):
+        """
+        Custom latent transition kernel for the *continuous/move* dynamics (jump stays uniform).
+
+        Note: assigning to this attribute also refreshes cached log-transition matrices
+        (`log_latent_transition_kernel_l`, `log_dynamics_transition_kernel`) so any post-fit
+        decoder that consumes the cached logs will be consistent.
+
+        Backward-compat: old pickles may have a raw `custom_transition_kernel` entry in
+        `__dict__` (pre-property). We read it if `_custom_transition_kernel` is absent.
+        """
+        d = object.__getattribute__(self, "__dict__")
+        if "_custom_transition_kernel" in d:
+            return d["_custom_transition_kernel"]
+        if "custom_transition_kernel" in d:
+            return d["custom_transition_kernel"]
+        return None
+
+    @custom_transition_kernel.setter
+    def custom_transition_kernel(self, custom_transition_kernel):
+        d = object.__getattribute__(self, "__dict__")
+        if "custom_transition_kernel" in d:
+            d.pop("custom_transition_kernel", None)
+        d["_custom_transition_kernel"] = custom_transition_kernel
+        self._refresh_transition_cache()
+
+    def _refresh_transition_cache(self):
+        """
+        Refresh cached transition kernels derived from `custom_transition_kernel`.
+        Jump models cache `log_latent_transition_kernel_l` and `log_dynamics_transition_kernel`.
+        """
+        (
+            latent_transition_kernel_l,
+            log_latent_transition_kernel_l,
+            dynamics_transition_kernel,
+            log_dynamics_transition_kernel,
+        ) = gpk.create_transition_prob_1d(
+            self.possible_latent_bin,
+            self.possible_dynamics,
+            self.movement_variance,
+            self.p_move_to_jump,
+            self.p_jump_to_move,
+            custom_kernel=self.custom_transition_kernel,
+        )
+        self.latent_transition_kernel_l = latent_transition_kernel_l
+        self.log_latent_transition_kernel_l = log_latent_transition_kernel_l
+        self.dynamics_transition_kernel = dynamics_transition_kernel
+        self.log_dynamics_transition_kernel = log_dynamics_transition_kernel
+        return self
+
+    def _post_unpickle_fixup_transition_cache(self):
+        """
+        Best-effort compatibility for old pickles:
+        - migrate legacy `custom_transition_kernel` -> `_custom_transition_kernel`
+        - (re)create cached log kernels if missing
+        """
+        d = object.__getattribute__(self, "__dict__")
+        if "_custom_transition_kernel" not in d:
+            if "custom_transition_kernel" in d:
+                d["_custom_transition_kernel"] = d.pop("custom_transition_kernel")
+            else:
+                d["_custom_transition_kernel"] = None
+        if "possible_latent_bin" not in d and "n_latent_bin" in d:
+            self.possible_latent_bin = jnp.arange(self.n_latent_bin)
+        if "possible_dynamics" not in d:
+            self.possible_dynamics = jnp.arange(2)
+        if ("log_latent_transition_kernel_l" not in d) or ("log_dynamics_transition_kernel" not in d):
+            self._refresh_transition_cache()
+        return self
     
     @abstractmethod
     def get_tuning(self,params,hyperparam,tuning_basis):
@@ -762,6 +895,8 @@ class AbstractGPLVMJump1D(ABC):
         """
         Convenience setter so a pickled/restored model can swap transition behavior without re-init.
         For jump models, this is a n_latent x n_latent transition matrix used for the "move" latent kernel.
+
+        Side-effect: updates cached `log_latent_transition_kernel_l` and `log_dynamics_transition_kernel`.
         """
         self.custom_transition_kernel = custom_transition_kernel
         return self
@@ -819,29 +954,34 @@ class PoissonGPLVMJump1D(AbstractGPLVMJump1D):
     def __setstate__(self, state):
         """Custom unpickling - restore state, JIT function will be recreated in fit_em"""
         self.__dict__.update(state)
+        d = object.__getattribute__(self, "__dict__")
+
         # Backward-compat defaults (older pickles may not have these)
-        if not hasattr(self, 'custom_tuning_kernel'):
-            self.custom_tuning_kernel = None
-        if not hasattr(self, 'custom_transition_kernel'):
-            self.custom_transition_kernel = None
-        if not hasattr(self, 'basis_type'):
-            self.basis_type = 'rbf'
-        if not hasattr(self, 'possible_latent_bin') and hasattr(self, 'n_latent_bin'):
-            self.possible_latent_bin = jnp.arange(self.n_latent_bin)
-        if not hasattr(self, 'possible_dynamics'):
-            self.possible_dynamics = jnp.arange(2)
-        if not hasattr(self, 'ma_neuron_default') and hasattr(self, 'n_neuron'):
-            self.ma_neuron_default = jnp.ones(self.n_neuron)
-        if not hasattr(self, 'ma_latent_default') and hasattr(self, 'n_latent_bin'):
-            self.ma_latent_default = jnp.ones(self.n_latent_bin)
-        if not hasattr(self, 'tuning_basis') and hasattr(self, 'tuning_lengthscale') and hasattr(self, 'n_latent_bin'):
-            self.tuning_basis = generate_basis(
-                self.tuning_lengthscale, self.n_latent_bin,
-                getattr(self, 'explained_variance_threshold_basis', 0.999),
-                include_bias=True, basis_type=getattr(self, 'basis_type', 'rbf'),
-                custom_kernel=getattr(self, 'custom_tuning_kernel', None)
+        if "custom_tuning_kernel" not in d:
+            d["custom_tuning_kernel"] = None
+        if "basis_type" not in d:
+            d["basis_type"] = "rbf"
+        if ("possible_latent_bin" not in d) and ("n_latent_bin" in d):
+            d["possible_latent_bin"] = jnp.arange(self.n_latent_bin)
+        if "possible_dynamics" not in d:
+            d["possible_dynamics"] = jnp.arange(2)
+        if ("ma_neuron_default" not in d) and ("n_neuron" in d):
+            d["ma_neuron_default"] = jnp.ones(self.n_neuron)
+        if ("ma_latent_default" not in d) and ("n_latent_bin" in d):
+            d["ma_latent_default"] = jnp.ones(self.n_latent_bin)
+        if ("tuning_basis" not in d) and ("tuning_lengthscale" in d) and ("n_latent_bin" in d):
+            d["tuning_basis"] = generate_basis(
+                self.tuning_lengthscale,
+                self.n_latent_bin,
+                getattr(self, "explained_variance_threshold_basis", 0.999),
+                include_bias=True,
+                basis_type=getattr(self, "basis_type", "rbf"),
+                custom_kernel=getattr(self, "custom_tuning_kernel", None),
             )
-            self.n_basis = self.tuning_basis.shape[1]
+            d["n_basis"] = d["tuning_basis"].shape[1]
+
+        # Transition-kernel property backward-compat + cached log matrices
+        self._post_unpickle_fixup_transition_cache()
 
     def loglikelihood(self,y,ypred,hyperparam):
         return jax.scipy.stats.poisson.logpmf(y,ypred+1e-40)
@@ -1014,27 +1154,32 @@ class PoissonGPLVM1D(AbstractGPLVM1D):
     def __setstate__(self, state):
         """Custom unpickling - restore state, JIT function will be recreated in fit_em"""
         self.__dict__.update(state)
+        d = object.__getattribute__(self, "__dict__")
+
         # Backward-compat defaults (older pickles may not have these)
-        if not hasattr(self, 'custom_tuning_kernel'):
-            self.custom_tuning_kernel = None
-        if not hasattr(self, 'custom_transition_kernel'):
-            self.custom_transition_kernel = None
-        if not hasattr(self, 'basis_type'):
-            self.basis_type = 'rbf'
-        if not hasattr(self, 'possible_latent_bin') and hasattr(self, 'n_latent_bin'):
-            self.possible_latent_bin = jnp.arange(self.n_latent_bin)
-        if not hasattr(self, 'ma_neuron_default') and hasattr(self, 'n_neuron'):
-            self.ma_neuron_default = jnp.ones(self.n_neuron)
-        if not hasattr(self, 'ma_latent_default') and hasattr(self, 'n_latent_bin'):
-            self.ma_latent_default = jnp.ones(self.n_latent_bin)
-        if not hasattr(self, 'tuning_basis') and hasattr(self, 'tuning_lengthscale') and hasattr(self, 'n_latent_bin'):
-            self.tuning_basis = generate_basis(
-                self.tuning_lengthscale, self.n_latent_bin,
-                getattr(self, 'explained_variance_threshold_basis', 0.999),
-                include_bias=True, basis_type=getattr(self, 'basis_type', 'rbf'),
-                custom_kernel=getattr(self, 'custom_tuning_kernel', None)
+        if "custom_tuning_kernel" not in d:
+            d["custom_tuning_kernel"] = None
+        if "basis_type" not in d:
+            d["basis_type"] = "rbf"
+        if ("possible_latent_bin" not in d) and ("n_latent_bin" in d):
+            d["possible_latent_bin"] = jnp.arange(self.n_latent_bin)
+        if ("ma_neuron_default" not in d) and ("n_neuron" in d):
+            d["ma_neuron_default"] = jnp.ones(self.n_neuron)
+        if ("ma_latent_default" not in d) and ("n_latent_bin" in d):
+            d["ma_latent_default"] = jnp.ones(self.n_latent_bin)
+        if ("tuning_basis" not in d) and ("tuning_lengthscale" in d) and ("n_latent_bin" in d):
+            d["tuning_basis"] = generate_basis(
+                self.tuning_lengthscale,
+                self.n_latent_bin,
+                getattr(self, "explained_variance_threshold_basis", 0.999),
+                include_bias=True,
+                basis_type=getattr(self, "basis_type", "rbf"),
+                custom_kernel=getattr(self, "custom_tuning_kernel", None),
             )
-            self.n_basis = self.tuning_basis.shape[1]
+            d["n_basis"] = d["tuning_basis"].shape[1]
+
+        # Transition-kernel property backward-compat + cached log matrices
+        self._post_unpickle_fixup_transition_cache()
 
     def loglikelihood(self, y, ypred, hyperparam):
         return jax.scipy.stats.poisson.logpmf(y, ypred+1e-40)

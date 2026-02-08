@@ -27,8 +27,8 @@ import scipy.spatial
 import jax
 import jax.numpy as jnp
 import pandas as pd
-# import jlvm_trial_decoding as jtd
-
+import poor_man_gplvm.decoder_trial as pdt
+import pickle
 
 # =============================================================================
 # A) Transition estimation within epochs (latent-only, no forward-backward)
@@ -391,84 +391,132 @@ def rowwise_cross_entropy_loss(beta, S, P_star, w=None):
 # B) Decode under multiple transition kernels + compare marginal likelihood
 # =============================================================================
 
-# def decode_compare_transition_kernels(
-#     spk_list: Union[List[np.ndarray], np.ndarray],
-#     model,
-#     kernels: List[np.ndarray],
-#     *,
-#     kernel_names: Optional[List[str]] = None,
-#     decode_kwargs: Optional[Dict[str, Any]] = None,
-#     keep_posteriors: bool = False,
-# ) -> Dict[str, Any]:
-#     """
-#     Decode spk_list under multiple custom transition kernels and compare marginal likelihoods.
+def decode_compare_transition_kernels(
+    spk_tensor,
+    model,
+    continuous_transition_mat_d: Union[Dict[str, np.ndarray], List[np.ndarray]],
+    tensor_pad_mask=None,
+    *,
+    dt: float = 0.02,
+    gain: float = 1.0,
+    model_fit_dt: float = 0.1,
+    kernel_names: Optional[List[str]] = None,
+    keep_posteriors: bool = False,
+    neuron_mask=None,
+    ma_latent=None,
+    n_trial_per_chunk: int = 400,
+    prior_magnifier: float = 1.0,
+    return_numpy: bool = True,
+) -> Dict[str, Any]:
+    """
+    Decode trial-tensor spike counts under multiple *continuous/move* transition kernels
+    and compare marginal likelihoods.
 
-#     The custom kernel only affects the random-walk (non-jump) latent transition;
-#     the jump latent transition stays uniform, and move/jump switching is governed
-#     by p_move_to_jump / p_jump_to_move (unchanged).
+    The provided kernel only affects the continuous/move latent transition.
+    Jump latent transition stays uniform, and move/jump switching is governed
+    by p_move_to_jump / p_jump_to_move (unchanged, from the model).
 
-#     Parameters
-#     ----------
-#     spk_list : list of (T_i, n_neuron) arrays or single (T, n_neuron) array
-#         Spike counts per trial/event.
-#     model : PoissonGPLVMJump1D
-#         Trained model (will temporarily modify model.custom_transition_kernel).
-#     kernels : list of (K, K) arrays
-#         Custom transition kernels to compare. Will be normalized by gp_kernel helper.
-#     kernel_names : list of str, optional
-#         Names for each kernel; defaults to ["kernel_0", "kernel_1", ...].
-#     decode_kwargs : dict, optional
-#         Additional kwargs passed to decode_trials_padded_vmapped_poor_gplvm_backend_posteriors
-#         (e.g. model_fit_binsize, decode_binsize, gain, hyperparam, neuron_mask).
-#     keep_posteriors : bool
-#         If True, store posterior_latent_marginal_list for each kernel.
+    Parameters
+    ----------
+    spk_tensor : (n_trial, T_max, n_neuron) array
+        Spike counts per trial/event.
+    model : GPLVM jump model
+        Trained model. The function will **copy** it first, then set
+        `model_copy.custom_transition_kernel = kernel` for each kernel (this also refreshes
+        cached log-transition matrices).
+    continuous_transition_mat_d : dict or list
+        Either:
+        - dict: name -> (K, K) kernel
+        - list: list of (K, K) kernels (names auto-generated unless kernel_names is provided)
+    tensor_pad_mask : (n_trial, T_max, 1) bool, optional
+        If None, uses `model_copy.tensor_pad_mask`.
+    dt : float
+        Decode bin size (seconds). Passed to `decoder_trial.decode_trials_padded_vmapped`.
+    gain : float
+        Multiplicative gain on tuning (Hz) before converting to expected counts/bin.
+    model_fit_dt : float
+        Bin size (seconds) used when fitting `model.tuning`. If `model.tuning` is in
+        units of counts/bin, then tuning is converted to Hz by dividing by model_fit_dt.
+        Default 0.1.
+    kernel_names : list of str, optional
+        If provided, must match number of kernels and sets output ordering.
+    keep_posteriors : bool
+        If True, store posterior_latent_marginal_list for each kernel.
 
-#     Returns
-#     -------
-#     dict with:
-#         kernel_names : list of str
-#         log_marginal : dict, kernel_name -> (n_trial,) array of log marginal likelihoods
-#         log_marginal_total : dict, kernel_name -> sum of log_marginal across trials
-#         posteriors : dict (only if keep_posteriors=True), kernel_name -> posterior_latent_marginal_list
-#     """
-#     if kernel_names is None:
-#         kernel_names = [f"kernel_{i}" for i in range(len(kernels))]
-#     if len(kernel_names) != len(kernels):
-#         raise ValueError("kernel_names must have same length as kernels")
+    Returns
+    -------
+    dict with:
+        kernel_names : list of str
+        log_marginal : dict, kernel_name -> (n_trial,) array of log marginal likelihoods
+        log_marginal_total : dict, kernel_name -> sum of log_marginal across trials
+        posteriors (optional) : dict, kernel_name -> posterior_latent_marginal_list
+    """
+    if isinstance(continuous_transition_mat_d, dict):
+        if kernel_names is None:
+            kernel_names = list(continuous_transition_mat_d.keys())
+        kernels = [continuous_transition_mat_d[k] for k in kernel_names]
+    else:
+        kernels = list(continuous_transition_mat_d)
+        if kernel_names is None:
+            kernel_names = [f"kernel_{i}" for i in range(len(kernels))]
+    if len(kernel_names) != len(kernels):
+        raise ValueError("kernel_names must have same length as kernels")
 
-#     if decode_kwargs is None:
-#         decode_kwargs = {}
+    model_copy = pickle.loads(pickle.dumps(model))
 
-#     # save original kernel
-#     orig_kernel = getattr(model, "custom_transition_kernel", None)
+    tensor_pad_mask_ = tensor_pad_mask
+    if tensor_pad_mask_ is None:
+        tensor_pad_mask_ = getattr(model_copy, "tensor_pad_mask", None)
+    if tensor_pad_mask_ is None:
+        raise ValueError("tensor_pad_mask is required (argument or model.tensor_pad_mask)")
 
-#     log_marginal_d = {}
-#     log_marginal_total_d = {}
-#     posteriors_d = {}
+    if neuron_mask is None:
+        neuron_mask = getattr(model_copy, "neuron_mask", None)
+    if ma_latent is None:
+        ma_latent = getattr(model_copy, "ma_latent", None)
 
-#     try:
-#         for name, kernel in zip(kernel_names, kernels):
-#             model.custom_transition_kernel = kernel
-#             res = jtd.decode_trials_padded_vmapped_poor_gplvm_backend_posteriors(
-#                 spk_list, model, **decode_kwargs
-#             )
-#             lml = res["log_marginal"]
-#             log_marginal_d[name] = lml
-#             log_marginal_total_d[name] = float(np.sum(lml))
-#             if keep_posteriors:
-#                 posteriors_d[name] = res["posterior_latent_marginal_list"]
-#             print(f"[decode_compare_transition_kernels] {name}: log_marginal_total={log_marginal_total_d[name]:.2f}")
-#     finally:
-#         # restore original
-#         model.custom_transition_kernel = orig_kernel
+    tuning_hz = np.asarray(model_copy.tuning) / float(model_fit_dt)
 
-#     out = {
-#         "kernel_names": kernel_names,
-#         "log_marginal": log_marginal_d,
-#         "log_marginal_total": log_marginal_total_d,
-#     }
-#     if keep_posteriors:
-#         out["posteriors"] = posteriors_d
-#     return out
+    orig_kernel = getattr(model_copy, "custom_transition_kernel", None)
+
+    log_marginal_d = {}
+    log_marginal_total_d = {}
+    posteriors_d = {}
+
+    try:
+        for name, kernel in zip(kernel_names, kernels):
+            model_copy.custom_transition_kernel = kernel
+            res = pdt.decode_trials_padded_vmapped(
+                spk_tensor,
+                tuning_hz,
+                model_copy.log_latent_transition_kernel_l,
+                model_copy.log_dynamics_transition_kernel,
+                tensor_pad_mask=tensor_pad_mask_,
+                dt=dt,
+                gain=gain,
+                neuron_mask=neuron_mask,
+                ma_latent=ma_latent,
+                n_trial_per_chunk=n_trial_per_chunk,
+                prior_magnifier=prior_magnifier,
+                return_numpy=return_numpy,
+            )
+            lml = res["log_marginal"]
+            log_marginal_d[name] = lml
+            log_marginal_total_d[name] = float(np.sum(lml))
+            if keep_posteriors:
+                posteriors_d[name] = res["posterior_latent_marginal_list"]
+            print(f"[decode_compare_transition_kernels] {name}: log_marginal_total={log_marginal_total_d[name]:.2f}")
+    finally:
+        # restore original
+        model_copy.custom_transition_kernel = orig_kernel
+
+    out = {
+        "kernel_names": kernel_names,
+        "log_marginal": log_marginal_d,
+        "log_marginal_total": log_marginal_total_d,
+        
+    }
+    out.update(posteriors_d)
+    return out
 
 
