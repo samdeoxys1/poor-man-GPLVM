@@ -176,13 +176,23 @@ def transition_by_epoch(
 
     Returns
     -------
-    dict keyed by epoch name, each value is transition summary dict from
-    transition_from_posterior_in_intervalset.
+    dict of dicts with hierarchy `{key: {epoch_name: value}}`, where `key` is one of
+    the outputs of `transition_from_posterior_in_intervalset` (e.g. "counts", "trans_mat",
+    "row_mass", "n_steps_used").
     """
-    return {
+    by_epoch = {
         name: transition_from_posterior_in_intervalset(post_lat_tsd, iset)
         for name, iset in epoch_dict.items()
     }
+    if not by_epoch:
+        return {}
+
+    # flip to {key: {epoch: ...}} to avoid confusion downstream
+    keys = list(next(iter(by_epoch.values())).keys())
+    out = {}
+    for k in keys:
+        out[k] = {epoch: by_epoch[epoch][k] for epoch in by_epoch.keys()}
+    return out
 
 def transition_from_tuning_distance(tuning_fit,inverse_temperature=1.,metric='cosine'):
     '''
