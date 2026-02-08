@@ -514,7 +514,7 @@ def sweep_gain_shuffle_test_naive_bayes_marginal_l(
     max_gain=10,
     gain_step=2,
     train_frac=0.5,
-    train_seed=0,
+    train_seed=123,
     n_shuffle=100,
     sig_thresh=0.95,
     q_l=None,
