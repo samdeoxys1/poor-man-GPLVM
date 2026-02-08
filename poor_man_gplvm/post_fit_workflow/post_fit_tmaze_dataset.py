@@ -765,6 +765,7 @@ def analyze_replay_unsupervised(
     behavior_kwargs=None,
     gain_sweep_kwargs=None,
     decode_compare_kwargs=None,
+    nb_decode_kwargs=None,
     verbose=True,
 ):
     '''
@@ -848,12 +849,19 @@ def analyze_replay_unsupervised(
     if decode_compare_kwargs is not None:
         decode_compare_kwargs_.update(dict(decode_compare_kwargs))
 
+    nb_decode_kwargs_ = {
+        'n_time_per_chunk': 20000,
+    }
+    if nb_decode_kwargs is not None:
+        nb_decode_kwargs_.update(dict(nb_decode_kwargs))
+
     hyperparams = {
         'pbe_bin_size': float(pbe_bin_size),
         'pbe_kwargs': pbe_kwargs_,
         'behavior_kwargs': behavior_kwargs_,
         'gain_sweep_kwargs': gain_sweep_kwargs_,
         'decode_compare_kwargs': decode_compare_kwargs_,
+        'nb_decode_kwargs': nb_decode_kwargs_,
         'save_dir': str(save_dir),
         'save_fn': str(save_fn),
         'data_dir_full': str(data_dir_full),
@@ -966,9 +974,33 @@ def analyze_replay_unsupervised(
     if bool(verbose):
         print(f'[analyze_replay_unsupervised] best_gain={best_gain:.6g}')
 
-    # ---- 6) decode PBE under behavior-specific transitions ----
+    # ---- 6) naive-bayes decode PBE (no dynamics) ----
     if bool(verbose):
-        print('[analyze_replay_unsupervised] 6/6 decode PBE under behavior-specific transitions')
+        print('[analyze_replay_unsupervised] NB decode (naive bayes, no dynamics)')
+    tuning_hz = np.asarray(model_fit.tuning) / float(model_fit_dt)
+    nb_dt = float(binsize) * float(best_gain)
+    nb_decode_res = model_fit.decode_latent_naive_bayes(
+        spk_mat_pbe,
+        tuning=tuning_hz,
+        dt_l=nb_dt,
+        n_time_per_chunk=int(nb_decode_kwargs_['n_time_per_chunk']),
+    )  # output
+    nb_decode_res['meta'] = {
+        'model_fit_dt': float(model_fit_dt),
+        'dt': float(binsize),
+        'gain': float(best_gain),
+        'dt_used_in_nb': float(nb_dt),
+        'tuning_scaled_as': 'tuning_hz = model_fit.tuning / model_fit_dt; dt_l = dt * gain',
+    }
+    if bool(verbose):
+        try:
+            print(f"[analyze_replay_unsupervised] NB posterior shape: {np.asarray(nb_decode_res['posterior_latent']).shape}")
+        except Exception:
+            pass
+
+    # ---- 7) decode PBE under behavior-specific transitions ----
+    if bool(verbose):
+        print('[analyze_replay_unsupervised] decode PBE under behavior-specific transitions')
     pbe_compare_transition_res = trans.decode_compare_transition_kernels(
         spk_tensor,
         model_fit,
@@ -993,6 +1025,7 @@ def analyze_replay_unsupervised(
         'trans_mat_d': trans_mat_d,  # output
         'sweep_gain_res': sweep_gain_res,  # output
         'best_gain': best_gain,  # output
+        'nb_decode_res': nb_decode_res,  # output
         'pbe_compare_transition_res': pbe_compare_transition_res,  # output
         'event_df_joint': event_df_joint,  # output
     }
