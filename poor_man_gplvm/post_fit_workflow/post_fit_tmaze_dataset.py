@@ -779,6 +779,15 @@ def analyze_replay_unsupervised(
     - sweep gain on shuffle test to find best gain
     - decode with transition per behavior type
     - gather unsupervised replay classification + shuffle test significance (without dynamics)
+
+    prep_res dictionary contains:
+    - spk_mat: n_time x n_neuron
+    - position_tsdf: nap.TsdFrame, position in x,y
+    - speed_tsd: nap.TsdFrame, speed in x,y
+    - spk_times: nap.TsdFrame, spike times
+    - ep_full: nap.IntervalSet, full episode intervals
+    - sleep_ep: nap.IntervalSet, sleep episode intervals
+    - ripple_intervals: nap.IntervalSet, ripple intervals
     '''
     def _json_default(o):
         try:
