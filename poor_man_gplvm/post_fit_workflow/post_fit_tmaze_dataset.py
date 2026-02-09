@@ -831,6 +831,11 @@ def analyze_replay_unsupervised(
         'min_duration': 0.05,
         'max_duration': 0.5,
         'return_population_rate': False,
+        # allow override:
+        # - ep=None -> use ep_full (default behavior)
+        # - threshold_ep=None -> use sleep_ep (default behavior)
+        'ep': None,
+        'threshold_ep': None,
         'save_dir': os.path.join(str(data_dir_full), 'py_data'),
         'save_fn': 'pbe.pkl',
         'force_reload': False,
@@ -926,11 +931,13 @@ def analyze_replay_unsupervised(
         if bool(verbose):
             print('[analyze_replay_unsupervised] 1/6 detect PBE')
         spk_times_pyr = spk_times[spk_times['is_pyr']]
+        ep_use = ep_full if (pbe_kwargs_.get('ep', None) is None) else pbe_kwargs_['ep']
+        threshold_ep_use = sleep_ep if (pbe_kwargs_.get('threshold_ep', None) is None) else pbe_kwargs_['threshold_ep']
         pbe_res = gew.detect_population_burst_event(
             spk_times_pyr,
             mask=None,
-            ep=ep_full,
-            threshold_ep=sleep_ep,
+            ep=ep_use,
+            threshold_ep=threshold_ep_use,
             bin_size=float(pbe_kwargs_['bin_size']),
             smooth_std=float(pbe_kwargs_['smooth_std']),
             z_thresh=float(pbe_kwargs_['z_thresh']),
@@ -1282,6 +1289,11 @@ def analyze_replay_supervised(
         'min_duration': 0.05,
         'max_duration': 0.5,
         'return_population_rate': False,
+        # allow override:
+        # - ep=None -> use ep_full (default behavior)
+        # - threshold_ep=None -> use sleep_ep (default behavior)
+        'ep': None,
+        'threshold_ep': None,
         'save_dir': os.path.join(str(data_dir_full), 'py_data'),
         'save_fn': 'pbe.pkl',
         'force_reload': False,
@@ -1413,11 +1425,13 @@ def analyze_replay_supervised(
         # ---- 2) PBE detection (cache-aware) ----
         if bool(verbose):
             print('[analyze_replay_supervised] 2/6 detect PBE')
+        ep_use = ep_full if (pbe_kwargs_.get('ep', None) is None) else pbe_kwargs_['ep']
+        threshold_ep_use = sleep_ep if (pbe_kwargs_.get('threshold_ep', None) is None) else pbe_kwargs_['threshold_ep']
         pbe_res = gew.detect_population_burst_event(
             spk_times_pyr,
             mask=None,
-            ep=ep_full,
-            threshold_ep=sleep_ep,
+            ep=ep_use,
+            threshold_ep=threshold_ep_use,
             bin_size=float(pbe_kwargs_['bin_size']),
             smooth_std=float(pbe_kwargs_['smooth_std']),
             z_thresh=float(pbe_kwargs_['z_thresh']),
