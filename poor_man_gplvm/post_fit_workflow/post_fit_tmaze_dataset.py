@@ -1305,7 +1305,7 @@ def analyze_replay_supervised(
         gain_sweep_kwargs_.update(dict(gain_sweep_kwargs))
 
     decode_kwargs_ = {
-        'continuous_transition_movement_variance': 1.0,
+        'continuous_transition_movement_variance': 10.,
         'p_move_to_jump': 0.02,
         'p_jump_to_move': 0.02,
         'n_time_per_chunk': 20000,
