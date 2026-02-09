@@ -81,10 +81,15 @@ def detect_population_burst_event(spike_times, mask=None, ep=None, threshold_ep=
         analysis_ep = ep.union(threshold_ep)
 
     print(f'Counting spikes in bins...')
-    spike_counts = spike_times.count(bin_size=bin_size, ep=analysis_ep)
+    # spike_counts = spike_times.count(bin_size=bin_size, ep=analysis_ep)
     
     # Sum across all units to get population rate
-    population_rate = spike_counts.sum(axis=1)
+    # population_rate = spike_counts.sum(axis=1)
+
+    # after applying mask to spike_times (TsGroup)
+    t_all = np.sort(np.concatenate([spike_times[k].t for k in spike_times.keys()]))
+    spike_times_all = nap.Ts(t=t_all)
+    population_rate = spike_times_all.count(bin_size=bin_size, ep=analysis_ep)
     
     # Smooth the population rate
     population_rate_smooth = population_rate.smooth(std=smooth_std)
