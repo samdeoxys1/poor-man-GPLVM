@@ -787,7 +787,7 @@ def analyze_replay_unsupervised(
     force_reload:
     - False: load cached if exists; if final_gain is provided and differs from cached decode gain, redo decode-stage only
     - 'decode': redo decode-stage only (shuffle-test + decoding), reuse cached base if available
-    - True or 'all': recompute everything (as before)
+    - True or 'all': recompute everything (base + sweep + decode). If final_gain is provided, decode uses final_gain but sweep is still recomputed (reported in sweep_gain_res).
 
     prep_res dictionary contains:
     - spk_mat: n_time x n_neuron
@@ -1130,10 +1130,17 @@ def analyze_replay_unsupervised(
     # full recompute (reload_mode == 'all' or no cache)
     base_res = _compute_base()
 
-    if final_gain is None:
-        # ---- 5) gain sweep for shuffle test (unchanged) ----
+    # ---- 5) gain sweep for shuffle test ----
+    # In force_reload='all' mode, we recompute sweep even if final_gain is provided
+    # (final_gain still overrides gain used for decode-stage).
+    do_sweep = (final_gain is None) or (reload_mode == 'all')
+    sweep_keep = None
+    if bool(do_sweep):
         if bool(verbose):
-            print('[analyze_replay_unsupervised] 5/6 sweep gain (shuffle test)')
+            if final_gain is None:
+                print('[analyze_replay_unsupervised] 5/6 sweep gain (shuffle test)')
+            else:
+                print('[analyze_replay_unsupervised] 5/6 sweep gain (shuffle test; final_gain override enabled)')
         spk_tensor_res = base_res['spk_tensor_res']
         sweep_gain_res = shuf.sweep_gain_shuffle_test_naive_bayes_marginal_l(
             spk_tensor_res['spike_mat'],
@@ -1158,15 +1165,20 @@ def analyze_replay_unsupervised(
             save_fn=str(gain_sweep_kwargs_['save_fn']),
             return_full_res=bool(gain_sweep_kwargs_['return_full_res']),
         )  # output
-        gain_used = float(sweep_gain_res['best_gain'])
         sweep_keep = sweep_gain_res
         if bool(verbose):
-            print(f'[analyze_replay_unsupervised] best_gain={gain_used:.6g}')
+            print(f'[analyze_replay_unsupervised] sweep best_gain={float(sweep_gain_res["best_gain"]):.6g}')
+
+    if final_gain is None:
+        if sweep_keep is None:
+            raise ValueError('internal error: expected sweep_keep when final_gain is None')
+        gain_used = float(sweep_keep['best_gain'])
+        if bool(verbose):
+            print(f'[analyze_replay_unsupervised] gain_used(best_gain)={gain_used:.6g}')
     else:
         gain_used = float(final_gain)
-        sweep_keep = None
         if bool(verbose):
-            print(f'[analyze_replay_unsupervised] final_gain provided; skip sweep; gain_used={gain_used:.6g}')
+            print(f'[analyze_replay_unsupervised] gain_used(final_gain)={gain_used:.6g}')
 
     decode_stage = _compute_decode_stage(base_res, gain_used, sweep_gain_res_keep=sweep_keep)
 
@@ -1234,7 +1246,7 @@ def analyze_replay_supervised(
     force_reload:
     - False: load cached if exists; if final_gain is provided and differs from cached decode gain, redo decode-stage only
     - 'decode': redo decode-stage only (shuffle-test + decoding + replay metrics), reuse cached base if available
-    - True or 'all': recompute everything (as before)
+    - True or 'all': recompute everything (base + sweep + decode). If final_gain is provided, decode uses final_gain but sweep is still recomputed (reported in sweep_gain_res).
     '''
 
     def _json_default(o):
@@ -1573,10 +1585,17 @@ def analyze_replay_supervised(
     # full recompute (reload_mode == 'all' or no cache)
     base_res = _compute_base()
 
-    if final_gain is None:
-        # ---- gain sweep (unchanged) ----
+    # ---- gain sweep ----
+    # In force_reload='all' mode, we recompute sweep even if final_gain is provided
+    # (final_gain still overrides gain used for decode-stage).
+    do_sweep = (final_gain is None) or (reload_mode == 'all')
+    sweep_keep = None
+    if bool(do_sweep):
         if bool(verbose):
-            print('[analyze_replay_supervised] 4/6 sweep gain (shuffle test)')
+            if final_gain is None:
+                print('[analyze_replay_supervised] 4/6 sweep gain (shuffle test)')
+            else:
+                print('[analyze_replay_supervised] 4/6 sweep gain (shuffle test; final_gain override enabled)')
         decoding_kwargs_nb = {} if gain_sweep_kwargs_['decoding_kwargs'] is None else dict(gain_sweep_kwargs_['decoding_kwargs'])
         if 'n_time_per_chunk' not in decoding_kwargs_nb:
             decoding_kwargs_nb['n_time_per_chunk'] = int(decode_kwargs_['n_time_per_chunk'])
@@ -1604,15 +1623,20 @@ def analyze_replay_supervised(
             save_fn='sweep_gain_shuffle_test_supervised_nb.pkl',
             return_full_res=bool(gain_sweep_kwargs_['return_full_res']),
         )  # output
-        gain_used = float(sweep_gain_res['best_gain'])
         sweep_keep = sweep_gain_res
         if bool(verbose):
-            print(f'[analyze_replay_supervised] best_gain={gain_used:.6g}')
+            print(f'[analyze_replay_supervised] sweep best_gain={float(sweep_gain_res["best_gain"]):.6g}')
+
+    if final_gain is None:
+        if sweep_keep is None:
+            raise ValueError('internal error: expected sweep_keep when final_gain is None')
+        gain_used = float(sweep_keep['best_gain'])
+        if bool(verbose):
+            print(f'[analyze_replay_supervised] gain_used(best_gain)={gain_used:.6g}')
     else:
         gain_used = float(final_gain)
-        sweep_keep = None
         if bool(verbose):
-            print(f'[analyze_replay_supervised] final_gain provided; skip sweep; gain_used={gain_used:.6g}')
+            print(f'[analyze_replay_supervised] gain_used(final_gain)={gain_used:.6g}')
 
     decode_stage = _compute_decode_stage(base_res, gain_used, sweep_gain_res_keep=sweep_keep)
 
