@@ -26,9 +26,12 @@ def get_ang_vel_tsd(position_tsdf: nap.TsdFrame, *, smooth_win: float = 0.1, min
     ang_vel_tsd = nap.Tsd(t=vel_tsdf.t, d=omega, time_support=vel_tsdf.time_support)
     return ang_vel_tsd
 
-def get_dist_to_maze(position_tsdf, method='from_lin', *, lin_round=0.1):
-# position_tsdf: nap.TsdFrame with columns ['x','y','lin'] (lin = linearized position)
-    maze_xy_sampled = get_maze_xy_sampled(position_tsdf[["x", "y", "lin"]], method=method, lin_round=lin_round)
+def get_dist_to_maze(position_tsdf, method='roman_tmaze_projected', *, lin_round=0.1):
+    # position_tsdf: nap.TsdFrame with columns ['x','y'] (and optionally 'lin' if method='from_lin')
+    if method == 'from_lin':
+        maze_xy_sampled = get_maze_xy_sampled(position_tsdf[["x", "y", "lin"]], method=method, lin_round=lin_round)
+    else:
+        maze_xy_sampled = get_maze_xy_sampled(position_tsdf[["x", "y"]], method=method, lin_round=lin_round)
 
     xy = position_tsdf[["x", "y"]].to_numpy()
     dist_to_maze = np.min(scipy_distance.cdist(xy, maze_xy_sampled), axis=1)
@@ -42,7 +45,7 @@ def detect_offmaze_ep(
     maze_xy_sampled: np.ndarray | None = None,
     dist_to_maze_tsd: nap.Tsd | None = None,
     ang_vel_tsd: nap.Tsd | None = None,
-    method: str = "from_lin",
+    method: str = "roman_tmaze_projected",
     lin_round: float = 0.1,
     off_maze_thresh: float = 5.0,
     on_maze_thresh: float = 1.0,
@@ -58,12 +61,15 @@ def detect_offmaze_ep(
       - optionally (if start_end_dist_thresh is not None): candidate windows must have start-end xy distance <= start_end_dist_thresh
     """
     if position_tsdf is None:
-        raise ValueError("position_tsdf must be provided (nap.TsdFrame with ['x','y','lin']).")
+        raise ValueError("position_tsdf must be provided (nap.TsdFrame with ['x','y'] and 'lin' if method='from_lin').")
     if off_maze_thresh <= on_maze_thresh:
         raise ValueError(f"Require off_maze_thresh > on_maze_thresh; got {off_maze_thresh} <= {on_maze_thresh}")
 
     if maze_xy_sampled is None:
-        maze_xy_sampled = get_maze_xy_sampled(position_tsdf[["x", "y", "lin"]], method=method, lin_round=lin_round)
+        if method == 'from_lin':
+            maze_xy_sampled = get_maze_xy_sampled(position_tsdf[["x", "y", "lin"]], method=method, lin_round=lin_round)
+        else:
+            maze_xy_sampled = get_maze_xy_sampled(position_tsdf[["x", "y"]], method=method, lin_round=lin_round)
     if dist_to_maze_tsd is None:
         xy = position_tsdf[["x", "y"]].to_numpy()
         dist_to_maze = np.min(scipy_distance.cdist(xy, maze_xy_sampled), axis=1)
@@ -153,7 +159,7 @@ def get_behavior_ep_d(
     position_tsdf: nap.TsdFrame,
     speed_tsd: nap.Tsd,
     *,
-    offmaze_method: str = "from_lin",
+    offmaze_method: str = "roman_tmaze_projected",
     speed_immo_thresh: float = 2.5,
     speed_loco_thresh: float = 5.0,
     **offmaze_kwargs,
@@ -188,7 +194,7 @@ def debug_offmaze_res(
     maze_xy_sampled: np.ndarray | None = None,
     dist_to_maze_tsd: nap.Tsd | None = None,
     ang_vel_tsd: nap.Tsd | None = None,
-    method: str = "from_lin",
+    method: str = "roman_tmaze_projected",
     lin_round: float = 0.1,
     off_maze_thresh: float = 5.0,
     on_maze_thresh: float = 1.0,
@@ -209,7 +215,10 @@ def debug_offmaze_res(
       - ep_high_ang_vel: nap.IntervalSet (|ang_vel| > ang_vel_thresh) or None
     """
     if maze_xy_sampled is None:
-        maze_xy_sampled = get_maze_xy_sampled(position_tsdf[["x", "y", "lin"]], method=method, lin_round=lin_round)
+        if method == 'from_lin':
+            maze_xy_sampled = get_maze_xy_sampled(position_tsdf[["x", "y", "lin"]], method=method, lin_round=lin_round)
+        else:
+            maze_xy_sampled = get_maze_xy_sampled(position_tsdf[["x", "y"]], method=method, lin_round=lin_round)
     if dist_to_maze_tsd is None:
         xy = position_tsdf[["x", "y"]].to_numpy()
         dist_to_maze = np.min(scipy_distance.cdist(xy, maze_xy_sampled), axis=1)
@@ -284,7 +293,7 @@ def debug_offmaze_res(
 def get_maze_xy_sampled(
     xy: np.ndarray | nap.TsdFrame | None,
     *,
-    method: str = "from_lin",
+    method: str = "roman_tmaze_projected",
     place_bin_size: float = 1.0,
     lin_round: float = 0.1,
     do_plot: bool = False,
@@ -301,10 +310,10 @@ def get_maze_xy_sampled(
         Array of shape (n, 2) with [x, y] positions, or nap.TsdFrame with 'x', 'y' columns
         If None, will generate samples directly from the (hard-coded) maze geometry.
     method : str
-        - 'from_lin': **preferred** if you have `position_tsdf['lin']`. Samples unique
-          linearized position bins (via rounding) and uses the median x/y for each bin.
-        - 'roman_tmaze_projected': uses a hard-coded Roman tmaze track graph, then calls
+        - 'roman_tmaze_projected': (**default**) uses a hard-coded Roman tmaze track graph, then calls
           `track_linearization.get_linearized_position(...)` and samples unique projected xy.
+        - 'from_lin': uses `position_tsdf['lin']` (if available). Samples unique linearized
+          position bins (via rounding) and uses the median x/y for each bin.
         - 'roman_tmaze_edges': purely geometric sampling along the hard-coded Roman tmaze
           edges (no linearization); mainly for debugging / fallback when you really don't
           have `lin`, but beware coordinate mismatches across datasets.

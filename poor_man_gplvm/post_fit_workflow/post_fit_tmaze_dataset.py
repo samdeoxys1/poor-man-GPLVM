@@ -813,7 +813,7 @@ def analyze_replay_unsupervised(
         pbe_kwargs_.update(dict(pbe_kwargs))
 
     behavior_kwargs_ = {
-        'offmaze_method': 'from_lin',
+        'offmaze_method': 'roman_tmaze_projected',
         'speed_immo_thresh': 2.5,
         'speed_loco_thresh': 5.0,
     }
