@@ -753,6 +753,7 @@ def get_null_contrastive_projection(spk_mat,tuning_fit,posterior_latent_map,jump
 
 
 def analyze_replay_unsupervised(
+    model_fit,  
     prep_res,
     pbe_bin_size=0.02,
     data_dir_full='./',
@@ -874,7 +875,6 @@ def analyze_replay_unsupervised(
     t0 = time.perf_counter()
 
     # ---- pull inputs ----
-    model_fit = prep_res['model_fit']
     spk_mat = prep_res['spk_mat']
     position_tsdf = prep_res['position_tsdf']
     speed_tsd = prep_res['speed_tsd']

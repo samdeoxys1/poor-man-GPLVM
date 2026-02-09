@@ -1,0 +1,27 @@
+---
+description: Avoid '*' in Python function signatures (copy/paste friendly)
+globs: **/*.py
+alwaysApply: false
+---
+
+# No `*` in function headers
+
+Avoid using `*` (keyword-only separator) in Python function signatures. It makes quick copy/paste of functions into notebooks/scripts annoying (positional args won’t work unless you also copy callsites).
+
+## Prefer
+
+```python
+def my_func(a, b, force_reload=False, dosave=True, save_dir=None, foo_kwargs=None):
+    foo_kwargs_ = {'force_reload': False, 'dosave': True}
+    if foo_kwargs is not None:
+        foo_kwargs_.update(dict(foo_kwargs))
+    # ...
+```
+
+## Avoid
+
+```python
+def my_func(a, b, *, force_reload=False, dosave=True, save_dir=None, foo_kwargs=None):
+    ...
+```
+
