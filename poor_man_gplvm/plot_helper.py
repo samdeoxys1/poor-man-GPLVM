@@ -23,7 +23,7 @@ plt.rcParams['image.interpolation'] = 'nearest'
 
 
 
-def save_fig(fig,fig_name,fig_dir='./figs',fig_format=['png','svg'],dpi=300,do_close=False,bbox_inches=None, text_to_save=None):
+def save_fig(fig,fig_name,fig_dir='./figs',fig_format=['png','svg'],dpi=300,do_close=False,bbox_inches='tight', text_to_save=None):
     '''
     save figure to fig_dir
     '''
