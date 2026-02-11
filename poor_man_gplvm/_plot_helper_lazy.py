@@ -304,8 +304,7 @@ def plot_replay_sup_unsup_event(
     dynamics_vmax_q=0.99,
     dynamics_line_kwargs=None,
     sup_2d_plot_colorbar=True,
-    sup_2d_cbar_bbox=(0, -0.04, 1, 0.10),
-    sup_2d_cbar_width='70%',
+    sup_2d_cbar_bbox=(0, 0, 1, 0.05),
     sup_2d_cbar_thickness=None,
     time_scalebar=True,
 ):
@@ -332,7 +331,6 @@ def plot_replay_sup_unsup_event(
     - sup_2d_cbar_bbox: (x0, y0, w, h) in trajectory axis axes coords. Default (0, -0.04, 1, 0.10).
       y0 = vertical position (lower = further below). w = span along axis (1 = full width). h = thickness if sup_2d_cbar_thickness not set.
     - sup_2d_cbar_thickness: height (thickness) of the horizontal bar in axes coords, e.g. 0.06 or 0.12. Overrides bbox[3] when set.
-    - sup_2d_cbar_width: horizontal length of the bar within the bbox, e.g. '70%' or 0.8.
 
     Returns
     -------
@@ -694,7 +692,7 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
                     bbox[3] = float(sup_2d_cbar_thickness)
                 cax = inset_locator.inset_axes(
                     ax_sup_traj,
-                    width=sup_2d_cbar_width,
+                    width='100%',
                     height='100%',
                     loc='lower center',
                     bbox_to_anchor=tuple(bbox),
