@@ -306,6 +306,7 @@ def plot_replay_sup_unsup_event(
     sup_2d_plot_colorbar=True,
     sup_2d_cbar_bbox=(0, 0, 1, 0.05),
     sup_2d_cbar_thickness=None,
+    sup_2d_cbar_tie_time_axis=False,
     time_scalebar=True,
 ):
     """
@@ -331,6 +332,7 @@ def plot_replay_sup_unsup_event(
     - sup_2d_cbar_bbox: (x0, y0, w, h) in trajectory axis axes coords. Default (0, -0.04, 1, 0.10).
       y0 = vertical position (lower = further below). w = span along axis (1 = full width). h = thickness if sup_2d_cbar_thickness not set.
     - sup_2d_cbar_thickness: height (thickness) of the horizontal bar in axes coords, e.g. 0.06 or 0.12. Overrides bbox[3] when set.
+    - sup_2d_cbar_tie_time_axis: if True, progress bar uses same horizontal position/width as time panels and xlim(st, ed) so it aligns with time axis; requires at least one time panel.
 
     Returns
     -------
@@ -682,28 +684,48 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
         if bool(sup_2d_plot_colorbar):
             try:
                 cmap_name = sup_2d_kwargs_.get('cmap_name', 'plasma')
-                norm = mpl.colors.Normalize(0, 1)
-                sm = mpl.cm.ScalarMappable(cmap=plt.get_cmap(cmap_name), norm=norm)
-                sm.set_array([])
-                bbox = list(tuple(sup_2d_cbar_bbox))
-                if len(bbox) != 4:
-                    bbox = [0, -0.04, 1, 0.10]
-                if sup_2d_cbar_thickness is not None:
-                    bbox[3] = float(sup_2d_cbar_thickness)
-                cax = inset_locator.inset_axes(
-                    ax_sup_traj,
-                    width='100%',
-                    height='100%',
-                    loc='lower center',
-                    bbox_to_anchor=tuple(bbox),
-                    bbox_transform=ax_sup_traj.transAxes,
-                    borderpad=0,
-                )
-                cbar = fig.colorbar(sm, cax=cax, orientation='horizontal')
-                cbar.set_ticks([0.0, 1.0])
-                cbar.set_ticklabels(['early', 'late'])
-                cbar.ax.tick_params(axis='x', which='both', length=0)
-                cbar.outline.set_visible(False)
+                ref_time_ax = ax_sup_dyn if (ax_sup_dyn is not None) else (ax_uns_lat if (ax_uns_lat is not None) else ax_uns_dyn)
+                tie_time = bool(sup_2d_cbar_tie_time_axis) and (ref_time_ax is not None) and (st is not None) and (ed is not None)
+                if tie_time:
+                    # same horizontal extent as time panel; x in time so bar length = time axis
+                    pos_time = ref_time_ax.get_position()
+                    pos_traj = ax_sup_traj.get_position()
+                    thickness = 0.015 if sup_2d_cbar_thickness is None else float(sup_2d_cbar_thickness)
+                    gap = 0.008
+                    y0 = pos_traj.y0 - thickness - gap
+                    cax = fig.add_axes([pos_time.x0, y0, pos_time.width, thickness])
+                    cax.set_xlim(st, ed)
+                    cax.set_ylim(0, 1)
+                    grad = np.linspace(0, 1, 256).reshape(1, -1)
+                    cax.imshow(grad, aspect='auto', cmap=plt.get_cmap(cmap_name), extent=[st, ed, 0, 1], interpolation=None)
+                    cax.set_yticks([])
+                    cax.set_xticks([st, ed])
+                    cax.set_xticklabels(['early', 'late'])
+                    cax.tick_params(axis='x', which='both', length=0)
+                    cax.spines[:].set_visible(False)
+                else:
+                    norm = mpl.colors.Normalize(0, 1)
+                    sm = mpl.cm.ScalarMappable(cmap=plt.get_cmap(cmap_name), norm=norm)
+                    sm.set_array([])
+                    bbox = list(tuple(sup_2d_cbar_bbox))
+                    if len(bbox) != 4:
+                        bbox = [0, -0.04, 1, 0.10]
+                    if sup_2d_cbar_thickness is not None:
+                        bbox[3] = float(sup_2d_cbar_thickness)
+                    cax = inset_locator.inset_axes(
+                        ax_sup_traj,
+                        width='100%',
+                        height='100%',
+                        loc='lower center',
+                        bbox_to_anchor=tuple(bbox),
+                        bbox_transform=ax_sup_traj.transAxes,
+                        borderpad=0,
+                    )
+                    cbar = fig.colorbar(sm, cax=cax, orientation='horizontal')
+                    cbar.set_ticks([0.0, 1.0])
+                    cbar.set_ticklabels(['early', 'late'])
+                    cbar.ax.tick_params(axis='x', which='both', length=0)
+                    cbar.outline.set_visible(False)
             except Exception:
                 pass
         out_axs.append(ax_sup_traj)
