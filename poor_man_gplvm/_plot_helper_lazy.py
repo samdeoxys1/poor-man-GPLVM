@@ -14,6 +14,7 @@ import matplotlib.colors as mcolors
 import pynapple as nap
 
 import poor_man_gplvm.plot_helper as ph
+import mpl_toolkits.axes_grid1.inset_locator as inset_locator
 
 
 def _sec_to_hms_str(t_s, *, decimals=2):
@@ -278,11 +279,15 @@ def plot_replay_sup_unsup_event(
     plot_unsup_dynamics=True,
     layout='two_col',
     dynamics_col=None,
+    time_panel_order=None,
     fig=None,
     axs=None,
     figsize=(10, 6),
     width_ratios=(1.25, 1.0),
     height_ratios=None,
+    traj_box_aspect=1.0,
+    traj_inset=True,
+    traj_inset_frac=0.92,
     title_fontsize=10,
     title_wrap_width=110,
     sup_2d_kwargs=None,
@@ -311,6 +316,9 @@ def plot_replay_sup_unsup_event(
     - layout='two_col': 2 columns x 2 rows
       left: supervised trajectory, supervised dynamics
       right: unsup latent, unsup dynamics
+    - layout='time_col': 2 columns with independent widths
+      left: supervised trajectory only (2D; square-ish)
+      right: all time-based panels stacked (same width)
     - layout='one_col': 1 column stacked panels
       unsup latent, unsup dynamics, sup trajectory, sup dynamics
 
@@ -438,6 +446,7 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
     # ---- axes allocation ----
     axs_flat = _flatten_axs(axs)
     out_axs = []
+    ax_sup_traj_container = None
 
     if axs_flat is not None:
         need = int(has_sup_traj) + int(has_sup_dyn) + int(has_unsup_lat) + int(has_unsup_dyn)
@@ -460,6 +469,8 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
             layout_ = str(layout).lower()
             if height_ratios is None:
                 if layout_ == 'two_col':
+                    height_ratios_use = (1.0, 1.0)
+                elif layout_ == 'time_col':
                     height_ratios_use = (1.0, 1.0)
                 elif layout_ == 'one_col':
                     height_ratios_use = tuple([1.0] * max(1, n_panels_req))
@@ -496,21 +507,96 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
                 time_ref = ax_uns_lat or ax_uns_dyn
                 ax_sup_dyn = fig.add_subplot(gs[rr, 0], sharex=time_ref) if has_sup_dyn else None
             else:
-                # two_col default
+                # two_col + time_col layouts
                 fig = plt.figure(figsize=figsize, constrained_layout=True)
-                gs = gridspec.GridSpec(
-                    nrows=2,
-                    ncols=2,
-                    figure=fig,
-                    width_ratios=tuple(width_ratios),
-                    height_ratios=height_ratios_use if len(height_ratios_use) == 2 else (1.0, 1.0),
-                )
-                ax_sup_traj = fig.add_subplot(gs[0, 0]) if has_sup_traj else None
-                # pick a time reference axis for sharing among time panels only
-                ax_uns_lat = fig.add_subplot(gs[0, 1]) if has_unsup_lat else None
-                ax_uns_dyn = fig.add_subplot(gs[1, 1], sharex=ax_uns_lat) if has_unsup_dyn else None
-                time_ref = ax_uns_lat or ax_uns_dyn
-                ax_sup_dyn = fig.add_subplot(gs[1, 0], sharex=time_ref) if has_sup_dyn else None
+                if layout_ == 'time_col':
+                    # left column: 2D trajectory (independent width, square-ish)
+                    # right column: all time panels stacked (same width)
+                    gs_outer = gridspec.GridSpec(
+                        nrows=1,
+                        ncols=2,
+                        figure=fig,
+                        width_ratios=tuple(width_ratios),
+                    )
+                    ax_sup_traj = fig.add_subplot(gs_outer[0, 0]) if has_sup_traj else None
+
+                    # decide time panel order
+                    if time_panel_order is None:
+                        time_panel_order_use = ('sup_dyn', 'unsup_lat', 'unsup_dyn')
+                    else:
+                        time_panel_order_use = tuple(time_panel_order)
+
+                    # map keys -> required axes
+                    key_to_on = {
+                        'sup_dyn': bool(has_sup_dyn),
+                        'unsup_lat': bool(has_unsup_lat),
+                        'unsup_dyn': bool(has_unsup_dyn),
+                    }
+                    keys = [k for k in time_panel_order_use if key_to_on.get(k, False)]
+                    if len(keys) == 0:
+                        # still create an empty time axis so layout is stable
+                        keys = ['_empty_time']
+
+                    if height_ratios is None:
+                        height_ratios_time = [1.0] * len(keys)
+                    else:
+                        height_ratios_time = list(height_ratios)
+                        if len(height_ratios_time) != len(keys):
+                            height_ratios_time = [1.0] * len(keys)
+
+                    gs_time = gridspec.GridSpecFromSubplotSpec(
+                        nrows=len(keys),
+                        ncols=1,
+                        subplot_spec=gs_outer[0, 1],
+                        height_ratios=height_ratios_time,
+                    )
+
+                    ax_time_ref = None
+                    ax_sup_dyn = None
+                    ax_uns_lat = None
+                    ax_uns_dyn = None
+                    for ii, k in enumerate(keys):
+                        sharex = ax_time_ref if ax_time_ref is not None else None
+                        ax_i = fig.add_subplot(gs_time[ii, 0], sharex=sharex)
+                        if ax_time_ref is None:
+                            ax_time_ref = ax_i
+                        if k == 'sup_dyn':
+                            ax_sup_dyn = ax_i
+                        elif k == 'unsup_lat':
+                            ax_uns_lat = ax_i
+                        elif k == 'unsup_dyn':
+                            ax_uns_dyn = ax_i
+                        else:
+                            ax_i.set_axis_off()
+                else:
+                    # two_col default: 2x2 grid
+                    gs = gridspec.GridSpec(
+                        nrows=2,
+                        ncols=2,
+                        figure=fig,
+                        width_ratios=tuple(width_ratios),
+                        height_ratios=height_ratios_use if len(height_ratios_use) == 2 else (1.0, 1.0),
+                    )
+                    if has_sup_traj and bool(traj_inset):
+                        # container axis fills the cell; inset axis is square-ish and centered
+                        ax_sup_traj_container = fig.add_subplot(gs[0, 0])
+                        ax_sup_traj_container.set_axis_off()
+                        frac = float(traj_inset_frac)
+                        frac = float(np.clip(frac, 0.1, 1.0))
+                        ax_sup_traj = inset_locator.inset_axes(
+                            ax_sup_traj_container,
+                            width=f"{100.0 * frac:.1f}%",
+                            height=f"{100.0 * frac:.1f}%",
+                            loc='center',
+                            borderpad=0.0,
+                        )
+                    else:
+                        ax_sup_traj = fig.add_subplot(gs[0, 0]) if has_sup_traj else None
+                    # pick a time reference axis for sharing among time panels only
+                    ax_uns_lat = fig.add_subplot(gs[0, 1]) if has_unsup_lat else None
+                    ax_uns_dyn = fig.add_subplot(gs[1, 1], sharex=ax_uns_lat) if has_unsup_dyn else None
+                    time_ref = ax_uns_lat or ax_uns_dyn
+                    ax_sup_dyn = fig.add_subplot(gs[1, 0], sharex=time_ref) if has_sup_dyn else None
         else:
             ax_sup_traj = None
             ax_sup_dyn = None
@@ -530,7 +616,21 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
                 ax=ax_sup_traj,
                 **sup_2d_kwargs_,
             )
-        ax_sup_traj.set_title('Decoded spatial trajectory\n(supervised)')
+        # Title on container (keeps inset axis square-ish). Fallback to plotting axis.
+        if ax_sup_traj_container is not None:
+            ax_sup_traj_container.set_title('Decoded spatial trajectory\n(supervised)')
+        else:
+            ax_sup_traj.set_title('Decoded spatial trajectory\n(supervised)')
+        # make it look natural / close to square (independent of time axes)
+        try:
+            ax_sup_traj.set_aspect('equal', adjustable='box')
+        except Exception:
+            pass
+        try:
+            if traj_box_aspect is not None:
+                ax_sup_traj.set_box_aspect(float(traj_box_aspect))
+        except Exception:
+            pass
         out_axs.append(ax_sup_traj)
 
     # ---- plot supervised dynamics ----
