@@ -448,28 +448,26 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
                 sup_dyn_one = None
     sup_dyn_one = _ensure_tsdframe(sup_dyn_one)
 
-    # One-block width = (t.max()-t.min())/n_time so scalebar matches one heatmap column exactly
-    def _one_block_from_ts(ts):
+    # Binsize from data (t[1]-t[0]); bar length = same so scale represents one block (ignore small chop)
+    def _binsize_from_ts(ts):
         if ts is None:
             return None
         t = np.asarray(getattr(ts, 't', ts) if hasattr(ts, 't') else ts)
-        n = getattr(t, 'size', len(t))
-        if n < 1:
-            return None
-        tmin, tmax = float(np.nanmin(t)), float(np.nanmax(t))
-        return (tmax - tmin) / max(1, n)
-    one_block_sec = None
+        if getattr(t, 'size', len(t)) >= 2:
+            return float(t[1] - t[0])
+        return None
+    binsize_sec = None
     for ts in (sup_dyn_one, post_latent_best, post_dyn_best):
-        one_block_sec = _one_block_from_ts(ts)
-        if one_block_sec is not None and one_block_sec > 0:
+        binsize_sec = _binsize_from_ts(ts)
+        if binsize_sec is not None and binsize_sec > 0:
             break
-    one_block_ms = int(round(one_block_sec * 1000.0)) if one_block_sec and one_block_sec > 0 else None
+    binsize_ms = int(round(binsize_sec * 1000.0)) if binsize_sec and binsize_sec > 0 else None
 
     # ---- axes allocation ----
     axs_flat = _flatten_axs(axs)
     out_axs = []
     ax_sup_traj_container = None
-    bottom_time_axs = []  # list of axes (same one_block for all; data shared)
+    bottom_time_axs = []
 
     if axs_flat is not None:
         need = int(has_sup_traj) + int(has_sup_dyn) + int(has_unsup_lat) + int(has_unsup_dyn)
@@ -757,7 +755,7 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
             ax.tick_params(axis='x', which='both', length=0, labelbottom=False)
         except Exception:
             pass
-    if bool(time_scalebar) and one_block_sec is not None and one_block_sec > 0 and one_block_ms is not None and len(bottom_time_axs) > 0:
+    if bool(time_scalebar) and binsize_sec is not None and binsize_sec > 0 and binsize_ms is not None and len(bottom_time_axs) > 0:
         trans_blend = mtransforms.blended_transform_factory
         y_bar = -0.05
         y_label = -0.10
@@ -765,8 +763,8 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
             try:
                 x0, x1 = ax.get_xlim()
                 trans = trans_blend(ax.transData, ax.transAxes)
-                ax.plot([x0, x0 + float(one_block_sec)], [y_bar, y_bar], color='k', lw=1.5, transform=trans, clip_on=False)
-                ax.text(x0 + float(one_block_sec) / 2.0, y_label, f'{one_block_ms} ms', transform=trans, ha='center', va='top', fontsize=8, clip_on=False)
+                ax.plot([x0, x0 + float(binsize_sec)], [y_bar, y_bar], color='k', lw=1.5, transform=trans, clip_on=False)
+                ax.text(x0 + float(binsize_sec) / 2.0, y_label, f'{binsize_ms} ms', transform=trans, ha='center', va='top', fontsize=8, clip_on=False)
             except Exception:
                 pass
 
