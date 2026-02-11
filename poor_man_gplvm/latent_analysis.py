@@ -1,0 +1,18 @@
+'''
+analyze latent (especially in relation to behavior)
+e.g. score and classify latent by behavior
+'''
+
+def compute_mean_latent_per_behavior(p_latent_marg_beh, ep_d):
+    mean_latent_per_beh = {}
+    for k, ep in ep_d.items():
+        mean_latent_per_beh[k] = p_latent_marg_beh.restrict(ep).mean(axis=0)
+    return pd.DataFrame(mean_latent_per_beh)
+
+def classify_latents_by_behavior(p_latent_marg_beh,ep_d, thresh=0.5):
+    mean_latent_per_beh = compute_mean_latent_per_behavior(p_latent_marg_beh, ep_d)
+    latent_type_ma_d = {}
+    for col in mean_latent_per_beh.columns:
+        latent_type_ma_d[col] = mean_latent_per_beh[col] >= thresh
+    latent_type_ma_d['unclassified'] = (mean_latent_per_beh <= thresh).all(axis=1)
+    return pd.concat(latent_type_ma_d, axis=1)
