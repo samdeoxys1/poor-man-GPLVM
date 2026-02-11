@@ -304,6 +304,8 @@ def plot_replay_sup_unsup_event(
     dynamics_vmax_q=0.99,
     dynamics_line_kwargs=None,
     sup_2d_plot_colorbar=True,
+    sup_2d_cbar_bbox=(0, -0.04, 1, 0.10),
+    sup_2d_cbar_width='70%',
     time_scalebar=True,
 ):
     """
@@ -324,6 +326,11 @@ def plot_replay_sup_unsup_event(
       right: all time-based panels stacked (same width)
     - layout='one_col': 1 column stacked panels
       unsup latent, unsup dynamics, sup trajectory, sup dynamics
+
+    Progress colorbar (2D trajectory)
+    - sup_2d_cbar_bbox: (x0, y0, w, h) in trajectory axis axes coords. Default (0, -0.04, 1, 0.10).
+      Lower y0 (e.g. -0.08) = further below; higher y0 (e.g. 0) = closer to axis. Larger h = taller bar.
+    - sup_2d_cbar_width: width of bar within that bbox, e.g. '70%' or 0.8. Larger = wider bar.
 
     Returns
     -------
@@ -448,18 +455,24 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
                 sup_dyn_one = None
     sup_dyn_one = _ensure_tsdframe(sup_dyn_one)
 
-    # Binsize from data (t[1]-t[0]); bar length = same so scale represents one block (ignore small chop)
-    def _binsize_from_ts(ts):
+    # Binsize from data (t[1]-t[0]) for label; empirical block width (t.max()-t.min())/n for bar length
+    def _binsize_and_block_from_ts(ts):
         if ts is None:
-            return None
+            return None, None
         t = np.asarray(getattr(ts, 't', ts) if hasattr(ts, 't') else ts)
-        if getattr(t, 'size', len(t)) >= 2:
-            return float(t[1] - t[0])
-        return None
+        n = getattr(t, 'size', len(t))
+        if n < 2:
+            return None, None
+        binsize = float(t[1] - t[0])
+        block = (float(np.nanmax(t)) - float(np.nanmin(t))) / max(1, n)
+        return binsize, block
     binsize_sec = None
+    block_sec = None
     for ts in (sup_dyn_one, post_latent_best, post_dyn_best):
-        binsize_sec = _binsize_from_ts(ts)
-        if binsize_sec is not None and binsize_sec > 0:
+        b, blk = _binsize_and_block_from_ts(ts)
+        if b is not None and b > 0:
+            binsize_sec = b
+            block_sec = blk if blk and blk > 0 else b
             break
     binsize_ms = int(round(binsize_sec * 1000.0)) if binsize_sec and binsize_sec > 0 else None
 
@@ -672,12 +685,15 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
                 norm = mpl.colors.Normalize(0, 1)
                 sm = mpl.cm.ScalarMappable(cmap=plt.get_cmap(cmap_name), norm=norm)
                 sm.set_array([])
+                bbox = tuple(sup_2d_cbar_bbox)
+                if len(bbox) != 4:
+                    bbox = (0, -0.04, 1, 0.10)
                 cax = inset_locator.inset_axes(
                     ax_sup_traj,
-                    width='70%',
-                    height='12%',
+                    width=sup_2d_cbar_width,
+                    height='100%',
                     loc='lower center',
-                    bbox_to_anchor=(0, -0.04, 1, 0.10),
+                    bbox_to_anchor=bbox,
                     bbox_transform=ax_sup_traj.transAxes,
                     borderpad=0,
                 )
@@ -755,7 +771,7 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
             ax.tick_params(axis='x', which='both', length=0, labelbottom=False)
         except Exception:
             pass
-    if bool(time_scalebar) and binsize_sec is not None and binsize_sec > 0 and binsize_ms is not None and len(bottom_time_axs) > 0:
+    if bool(time_scalebar) and block_sec is not None and block_sec > 0 and binsize_ms is not None and len(bottom_time_axs) > 0:
         trans_blend = mtransforms.blended_transform_factory
         y_bar = -0.05
         y_label = -0.10
@@ -763,8 +779,8 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
             try:
                 x0, x1 = ax.get_xlim()
                 trans = trans_blend(ax.transData, ax.transAxes)
-                ax.plot([x0, x0 + float(binsize_sec)], [y_bar, y_bar], color='k', lw=1.5, transform=trans, clip_on=False)
-                ax.text(x0 + float(binsize_sec) / 2.0, y_label, f'{binsize_ms} ms', transform=trans, ha='center', va='top', fontsize=8, clip_on=False)
+                ax.plot([x0, x0 + float(block_sec)], [y_bar, y_bar], color='k', lw=1.5, transform=trans, clip_on=False)
+                ax.text(x0 + float(block_sec) / 2.0, y_label, f'{binsize_ms} ms', transform=trans, ha='center', va='top', fontsize=8, clip_on=False)
             except Exception:
                 pass
 
