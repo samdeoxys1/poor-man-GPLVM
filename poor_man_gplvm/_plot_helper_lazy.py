@@ -306,6 +306,7 @@ def plot_replay_sup_unsup_event(
     sup_2d_plot_colorbar=True,
     sup_2d_cbar_bbox=(0, -0.04, 1, 0.10),
     sup_2d_cbar_width='70%',
+    sup_2d_cbar_thickness=None,
     time_scalebar=True,
 ):
     """
@@ -329,8 +330,9 @@ def plot_replay_sup_unsup_event(
 
     Progress colorbar (2D trajectory)
     - sup_2d_cbar_bbox: (x0, y0, w, h) in trajectory axis axes coords. Default (0, -0.04, 1, 0.10).
-      Lower y0 (e.g. -0.08) = further below; higher y0 (e.g. 0) = closer to axis. Larger h = taller bar.
-    - sup_2d_cbar_width: width of bar within that bbox, e.g. '70%' or 0.8. Larger = wider bar.
+      y0 = vertical position (lower = further below). w = span along axis (1 = full width). h = thickness if sup_2d_cbar_thickness not set.
+    - sup_2d_cbar_thickness: height (thickness) of the horizontal bar in axes coords, e.g. 0.06 or 0.12. Overrides bbox[3] when set.
+    - sup_2d_cbar_width: horizontal length of the bar within the bbox, e.g. '70%' or 0.8.
 
     Returns
     -------
@@ -685,15 +687,17 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
                 norm = mpl.colors.Normalize(0, 1)
                 sm = mpl.cm.ScalarMappable(cmap=plt.get_cmap(cmap_name), norm=norm)
                 sm.set_array([])
-                bbox = tuple(sup_2d_cbar_bbox)
+                bbox = list(tuple(sup_2d_cbar_bbox))
                 if len(bbox) != 4:
-                    bbox = (0, -0.04, 1, 0.10)
+                    bbox = [0, -0.04, 1, 0.10]
+                if sup_2d_cbar_thickness is not None:
+                    bbox[3] = float(sup_2d_cbar_thickness)
                 cax = inset_locator.inset_axes(
                     ax_sup_traj,
                     width=sup_2d_cbar_width,
                     height='100%',
                     loc='lower center',
-                    bbox_to_anchor=bbox,
+                    bbox_to_anchor=tuple(bbox),
                     bbox_transform=ax_sup_traj.transAxes,
                     borderpad=0,
                 )
