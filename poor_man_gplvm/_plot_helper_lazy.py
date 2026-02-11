@@ -9,6 +9,7 @@ import textwrap
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
+import matplotlib.colors as mcolors
 
 import pynapple as nap
 
@@ -100,6 +101,170 @@ def _ensure_tsdframe(arr, *, t=None, columns=None):
     return None
 
 
+def _robust_vmin_vmax(arr2d, *, q_low=0.01, q_high=0.99):
+    a = np.asarray(arr2d, dtype=float)
+    if a.size == 0:
+        return 0.0, 1.0
+    try:
+        vmin = float(np.nanquantile(a, float(q_low)))
+        vmax = float(np.nanquantile(a, float(q_high)))
+    except Exception:
+        vmin = float(np.nanmin(a))
+        vmax = float(np.nanmax(a))
+    if not np.isfinite(vmin):
+        vmin = 0.0
+    if not np.isfinite(vmax):
+        vmax = 1.0
+    if vmax <= vmin:
+        vmax = vmin + 1e-6
+    return vmin, vmax
+
+
+def _plot_posterior_heatmap(
+    ax,
+    tsdf,
+    *,
+    title=None,
+    cmap='viridis',
+    vmin_q=0.01,
+    vmax_q=0.99,
+    add_scatter_map=False,
+    scatter_kwargs=None,
+    yticks=None,
+    yticklabels=None,
+    ylabel=None,
+):
+    tsdf = _ensure_tsdframe(tsdf)
+    if tsdf is None:
+        return None
+
+    t = np.asarray(tsdf.t)
+    d = np.asarray(tsdf.d, dtype=float)
+    if d.ndim == 1:
+        d = d[:, None]
+
+    vmin, vmax = _robust_vmin_vmax(d, q_low=vmin_q, q_high=vmax_q)
+    im = ax.imshow(
+        d.T,
+        aspect='auto',
+        origin='lower',
+        interpolation='none',
+        extent=[float(t.min()), float(t.max()), 0.0, float(d.shape[1])],
+        cmap=cmap,
+        norm=mcolors.Normalize(vmin=vmin, vmax=vmax),
+    )
+
+    if add_scatter_map:
+        mk = np.nanargmax(d, axis=1).astype(int)
+        sk = dict(s=4, c='yellow')
+        if scatter_kwargs is not None:
+            sk.update(dict(scatter_kwargs))
+        ax.scatter(t, mk + 0.5, **sk)
+
+    if yticks is not None:
+        ax.set_yticks(yticks)
+    if yticklabels is not None:
+        ax.set_yticklabels(yticklabels)
+    if ylabel is not None:
+        ax.set_ylabel(str(ylabel))
+    if title is not None:
+        ax.set_title(str(title))
+    return im
+
+
+def _pick_dynamics_column(dyn_tsdf, dynamics_col, state_names_fallback):
+    dyn_tsdf = _ensure_tsdframe(dyn_tsdf)
+    if dyn_tsdf is None:
+        return None, None, None
+
+    cols = getattr(dyn_tsdf, 'columns', None)
+    if dynamics_col is None:
+        return dyn_tsdf, None, None
+
+    if isinstance(dynamics_col, str):
+        name = str(dynamics_col)
+        if cols is not None:
+            try:
+                cols_l = list(cols)
+                if name in cols_l:
+                    j = int(cols_l.index(name))
+                else:
+                    j = int(name)  # allow "0"/"1" as str
+            except Exception:
+                j = int(name)
+        else:
+            j = int(name)
+    else:
+        j = int(dynamics_col)
+        name = None
+
+    d = np.asarray(dyn_tsdf.d)
+    if d.ndim == 1:
+        d = d[:, None]
+    j = int(np.clip(j, 0, d.shape[1] - 1))
+
+    if name is None:
+        if cols is not None:
+            try:
+                name = str(list(cols)[j])
+            except Exception:
+                name = None
+    if name is None:
+        if state_names_fallback is not None and j < len(state_names_fallback):
+            name = str(state_names_fallback[j])
+        else:
+            name = str(j)
+
+    p = nap.Tsd(t=np.asarray(dyn_tsdf.t), d=np.asarray(d[:, j], dtype=float))
+    return dyn_tsdf, p, name
+
+
+def _plot_dynamics_panel(
+    ax,
+    dyn_tsdf,
+    *,
+    dynamics_col=None,
+    state_names=None,
+    title=None,
+    heatmap_cmap='magma',
+    line_kwargs=None,
+    heatmap_vmin_q=0.01,
+    heatmap_vmax_q=0.99,
+):
+    dyn_tsdf, p, name = _pick_dynamics_column(dyn_tsdf, dynamics_col, state_names)
+    if dyn_tsdf is None:
+        return dict(mode=None, dyn_tsdf=None, p=None, name=None)
+
+    if dynamics_col is None:
+        n_state = int(np.asarray(dyn_tsdf.d).shape[1]) if np.ndim(dyn_tsdf.d) == 2 else 1
+        yticks = None
+        yticklabels = None
+        if state_names is not None and n_state == len(state_names):
+            yticks = (np.arange(n_state) + 0.5).tolist()
+            yticklabels = list(state_names)
+        _plot_posterior_heatmap(
+            ax,
+            dyn_tsdf,
+            title=title,
+            cmap=heatmap_cmap,
+            vmin_q=heatmap_vmin_q,
+            vmax_q=heatmap_vmax_q,
+            yticks=yticks,
+            yticklabels=yticklabels,
+        )
+        return dict(mode='heatmap', dyn_tsdf=dyn_tsdf, p=None, name=None)
+
+    lk = dict(color='k', lw=1.5)
+    if line_kwargs is not None:
+        lk.update(dict(line_kwargs))
+    ax.plot(p.t, p.d, **lk)
+    ax.set_ylim(-0.02, 1.02)
+    ax.set_ylabel(f'P("{name}")')
+    if title is not None:
+        ax.set_title(str(title))
+    return dict(mode='line', dyn_tsdf=dyn_tsdf, p=p, name=name)
+
+
 def plot_replay_sup_unsup_event(
     replay_res_sup=None,
     replay_res_unsup=None,
@@ -108,29 +273,52 @@ def plot_replay_sup_unsup_event(
     position_tsdf=None,
     maze='familiar',
     plot_sup_trajectory=True,
+    plot_sup_dynamics=True,
     plot_unsup_latent=True,
     plot_unsup_dynamics=True,
+    layout='two_col',
+    dynamics_col=None,
     fig=None,
     axs=None,
-    figsize=(10, 4),
+    figsize=(10, 6),
+    width_ratios=(1.25, 1.0),
+    height_ratios=None,
     title_fontsize=10,
     title_wrap_width=110,
     sup_2d_kwargs=None,
     unsup_heatmap_kwargs=None,
     heatmap_add_scatter_latent=True,
     heatmap_add_scatter_dynamics=False,
+    latent_cmap='viridis',
+    dyn_cmap_sup='magma',
+    dyn_cmap_unsup='magma',
+    latent_vmin_q=0.01,
+    latent_vmax_q=0.99,
+    dynamics_vmin_q=0.01,
+    dynamics_vmax_q=0.99,
+    dynamics_line_kwargs=None,
 ):
     """
     Plot replay for a single event from supervised + unsupervised pipelines.
 
-    - Supervised: 2D posterior + MAP trajectory overlay (requires `position_tsdf` if enabled).
-    - Unsupervised: 1D heatmaps of latent posterior and dynamics posterior for the **best** transition-kernel
-      (argmax prob per event).
+    Panels (toggleable)
+    - Decoded spatial trajectory (supervised): 2D posterior + MAP overlay.
+    - Decoded dynamics (supervised): dynamics posterior (heatmap if dynamics_col=None; otherwise a single prob trace).
+    - Decoded latent (unsupervised): latent posterior heatmap (best transition kernel).
+    - Decoded dynamics (unsupervised): dynamics posterior (best transition kernel).
+
+    Layout
+    - layout='two_col': 2 columns x 2 rows
+      left: supervised trajectory, supervised dynamics
+      right: unsup latent, unsup dynamics
+    - layout='one_col': 1 column stacked panels
+      unsup latent, unsup dynamics, sup trajectory, sup dynamics
 
     Returns
     -------
     fig, axs, out_dict
-      axs: list of matplotlib Axes in plotting order (sup, unsup_latent, unsup_dynamics; some may be missing)
+      axs: list of matplotlib Axes in plotting order
+        (sup_traj, sup_dyn, unsup_latent, unsup_dyn; some may be missing)
       out_dict: dict with extracted info (start/end time, best_kernel, probs, flags).
 
     Cluster Jupyter example
@@ -144,10 +332,15 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
     event_i=10,
     position_tsdf=prep_res['position_tsdf'],  # required if plot_sup_trajectory=True
     plot_sup_trajectory=True,
+    plot_sup_dynamics=True,
     plot_unsup_latent=True,
     plot_unsup_dynamics=True,
+    dynamics_col=None,  # None -> heatmap; 0/1 -> plot P("state") trace
+    layout='two_col',   # or 'one_col'
+    figsize=(12, 6),
+    width_ratios=(1.4, 1.0),
     sup_2d_kwargs=dict(cmap_name='plasma', binarize_thresh=0.01),
-    unsup_heatmap_kwargs=dict(heatmap_scatter_s=2, heatmap_scatter_c='yellow'),
+    dynamics_line_kwargs=dict(lw=2, color='k'),
 )
 ```
     """
@@ -155,15 +348,17 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
     mpl.rcParams['svg.fonttype'] = 'none'
 
     sup_2d_kwargs_ = {} if sup_2d_kwargs is None else dict(sup_2d_kwargs)
-    unsup_heatmap_kwargs_ = {} if unsup_heatmap_kwargs is None else dict(unsup_heatmap_kwargs)
+    unsup_heatmap_kwargs_ = {} if unsup_heatmap_kwargs is None else dict(unsup_heatmap_kwargs)  # kept for backward compat
 
     event_i = int(event_i)
 
-    has_sup = bool(plot_sup_trajectory) and (replay_res_sup is not None)
-    has_unsup = (replay_res_unsup is not None) and (bool(plot_unsup_latent) or bool(plot_unsup_dynamics))
-    n_unsup_panel = int(bool(plot_unsup_latent) and (replay_res_unsup is not None)) + int(bool(plot_unsup_dynamics) and (replay_res_unsup is not None))
+    has_sup_traj = bool(plot_sup_trajectory) and (replay_res_sup is not None)
+    has_sup_dyn = bool(plot_sup_dynamics) and (replay_res_sup is not None)
+    has_unsup_lat = bool(plot_unsup_latent) and (replay_res_unsup is not None)
+    has_unsup_dyn = bool(plot_unsup_dynamics) and (replay_res_unsup is not None)
+    n_panels_req = int(has_sup_traj) + int(has_sup_dyn) + int(has_unsup_lat) + int(has_unsup_dyn)
 
-    if has_sup and (position_tsdf is None):
+    if has_sup_traj and (position_tsdf is None):
         raise ValueError('position_tsdf must be provided when plot_sup_trajectory=True and replay_res_sup is not None.')
 
     # ---- event time (prefer supervised, else unsupervised) ----
@@ -227,83 +422,98 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
                 post_latent_best = _ensure_tsdframe(post_latent_best)
                 post_dyn_best = _ensure_tsdframe(post_dyn_best)
 
+    # ---- supervised posteriors per event ----
+    sup_dyn_one = None
+    if replay_res_sup is not None:
+        decode_res_sup = replay_res_sup.get('decode_res', None)
+        if decode_res_sup is not None:
+            try:
+                sup_dyn_one = decode_res_sup.get('posterior_dynamics_marg_per_event', None)
+                if isinstance(sup_dyn_one, list):
+                    sup_dyn_one = sup_dyn_one[event_i]
+            except Exception:
+                sup_dyn_one = None
+    sup_dyn_one = _ensure_tsdframe(sup_dyn_one)
+
     # ---- axes allocation ----
     axs_flat = _flatten_axs(axs)
-    created_fig = False
     out_axs = []
 
     if axs_flat is not None:
+        need = int(has_sup_traj) + int(has_sup_dyn) + int(has_unsup_lat) + int(has_unsup_dyn)
+        if len(axs_flat) < need:
+            raise ValueError('Provided axs does not have enough axes for requested panels.')
+
         idx = 0
-        ax_sup = None
-        ax_lat = None
-        ax_dyn = None
-        if has_sup:
-            if idx >= len(axs_flat):
-                raise ValueError('Provided axs does not have enough axes for requested panels.')
-            ax_sup = axs_flat[idx]
-            idx += 1
-        if bool(plot_unsup_latent) and (replay_res_unsup is not None):
-            if idx >= len(axs_flat):
-                raise ValueError('Provided axs does not have enough axes for requested panels.')
-            ax_lat = axs_flat[idx]
-            idx += 1
-        if bool(plot_unsup_dynamics) and (replay_res_unsup is not None):
-            if idx >= len(axs_flat):
-                raise ValueError('Provided axs does not have enough axes for requested panels.')
-            ax_dyn = axs_flat[idx]
-            idx += 1
+        ax_sup_traj = axs_flat[idx] if has_sup_traj else None
+        idx += int(has_sup_traj)
+        ax_sup_dyn = axs_flat[idx] if has_sup_dyn else None
+        idx += int(has_sup_dyn)
+        ax_uns_lat = axs_flat[idx] if has_unsup_lat else None
+        idx += int(has_unsup_lat)
+        ax_uns_dyn = axs_flat[idx] if has_unsup_dyn else None
 
         if fig is None:
-            fig = (ax_sup or ax_lat or ax_dyn).figure
+            fig = (ax_sup_traj or ax_sup_dyn or ax_uns_lat or ax_uns_dyn).figure
     else:
         if fig is None:
-            created_fig = True
-            if has_sup and n_unsup_panel > 0:
-                nrows = int(max(1, n_unsup_panel))
-                fig = plt.figure(figsize=figsize, constrained_layout=True)
-                gs = gridspec.GridSpec(nrows=nrows, ncols=2, figure=fig, width_ratios=[1.35, 1.0])
-                ax_sup = fig.add_subplot(gs[:, 0])
-                ax_lat = None
-                ax_dyn = None
-                r = 0
-                if bool(plot_unsup_latent) and (replay_res_unsup is not None):
-                    ax_lat = fig.add_subplot(gs[r, 1])
-                    r += 1
-                if bool(plot_unsup_dynamics) and (replay_res_unsup is not None):
-                    if ax_lat is None:
-                        ax_dyn = fig.add_subplot(gs[r, 1])
-                    else:
-                        ax_dyn = fig.add_subplot(gs[r, 1], sharex=ax_lat)
-            elif has_sup:
-                fig, ax_sup = plt.subplots(figsize=figsize, constrained_layout=True)
-                ax_lat = None
-                ax_dyn = None
-            elif n_unsup_panel > 0:
-                fig, ax_arr = plt.subplots(nrows=n_unsup_panel, ncols=1, figsize=figsize, constrained_layout=True, sharex=True)
-                ax_arr = np.atleast_1d(ax_arr).ravel()
-                ax_sup = None
-                ax_lat = None
-                ax_dyn = None
-                k = 0
-                if bool(plot_unsup_latent) and (replay_res_unsup is not None):
-                    ax_lat = ax_arr[k]
-                    k += 1
-                if bool(plot_unsup_dynamics) and (replay_res_unsup is not None):
-                    ax_dyn = ax_arr[k]
+            layout_ = str(layout).lower()
+            if height_ratios is None:
+                if layout_ == 'two_col':
+                    height_ratios_use = (1.0, 1.0)
+                elif layout_ == 'one_col':
+                    height_ratios_use = tuple([1.0] * max(1, n_panels_req))
+                else:
+                    height_ratios_use = (1.0, 1.0)
             else:
+                height_ratios_use = tuple(height_ratios)
+
+            if n_panels_req == 0:
                 fig, ax0 = plt.subplots(figsize=figsize, constrained_layout=True)
                 ax0.text(0.5, 0.5, 'No panels to plot', ha='center', va='center', transform=ax0.transAxes)
                 ax0.set_axis_off()
-                ax_sup = ax0
-                ax_lat = None
-                ax_dyn = None
+                ax_sup_traj = ax0
+                ax_sup_dyn = None
+                ax_uns_lat = None
+                ax_uns_dyn = None
+            elif layout_ == 'one_col':
+                fig = plt.figure(figsize=figsize, constrained_layout=True)
+                gs = gridspec.GridSpec(
+                    nrows=max(1, n_panels_req),
+                    ncols=1,
+                    figure=fig,
+                    height_ratios=height_ratios_use,
+                )
+                rr = 0
+                ax_uns_lat = fig.add_subplot(gs[rr, 0]) if has_unsup_lat else None
+                rr += int(has_unsup_lat)
+                ax_uns_dyn = fig.add_subplot(gs[rr, 0], sharex=ax_uns_lat) if has_unsup_dyn else None
+                rr += int(has_unsup_dyn)
+                ax_sup_traj = fig.add_subplot(gs[rr, 0], sharex=ax_uns_lat or ax_uns_dyn) if has_sup_traj else None
+                rr += int(has_sup_traj)
+                ax_sup_dyn = fig.add_subplot(gs[rr, 0], sharex=ax_uns_lat or ax_uns_dyn or ax_sup_traj) if has_sup_dyn else None
+            else:
+                # two_col default
+                fig = plt.figure(figsize=figsize, constrained_layout=True)
+                gs = gridspec.GridSpec(
+                    nrows=2,
+                    ncols=2,
+                    figure=fig,
+                    width_ratios=tuple(width_ratios),
+                    height_ratios=height_ratios_use if len(height_ratios_use) == 2 else (1.0, 1.0),
+                )
+                ax_sup_traj = fig.add_subplot(gs[0, 0]) if has_sup_traj else None
+                ax_sup_dyn = fig.add_subplot(gs[1, 0], sharex=ax_sup_traj) if has_sup_dyn else None
+                ax_uns_lat = fig.add_subplot(gs[0, 1], sharex=ax_sup_traj or ax_sup_dyn) if has_unsup_lat else None
+                ax_uns_dyn = fig.add_subplot(gs[1, 1], sharex=ax_uns_lat or ax_sup_traj or ax_sup_dyn) if has_unsup_dyn else None
         else:
-            created_fig = False
-            ax_sup = None
-            ax_lat = None
-            ax_dyn = None
+            ax_sup_traj = None
+            ax_sup_dyn = None
+            ax_uns_lat = None
+            ax_uns_dyn = None
 
-    if has_sup and ax_sup is not None:
+    # ---- plot supervised trajectory ----
+    if has_sup_traj and ax_sup_traj is not None:
         decode_res = replay_res_sup.get('decode_res', None)
         if decode_res is not None:
             ph.plot_decode_res_posterior_and_map_2d(
@@ -312,39 +522,69 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
                 event_i,
                 position_tsdf,
                 fig=fig,
-                ax=ax_sup,
+                ax=ax_sup_traj,
                 **sup_2d_kwargs_,
             )
-        out_axs.append(ax_sup)
+        ax_sup_traj.set_title('Decoded spatial trajectory\n(supervised)')
+        out_axs.append(ax_sup_traj)
 
-    # Unsupervised heatmaps (best kernel)
-    if replay_res_unsup is not None:
-        data_dict = {}
-        add_scatter = {}
-        if bool(plot_unsup_latent) and (post_latent_best is not None) and (ax_lat is not None):
-            data_dict['unsup_latent_posterior'] = post_latent_best
-            add_scatter['unsup_latent_posterior'] = bool(heatmap_add_scatter_latent)
-        if bool(plot_unsup_dynamics) and (post_dyn_best is not None) and (ax_dyn is not None):
-            data_dict['unsup_dynamics_posterior'] = post_dyn_best
-            add_scatter['unsup_dynamics_posterior'] = bool(heatmap_add_scatter_dynamics)
+    # ---- plot supervised dynamics ----
+    sup_dyn_plot_info = dict(mode=None, name=None)
+    if has_sup_dyn and (ax_sup_dyn is not None) and (sup_dyn_one is not None):
+        sup_dyn_plot_info = _plot_dynamics_panel(
+            ax_sup_dyn,
+            sup_dyn_one,
+            dynamics_col=dynamics_col,
+            state_names=['continuous', 'fragmented'],
+            title='Decoded dynamics (supervised)',
+            heatmap_cmap=dyn_cmap_sup,
+            line_kwargs=dynamics_line_kwargs,
+            heatmap_vmin_q=dynamics_vmin_q,
+            heatmap_vmax_q=dynamics_vmax_q,
+        )
+        out_axs.append(ax_sup_dyn)
+    elif has_sup_dyn and (ax_sup_dyn is not None):
+        ax_sup_dyn.set_title('Decoded dynamics (supervised)')
+        out_axs.append(ax_sup_dyn)
 
-        if len(data_dict):
-            axs_use = []
-            if 'unsup_latent_posterior' in data_dict:
-                axs_use.append(ax_lat)
-                out_axs.append(ax_lat)
-            if 'unsup_dynamics_posterior' in data_dict:
-                axs_use.append(ax_dyn)
-                out_axs.append(ax_dyn)
+    # ---- plot unsupervised latent ----
+    if has_unsup_lat and (ax_uns_lat is not None) and (post_latent_best is not None):
+        sk = dict(s=4, c='yellow')
+        sk.update({k: v for k, v in unsup_heatmap_kwargs_.items() if k.startswith('heatmap_scatter_')})
+        _plot_posterior_heatmap(
+            ax_uns_lat,
+            post_latent_best,
+            title='Decoded latent (unsupervised)',
+            cmap=latent_cmap,
+            vmin_q=latent_vmin_q,
+            vmax_q=latent_vmax_q,
+            add_scatter_map=bool(heatmap_add_scatter_latent),
+            scatter_kwargs=sk,
+            ylabel='latent',
+        )
+        out_axs.append(ax_uns_lat)
+    elif has_unsup_lat and (ax_uns_lat is not None):
+        ax_uns_lat.set_title('Decoded latent (unsupervised)')
+        out_axs.append(ax_uns_lat)
 
-            ph.plot_pynapple_data_mpl(
-                data_dict,
-                plot_title=True,
-                add_scatter_to_heatmap=add_scatter,
-                fig=fig,
-                axs=axs_use,
-                **unsup_heatmap_kwargs_,
-            )
+    # ---- plot unsupervised dynamics ----
+    unsup_dyn_plot_info = dict(mode=None, name=None)
+    if has_unsup_dyn and (ax_uns_dyn is not None) and (post_dyn_best is not None):
+        unsup_dyn_plot_info = _plot_dynamics_panel(
+            ax_uns_dyn,
+            post_dyn_best,
+            dynamics_col=dynamics_col,
+            state_names=['consistent', 'inconsistent'],
+            title='Decoded dynamics (unsupervised)',
+            heatmap_cmap=dyn_cmap_unsup,
+            line_kwargs=dynamics_line_kwargs,
+            heatmap_vmin_q=dynamics_vmin_q,
+            heatmap_vmax_q=dynamics_vmax_q,
+        )
+        out_axs.append(ax_uns_dyn)
+    elif has_unsup_dyn and (ax_uns_dyn is not None):
+        ax_uns_dyn.set_title('Decoded dynamics (unsupervised)')
+        out_axs.append(ax_uns_dyn)
 
     # ---- title ----
     title_l = []
@@ -403,6 +643,9 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
         unsup_sig=unsup_sig,
         best_kernel=best_kernel,
         probs=None if probs is None else dict(probs),
+        dynamics_col=dynamics_col,
+        sup_dynamics_plot=sup_dyn_plot_info,
+        unsup_dynamics_plot=unsup_dyn_plot_info,
     )
 
     return fig, out_axs, out
