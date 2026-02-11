@@ -2,6 +2,10 @@
 analyze latent (especially in relation to behavior)
 e.g. score and classify latent by behavior
 '''
+import numpy as np
+import pandas as pd
+import pynapple as nap
+
 
 def compute_mean_latent_per_behavior(p_latent_marg_beh, ep_d):
     mean_latent_per_beh = {}
