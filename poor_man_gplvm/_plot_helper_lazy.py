@@ -10,6 +10,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import matplotlib.colors as mcolors
+import matplotlib.transforms as mtransforms
 
 import pynapple as nap
 
@@ -292,16 +293,18 @@ def plot_replay_sup_unsup_event(
     title_wrap_width=110,
     sup_2d_kwargs=None,
     unsup_heatmap_kwargs=None,
-    heatmap_add_scatter_latent=True,
+    heatmap_add_scatter_latent=False,
     heatmap_add_scatter_dynamics=False,
-    latent_cmap='viridis',
-    dyn_cmap_sup='magma',
-    dyn_cmap_unsup='magma',
+    latent_cmap='Greys',
+    dyn_cmap_sup='viridis',
+    dyn_cmap_unsup='viridis',
     latent_vmin_q=0.01,
     latent_vmax_q=0.99,
     dynamics_vmin_q=0.01,
     dynamics_vmax_q=0.99,
     dynamics_line_kwargs=None,
+    sup_2d_plot_colorbar=True,
+    time_scalebar=True,
 ):
     """
     Plot replay for a single event from supervised + unsupervised pipelines.
@@ -356,6 +359,7 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
     mpl.rcParams['svg.fonttype'] = 'none'
 
     sup_2d_kwargs_ = {} if sup_2d_kwargs is None else dict(sup_2d_kwargs)
+    sup_2d_kwargs_.setdefault('plot_colorbar', bool(sup_2d_plot_colorbar))
     unsup_heatmap_kwargs_ = {} if unsup_heatmap_kwargs is None else dict(unsup_heatmap_kwargs)  # kept for backward compat
 
     event_i = int(event_i)
@@ -447,6 +451,7 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
     axs_flat = _flatten_axs(axs)
     out_axs = []
     ax_sup_traj_container = None
+    bottom_time_axs = []
 
     if axs_flat is not None:
         need = int(has_sup_traj) + int(has_sup_dyn) + int(has_unsup_lat) + int(has_unsup_dyn)
@@ -506,6 +511,13 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
                 # dynamics is time-based; share with other time-based panels if present
                 time_ref = ax_uns_lat or ax_uns_dyn
                 ax_sup_dyn = fig.add_subplot(gs[rr, 0], sharex=time_ref) if has_sup_dyn else None
+                # one_col: lowest row = last time panel
+                if ax_sup_dyn is not None:
+                    bottom_time_axs = [ax_sup_dyn]
+                elif ax_uns_dyn is not None:
+                    bottom_time_axs = [ax_uns_dyn]
+                elif ax_uns_lat is not None:
+                    bottom_time_axs = [ax_uns_lat]
             else:
                 # two_col + time_col layouts
                 fig = plt.figure(figsize=figsize, constrained_layout=True)
@@ -568,6 +580,10 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
                             ax_uns_dyn = ax_i
                         else:
                             ax_i.set_axis_off()
+                    # time_col: lowest = last in stack
+                    last_ax = ax_sup_dyn or ax_uns_lat or ax_uns_dyn
+                    if last_ax is not None:
+                        bottom_time_axs = [last_ax]
                 else:
                     # two_col default: 2x2 grid
                     gs = gridspec.GridSpec(
@@ -597,6 +613,8 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
                     ax_uns_dyn = fig.add_subplot(gs[1, 1], sharex=ax_uns_lat) if has_unsup_dyn else None
                     time_ref = ax_uns_lat or ax_uns_dyn
                     ax_sup_dyn = fig.add_subplot(gs[1, 0], sharex=time_ref) if has_sup_dyn else None
+                    # two_col: lowest row = both bottom panels
+                    bottom_time_axs = [a for a in (ax_sup_dyn, ax_uns_dyn) if a is not None]
         else:
             ax_sup_traj = None
             ax_sup_dyn = None
@@ -690,6 +708,22 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
     elif has_unsup_dyn and (ax_uns_dyn is not None):
         ax_uns_dyn.set_title('Decoded dynamics (unsupervised)')
         out_axs.append(ax_uns_dyn)
+
+    # ---- time scalebar on lowest row only ----
+    if bool(time_scalebar) and dur is not None and dur > 0 and len(bottom_time_axs) > 0:
+        duration_ms = int(round(float(dur) * 1000.0))
+        if duration_ms >= 0:
+            trans_blend = mtransforms.blended_transform_factory
+            for ax in bottom_time_axs:
+                try:
+                    x0, x1 = ax.get_xlim()
+                    # bar in data coords, y in axes coords (below axis)
+                    y_ax = -0.06
+                    trans = trans_blend(ax.transData, ax.transAxes)
+                    ax.plot([x0, x0 + float(dur)], [y_ax, y_ax], color='k', lw=1.5, transform=trans, clip_on=False)
+                    ax.text(x0 + float(dur) / 2.0, y_ax, f'{duration_ms} ms', transform=trans, ha='center', va='top', fontsize=8)
+                except Exception:
+                    pass
 
     # ---- title ----
     title_l = []
