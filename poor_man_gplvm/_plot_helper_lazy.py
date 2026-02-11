@@ -817,10 +817,22 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
             if tie_time:
                 pos_time = ref_time_ax.get_position()
                 t_lo, t_hi = ref_time_ax.get_xlim()
-                pos_traj = ax_sup_traj.get_position()
-                thickness = 0.015 if sup_2d_cbar_thickness is None else float(sup_2d_cbar_thickness)
-                gap = 0.008
-                y0 = pos_traj.y0 - thickness - gap
+                bbox = list(tuple(sup_2d_cbar_bbox))
+                if len(bbox) == 4:
+                    # bbox (x0, y0, w, h) in traj axes coords -> bar y and height in figure coords
+                    bar_y0_ax = float(bbox[1])
+                    bar_h_ax = float(bbox[3]) if sup_2d_cbar_thickness is None else float(sup_2d_cbar_thickness)
+                    tr = ax_sup_traj.transAxes.transform
+                    inv = fig.transFigure.inverted().transform
+                    y_bottom_fig = inv(tr((0.5, bar_y0_ax)))[1]
+                    y_top_fig = inv(tr((0.5, bar_y0_ax + bar_h_ax)))[1]
+                    y0 = y_bottom_fig
+                    thickness = y_top_fig - y_bottom_fig
+                else:
+                    pos_traj = ax_sup_traj.get_position()
+                    thickness = 0.015 if sup_2d_cbar_thickness is None else float(sup_2d_cbar_thickness)
+                    gap = 0.008
+                    y0 = pos_traj.y0 - thickness - gap
                 cax = fig.add_axes([pos_time.x0, y0, pos_time.width, thickness])
                 cax.set_xlim(t_lo, t_hi)
                 cax.set_ylim(0, 1)
