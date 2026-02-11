@@ -284,7 +284,7 @@ def plot_replay_sup_unsup_event(
     fig=None,
     axs=None,
     figsize=(10, 6),
-    width_ratios=(1.25, 1.0),
+    width_ratios=(1.0, 1.0),
     height_ratios=None,
     traj_box_aspect=1.0,
     traj_inset=True,
@@ -353,7 +353,6 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
     position_tsdf=prep_res['position_tsdf'],
     layout='two_col',
     figsize=(8, 5),
-    width_ratios=(1.0, 1.0),
     height_ratios=(1, 0.5),
     dynamics_col=None,  # heatmap; or 0/1 for P("state") trace
     dynamics_line_kwargs=dict(lw=2, color='k'),
@@ -517,7 +516,14 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
                 else:
                     height_ratios_use = (1.0, 1.0)
             else:
-                height_ratios_use = tuple(height_ratios)
+                hr = tuple(height_ratios)
+                if layout_ == 'one_col':
+                    nrows = max(1, n_panels_req)
+                    height_ratios_use = hr if len(hr) == nrows else tuple([1.0] * nrows)
+                elif layout_ in ('two_col', 'time_col'):
+                    height_ratios_use = hr if len(hr) == 2 else (1.0, 1.0)
+                else:
+                    height_ratios_use = (1.0, 1.0)
 
             if n_panels_req == 0:
                 fig, ax0 = plt.subplots(figsize=figsize, constrained_layout=True)
