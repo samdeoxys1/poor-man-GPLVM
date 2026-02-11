@@ -349,18 +349,22 @@ import poor_man_gplvm._plot_helper_lazy as phl
 fig, axs, out = phl.plot_replay_sup_unsup_event(
     replay_res_sup=replay_res_sup,
     replay_res_unsup=replay_res_unsup,
-    event_i=10,
-    position_tsdf=prep_res['position_tsdf'],  # required if plot_sup_trajectory=True
-    plot_sup_trajectory=True,
-    plot_sup_dynamics=True,
-    plot_unsup_latent=True,
-    plot_unsup_dynamics=True,
-    dynamics_col=None,  # None -> heatmap; 0/1 -> plot P("state") trace
-    layout='two_col',   # or 'one_col'
-    figsize=(12, 6),
-    width_ratios=(1.4, 1.0),
-    sup_2d_kwargs=dict(cmap_name='plasma', binarize_thresh=0.01),
+    event_i=event_i,
+    position_tsdf=prep_res['position_tsdf'],
+    layout='two_col',
+    figsize=(8, 5),
+    width_ratios=(1.0, 1.0),
+    height_ratios=(1, 0.5),
+    dynamics_col=None,  # heatmap; or 0/1 for P("state") trace
     dynamics_line_kwargs=dict(lw=2, color='k'),
+    sup_2d_kwargs=dict(cmap_name='plasma', binarize_thresh=0.01),
+    dyn_cmap_sup='viridis',
+    latent_cmap='Greys',
+    dyn_cmap_unsup='viridis',
+    heatmap_add_scatter_latent=False,
+    traj_inset_frac=1.0,
+    sup_2d_cbar_bbox=(0, -0.12, 1, 0.04),
+    sup_2d_cbar_tie_time_axis=True,
 )
 ```
     """
@@ -714,7 +718,7 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
             vmax_q=latent_vmax_q,
             add_scatter_map=bool(heatmap_add_scatter_latent),
             scatter_kwargs=sk,
-            ylabel='latent',
+            ylabel='Latent bin',
         )
         out_axs.append(ax_uns_lat)
     elif has_unsup_lat and (ax_uns_lat is not None):
@@ -745,6 +749,11 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
     for ax in all_time_axs:
         try:
             ax.tick_params(axis='x', which='both', length=0, labelbottom=False)
+        except Exception:
+            pass
+    for ax in bottom_time_axs:
+        try:
+            ax.set_xlabel('Time')
         except Exception:
             pass
 
