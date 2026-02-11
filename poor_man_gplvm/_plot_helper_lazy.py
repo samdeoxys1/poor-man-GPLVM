@@ -489,9 +489,12 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
                 rr += int(has_unsup_lat)
                 ax_uns_dyn = fig.add_subplot(gs[rr, 0], sharex=ax_uns_lat) if has_unsup_dyn else None
                 rr += int(has_unsup_dyn)
-                ax_sup_traj = fig.add_subplot(gs[rr, 0], sharex=ax_uns_lat or ax_uns_dyn) if has_sup_traj else None
+                # NOTE: do NOT share axes between spatial (x/y) and time-based panels.
+                ax_sup_traj = fig.add_subplot(gs[rr, 0]) if has_sup_traj else None
                 rr += int(has_sup_traj)
-                ax_sup_dyn = fig.add_subplot(gs[rr, 0], sharex=ax_uns_lat or ax_uns_dyn or ax_sup_traj) if has_sup_dyn else None
+                # dynamics is time-based; share with other time-based panels if present
+                time_ref = ax_uns_lat or ax_uns_dyn
+                ax_sup_dyn = fig.add_subplot(gs[rr, 0], sharex=time_ref) if has_sup_dyn else None
             else:
                 # two_col default
                 fig = plt.figure(figsize=figsize, constrained_layout=True)
@@ -503,9 +506,11 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
                     height_ratios=height_ratios_use if len(height_ratios_use) == 2 else (1.0, 1.0),
                 )
                 ax_sup_traj = fig.add_subplot(gs[0, 0]) if has_sup_traj else None
-                ax_sup_dyn = fig.add_subplot(gs[1, 0], sharex=ax_sup_traj) if has_sup_dyn else None
-                ax_uns_lat = fig.add_subplot(gs[0, 1], sharex=ax_sup_traj or ax_sup_dyn) if has_unsup_lat else None
-                ax_uns_dyn = fig.add_subplot(gs[1, 1], sharex=ax_uns_lat or ax_sup_traj or ax_sup_dyn) if has_unsup_dyn else None
+                # pick a time reference axis for sharing among time panels only
+                ax_uns_lat = fig.add_subplot(gs[0, 1]) if has_unsup_lat else None
+                ax_uns_dyn = fig.add_subplot(gs[1, 1], sharex=ax_uns_lat) if has_unsup_dyn else None
+                time_ref = ax_uns_lat or ax_uns_dyn
+                ax_sup_dyn = fig.add_subplot(gs[1, 0], sharex=time_ref) if has_sup_dyn else None
         else:
             ax_sup_traj = None
             ax_sup_dyn = None
