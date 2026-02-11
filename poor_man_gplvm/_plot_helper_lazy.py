@@ -359,7 +359,8 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
     mpl.rcParams['svg.fonttype'] = 'none'
 
     sup_2d_kwargs_ = {} if sup_2d_kwargs is None else dict(sup_2d_kwargs)
-    sup_2d_kwargs_.setdefault('plot_colorbar', bool(sup_2d_plot_colorbar))
+    # progress colorbar drawn below 2D traj in lazy helper; do not use ph's top colorbar
+    sup_2d_kwargs_.setdefault('plot_colorbar', False)
     unsup_heatmap_kwargs_ = {} if unsup_heatmap_kwargs is None else dict(unsup_heatmap_kwargs)  # kept for backward compat
 
     event_i = int(event_i)
@@ -446,6 +447,16 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
             except Exception:
                 sup_dyn_one = None
     sup_dyn_one = _ensure_tsdframe(sup_dyn_one)
+
+    # ---- time step for scalebar (t[1]-t[0]) ----
+    dt_sec = None
+    for ts in (sup_dyn_one, post_latent_best, post_dyn_best):
+        if ts is not None:
+            t = np.asarray(ts.t)
+            if getattr(t, 'size', len(t)) >= 2:
+                dt_sec = float(t[1] - t[0])
+                break
+    dt_ms = int(round(dt_sec * 1000.0)) if dt_sec is not None and dt_sec > 0 else None
 
     # ---- axes allocation ----
     axs_flat = _flatten_axs(axs)
@@ -649,6 +660,29 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
                 ax_sup_traj.set_box_aspect(float(traj_box_aspect))
         except Exception:
             pass
+        # progress colorbar below 2D traj (uses gap between row 0 and row 1 in two_col)
+        if bool(sup_2d_plot_colorbar):
+            try:
+                cmap_name = sup_2d_kwargs_.get('cmap_name', 'plasma')
+                norm = mpl.colors.Normalize(0, 1)
+                sm = mpl.cm.ScalarMappable(cmap=plt.get_cmap(cmap_name), norm=norm)
+                sm.set_array([])
+                cax = inset_locator.inset_axes(
+                    ax_sup_traj,
+                    width='70%',
+                    height='8%',
+                    loc='lower center',
+                    bbox_to_anchor=(0, -0.12, 1, 0.08),
+                    bbox_transform=ax_sup_traj.transAxes,
+                    borderpad=0,
+                )
+                cbar = fig.colorbar(sm, cax=cax, orientation='horizontal')
+                cbar.set_ticks([0.0, 1.0])
+                cbar.set_ticklabels(['early', 'late'])
+                cbar.ax.tick_params(axis='x', which='both', length=0)
+                cbar.outline.set_visible(False)
+            except Exception:
+                pass
         out_axs.append(ax_sup_traj)
 
     # ---- plot supervised dynamics ----
@@ -709,21 +743,26 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
         ax_uns_dyn.set_title('Decoded dynamics (unsupervised)')
         out_axs.append(ax_uns_dyn)
 
-    # ---- time scalebar on lowest row only ----
-    if bool(time_scalebar) and dur is not None and dur > 0 and len(bottom_time_axs) > 0:
-        duration_ms = int(round(float(dur) * 1000.0))
-        if duration_ms >= 0:
-            trans_blend = mtransforms.blended_transform_factory
-            for ax in bottom_time_axs:
-                try:
-                    x0, x1 = ax.get_xlim()
-                    # bar in data coords, y in axes coords (below axis)
-                    y_ax = -0.06
-                    trans = trans_blend(ax.transData, ax.transAxes)
-                    ax.plot([x0, x0 + float(dur)], [y_ax, y_ax], color='k', lw=1.5, transform=trans, clip_on=False)
-                    ax.text(x0 + float(dur) / 2.0, y_ax, f'{duration_ms} ms', transform=trans, ha='center', va='top', fontsize=8)
-                except Exception:
-                    pass
+    # ---- hide x tick labels on all time panels; scalebar (unit) on lowest row only ----
+    all_time_axs = [a for a in (ax_sup_dyn, ax_uns_lat, ax_uns_dyn) if a is not None]
+    for ax in all_time_axs:
+        try:
+            ax.tick_params(axis='x', labelbottom=False)
+        except Exception:
+            pass
+    if bool(time_scalebar) and dt_sec is not None and dt_sec > 0 and dt_ms is not None and len(bottom_time_axs) > 0:
+        trans_blend = mtransforms.blended_transform_factory
+        # bar and label below axis so they don't hide data
+        y_bar = -0.05
+        y_label = -0.10
+        for ax in bottom_time_axs:
+            try:
+                x0, x1 = ax.get_xlim()
+                trans = trans_blend(ax.transData, ax.transAxes)
+                ax.plot([x0, x0 + float(dt_sec)], [y_bar, y_bar], color='k', lw=1.5, transform=trans, clip_on=False)
+                ax.text(x0 + float(dt_sec) / 2.0, y_label, f'{dt_ms} ms', transform=trans, ha='center', va='top', fontsize=8, clip_on=False)
+            except Exception:
+                pass
 
     # ---- title ----
     title_l = []
