@@ -306,7 +306,7 @@ def plot_replay_sup_unsup_event(
     sup_2d_plot_colorbar=True,
     sup_2d_cbar_bbox=(0, 0, 1, 0.05),
     sup_2d_cbar_thickness=None,
-    sup_2d_cbar_tie_time_axis=False,
+    sup_2d_cbar_tie_time_axis=True,
     time_scalebar=True,
 ):
     """
@@ -748,55 +748,6 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
         except Exception:
             pass
 
-    # ---- progress colorbar below 2D traj (drawn after time panels so we can use their xlim when tying) ----
-    if bool(sup_2d_plot_colorbar) and (ax_sup_traj is not None):
-        try:
-            cmap_name = sup_2d_kwargs_.get('cmap_name', 'plasma')
-            ref_time_ax = ax_sup_dyn if (ax_sup_dyn is not None) else (ax_uns_lat if (ax_uns_lat is not None) else ax_uns_dyn)
-            tie_time = bool(sup_2d_cbar_tie_time_axis) and (ref_time_ax is not None)
-            if tie_time:
-                # same position/width as time panel and same xlim so bar aligns with plotting part of time axis
-                pos_time = ref_time_ax.get_position()
-                t_lo, t_hi = ref_time_ax.get_xlim()
-                pos_traj = ax_sup_traj.get_position()
-                thickness = 0.015 if sup_2d_cbar_thickness is None else float(sup_2d_cbar_thickness)
-                gap = 0.008
-                y0 = pos_traj.y0 - thickness - gap
-                cax = fig.add_axes([pos_time.x0, y0, pos_time.width, thickness])
-                cax.set_xlim(t_lo, t_hi)
-                cax.set_ylim(0, 1)
-                grad = np.linspace(0, 1, 256).reshape(1, -1)
-                cax.imshow(grad, aspect='auto', cmap=plt.get_cmap(cmap_name), extent=[t_lo, t_hi, 0, 1], interpolation=None)
-                cax.set_yticks([])
-                cax.set_xticks([t_lo, t_hi])
-                cax.set_xticklabels(['early', 'late'])
-                cax.tick_params(axis='x', which='both', length=0)
-                cax.spines[:].set_visible(False)
-            else:
-                norm = mpl.colors.Normalize(0, 1)
-                sm = mpl.cm.ScalarMappable(cmap=plt.get_cmap(cmap_name), norm=norm)
-                sm.set_array([])
-                bbox = list(tuple(sup_2d_cbar_bbox))
-                if len(bbox) != 4:
-                    bbox = [0, -0.04, 1, 0.10]
-                if sup_2d_cbar_thickness is not None:
-                    bbox[3] = float(sup_2d_cbar_thickness)
-                cax = inset_locator.inset_axes(
-                    ax_sup_traj,
-                    width='100%',
-                    height='100%',
-                    loc='lower center',
-                    bbox_to_anchor=tuple(bbox),
-                    bbox_transform=ax_sup_traj.transAxes,
-                    borderpad=0,
-                )
-                cbar = fig.colorbar(sm, cax=cax, orientation='horizontal')
-                cbar.set_ticks([0.0, 1.0])
-                cbar.set_ticklabels(['early', 'late'])
-                cbar.ax.tick_params(axis='x', which='both', length=0)
-                cbar.outline.set_visible(False)
-        except Exception:
-            pass
     if bool(time_scalebar) and block_sec is not None and block_sec > 0 and binsize_ms is not None and len(bottom_time_axs) > 0:
         trans_blend = mtransforms.blended_transform_factory
         y_bar = -0.05
@@ -856,6 +807,55 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
         plt.tight_layout()
     except Exception:
         pass
+
+    # progress colorbar below 2D traj (after tight_layout so positions/xlim are final)
+    if bool(sup_2d_plot_colorbar) and (ax_sup_traj is not None):
+        try:
+            cmap_name = sup_2d_kwargs_.get('cmap_name', 'plasma')
+            ref_time_ax = ax_sup_dyn if (ax_sup_dyn is not None) else (ax_uns_lat if (ax_uns_lat is not None) else ax_uns_dyn)
+            tie_time = bool(sup_2d_cbar_tie_time_axis) and (ref_time_ax is not None)
+            if tie_time:
+                pos_time = ref_time_ax.get_position()
+                t_lo, t_hi = ref_time_ax.get_xlim()
+                pos_traj = ax_sup_traj.get_position()
+                thickness = 0.015 if sup_2d_cbar_thickness is None else float(sup_2d_cbar_thickness)
+                gap = 0.008
+                y0 = pos_traj.y0 - thickness - gap
+                cax = fig.add_axes([pos_time.x0, y0, pos_time.width, thickness])
+                cax.set_xlim(t_lo, t_hi)
+                cax.set_ylim(0, 1)
+                grad = np.linspace(0, 1, 256).reshape(1, -1)
+                cax.imshow(grad, aspect='auto', cmap=plt.get_cmap(cmap_name), extent=[t_lo, t_hi, 0, 1], interpolation=None)
+                cax.set_yticks([])
+                cax.set_xticks([t_lo, t_hi])
+                cax.set_xticklabels(['early', 'late'])
+                cax.tick_params(axis='x', which='both', length=0)
+                cax.spines[:].set_visible(False)
+            else:
+                norm = mpl.colors.Normalize(0, 1)
+                sm = mpl.cm.ScalarMappable(cmap=plt.get_cmap(cmap_name), norm=norm)
+                sm.set_array([])
+                bbox = list(tuple(sup_2d_cbar_bbox))
+                if len(bbox) != 4:
+                    bbox = [0, -0.04, 1, 0.10]
+                if sup_2d_cbar_thickness is not None:
+                    bbox[3] = float(sup_2d_cbar_thickness)
+                cax = inset_locator.inset_axes(
+                    ax_sup_traj,
+                    width='100%',
+                    height='100%',
+                    loc='lower center',
+                    bbox_to_anchor=tuple(bbox),
+                    bbox_transform=ax_sup_traj.transAxes,
+                    borderpad=0,
+                )
+                cbar = fig.colorbar(sm, cax=cax, orientation='horizontal')
+                cbar.set_ticks([0.0, 1.0])
+                cbar.set_ticklabels(['early', 'late'])
+                cbar.ax.tick_params(axis='x', which='both', length=0)
+                cbar.outline.set_visible(False)
+        except Exception:
+            pass
 
     out = dict(
         event_i=int(event_i),
