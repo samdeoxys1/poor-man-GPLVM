@@ -200,6 +200,7 @@ def plot_latent_list_vs_position(latent_l, map_latent,behavior_tsdf,pos_col=['x'
                                 ds=5, # downsample for maze plot
                                 maze_c='grey',
                                 maze_alpha=0.3,
+                                maze_zorder=0,
                                 hide_box=True,
                                 seperate_colorbar=True,
                                 colorbar=False,
@@ -227,7 +228,7 @@ def plot_latent_list_vs_position(latent_l, map_latent,behavior_tsdf,pos_col=['x'
     
     if do_plot_maze:
         assert position_tsdf is not None
-        plot_maze_background(position_tsdf,ds=ds,fig=fig,ax=ax,c=maze_c,alpha=maze_alpha,mode=background_mode)
+        plot_maze_background(position_tsdf,ds=ds,fig=fig,ax=ax,c=maze_c,alpha=maze_alpha,mode=background_mode,zorder=maze_zorder)
 
 
     # plot running and immobility with different marker shape
