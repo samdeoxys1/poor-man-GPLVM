@@ -1527,7 +1527,11 @@ def mark_times_top_triangles(t_l, ax, c='red', y=1.02, s=60, **kwargs):
 
 
 #=============plot decoded posterior 2D=============#
-def plot_replay_posterior_trajectory_2d(posterior_position_one,position_tsdf,start_time=None,duration=None,fig=None,ax=None,despine=True,figsize=(2,2),plot_colorbar=False,start_time_x=0.1,start_time_y=0.95,duration_x=0.9,duration_y=0.95,fontsize=10,cmap_name='plasma',maze_alpha=0.5,x_key='x',y_key='y',binarize_thresh=0.01,binarize_thresh_quantile=None):
+def plot_replay_posterior_trajectory_2d(posterior_position_one,position_tsdf,start_time=None,duration=None,fig=None,ax=None,despine=True,figsize=(2,2),plot_colorbar=False,start_time_x=0.1,start_time_y=0.95,duration_x=0.9,duration_y=0.95,fontsize=10,cmap_name='plasma',maze_alpha=0.5,x_key='x',y_key='y',binarize_thresh=0.01,binarize_thresh_quantile=None,ensure_time_visible=True):
+    """
+    ensure_time_visible: if True, for each time slice at least the argmax bin is painted
+      (avoids times with no color when posterior is very flat / below binarize_thresh).
+    """
     x = posterior_position_one[x_key]
     y=posterior_position_one[y_key]
     dx = (x[-1] - x[0]) / (len(x) - 1) if len(x) > 1 else 1.0
@@ -1546,6 +1550,12 @@ def plot_replay_posterior_trajectory_2d(posterior_position_one,position_tsdf,sta
         else:
             thr = float(np.nanquantile(frame, float(binarize_thresh_quantile)))
         ma = frame > thr
+        if ensure_time_visible and not np.any(ma):
+            # diffused posterior: ensure at least argmax gets this time's color
+            flat = np.nan_to_num(frame.ravel(), nan=-np.inf)
+            idx = int(np.argmax(flat))
+            ma = np.zeros_like(frame, dtype=bool)
+            ma.ravel()[idx] = True
         toplot[ma] = np.array(c)
     toplot=toplot.swapaxes(0,1)# make x the horizontal in imshow
     if ax is None:
