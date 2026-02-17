@@ -276,8 +276,10 @@ def plot_replay_sup_unsup_event(
     maze='familiar',
     plot_sup_trajectory=True,
     plot_sup_dynamics=True,
+    plot_sup_line=True,
     plot_unsup_latent=True,
     plot_unsup_dynamics=True,
+    use_multi_dynamics=False,
     layout='two_col',
     dynamics_col=None,
     time_panel_order=None,
@@ -317,16 +319,27 @@ def plot_replay_sup_unsup_event(
     - Decoded dynamics (supervised): dynamics posterior (heatmap if dynamics_col=None; otherwise a single prob trace).
     - Decoded latent (unsupervised): latent posterior heatmap (best transition kernel).
     - Decoded dynamics (unsupervised): dynamics posterior (best transition kernel).
+    - Decoded dynamics (multi-dynamics): if use_multi_dynamics=True, shows dynamics posterior from multi-dynamics model.
+
+    Parameters
+    ----------
+    plot_sup_dynamics : bool, default True
+        If False, hide the supervised dynamics panel.
+    plot_sup_line : bool, default True
+        If False, hide the MAP trajectory line overlay in the supervised 2D trajectory plot.
+    use_multi_dynamics : bool, default False
+        If True, extract and plot multi-dynamics results from replay_res_unsup['pbe_multiple_transition_res'].
+        Adds mean probability text to title and plots decoded dynamics from multi-dynamics model.
 
     Layout
-    - layout='two_col': 2 columns x 2 rows
+    - layout='two_col': 2 columns x 2 rows (or 3 rows if multi_dyn)
       left: supervised trajectory, supervised dynamics
-      right: unsup latent, unsup dynamics
+      right: unsup latent, unsup dynamics, (multi_dyn if use_multi_dynamics=True)
     - layout='time_col': 2 columns with independent widths
       left: supervised trajectory only (2D; square-ish)
-      right: all time-based panels stacked (same width)
+      right: all time-based panels stacked (same width), including multi_dyn if use_multi_dynamics=True
     - layout='one_col': 1 column stacked panels
-      unsup latent, unsup dynamics, sup trajectory, sup dynamics
+      unsup latent, unsup dynamics, sup trajectory, sup dynamics, (multi_dyn if use_multi_dynamics=True)
 
     Progress colorbar (2D trajectory)
     - sup_2d_cbar_bbox: (x0, y0, w, h) in trajectory axis axes coords. Default (0, -0.04, 1, 0.10).
@@ -338,8 +351,8 @@ def plot_replay_sup_unsup_event(
     -------
     fig, axs, out_dict
       axs: list of matplotlib Axes in plotting order
-        (sup_traj, sup_dyn, unsup_latent, unsup_dyn; some may be missing)
-      out_dict: dict with extracted info (start/end time, best_kernel, probs, flags).
+        (sup_traj, sup_dyn, unsup_latent, unsup_dyn, multi_dyn; some may be missing)
+      out_dict: dict with extracted info (start/end time, best_kernel, probs, flags, mean_probs_multi, multi_dynamics_plot).
 
     Cluster Jupyter example
 
@@ -381,7 +394,8 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
     has_sup_dyn = bool(plot_sup_dynamics) and (replay_res_sup is not None)
     has_unsup_lat = bool(plot_unsup_latent) and (replay_res_unsup is not None)
     has_unsup_dyn = bool(plot_unsup_dynamics) and (replay_res_unsup is not None)
-    n_panels_req = int(has_sup_traj) + int(has_sup_dyn) + int(has_unsup_lat) + int(has_unsup_dyn)
+    has_multi_dyn = bool(use_multi_dynamics) and (post_dyn_multi is not None)
+    n_panels_req = int(has_sup_traj) + int(has_sup_dyn) + int(has_unsup_lat) + int(has_unsup_dyn) + int(has_multi_dyn)
 
     if has_sup_traj and (position_tsdf is None):
         raise ValueError('position_tsdf must be provided when plot_sup_trajectory=True and replay_res_sup is not None.')
@@ -415,12 +429,31 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
     probs = None
     post_latent_best = None
     post_dyn_best = None
+    mean_probs_multi = None
+    post_dyn_multi = None
     if replay_res_unsup is not None:
         ev_df = replay_res_unsup.get('event_df_joint', None)
         if ev_df is not None and ('is_sig_overall' in ev_df.columns):
             v = _get_df_row_value(ev_df, event_i, 'is_sig_overall', default=None)
             if v is not None and not (isinstance(v, float) and np.isnan(v)):
                 unsup_sig = bool(v)
+
+        if use_multi_dynamics:
+            multi_res = replay_res_unsup.get('pbe_multiple_transition_res', None)
+            if multi_res is not None:
+                mean_prob_df = multi_res.get('mean_prob_category_per_event_df', None)
+                if mean_prob_df is not None:
+                    try:
+                        mean_probs_multi = mean_prob_df.iloc[event_i]
+                    except Exception:
+                        mean_probs_multi = None
+                post_dyn_per_event = multi_res.get('posterior_dynamics_marg_per_event', None)
+                if post_dyn_per_event is not None:
+                    try:
+                        post_dyn_multi = post_dyn_per_event[event_i]
+                    except Exception:
+                        post_dyn_multi = None
+                post_dyn_multi = _ensure_tsdframe(post_dyn_multi)
 
         cmp = replay_res_unsup.get('pbe_compare_transition_res', None)
         if cmp is not None:
@@ -473,7 +506,7 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
         return binsize, block
     binsize_sec = None
     block_sec = None
-    for ts in (sup_dyn_one, post_latent_best, post_dyn_best):
+    for ts in (sup_dyn_one, post_latent_best, post_dyn_best, post_dyn_multi):
         b, blk = _binsize_and_block_from_ts(ts)
         if b is not None and b > 0:
             binsize_sec = b
@@ -488,7 +521,7 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
     bottom_time_axs = []
 
     if axs_flat is not None:
-        need = int(has_sup_traj) + int(has_sup_dyn) + int(has_unsup_lat) + int(has_unsup_dyn)
+        need = int(has_sup_traj) + int(has_sup_dyn) + int(has_unsup_lat) + int(has_unsup_dyn) + int(has_multi_dyn)
         if len(axs_flat) < need:
             raise ValueError('Provided axs does not have enough axes for requested panels.')
 
@@ -500,6 +533,8 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
         ax_uns_lat = axs_flat[idx] if has_unsup_lat else None
         idx += int(has_unsup_lat)
         ax_uns_dyn = axs_flat[idx] if has_unsup_dyn else None
+        idx += int(has_unsup_dyn)
+        ax_multi_dyn = axs_flat[idx] if has_multi_dyn else None
 
         if fig is None:
             fig = (ax_sup_traj or ax_sup_dyn or ax_uns_lat or ax_uns_dyn).figure
@@ -533,6 +568,7 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
                 ax_sup_dyn = None
                 ax_uns_lat = None
                 ax_uns_dyn = None
+                ax_multi_dyn = None
             elif layout_ == 'one_col':
                 fig = plt.figure(figsize=figsize, constrained_layout=True)
                 gs = gridspec.GridSpec(
@@ -552,8 +588,12 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
                 # dynamics is time-based; share with other time-based panels if present
                 time_ref = ax_uns_lat or ax_uns_dyn
                 ax_sup_dyn = fig.add_subplot(gs[rr, 0], sharex=time_ref) if has_sup_dyn else None
+                rr += int(has_sup_dyn)
+                ax_multi_dyn = fig.add_subplot(gs[rr, 0], sharex=time_ref) if has_multi_dyn else None
                 # one_col: lowest row = last time panel
-                if ax_sup_dyn is not None:
+                if ax_multi_dyn is not None:
+                    bottom_time_axs = [ax_multi_dyn]
+                elif ax_sup_dyn is not None:
                     bottom_time_axs = [ax_sup_dyn]
                 elif ax_uns_dyn is not None:
                     bottom_time_axs = [ax_uns_dyn]
@@ -575,7 +615,7 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
 
                     # decide time panel order
                     if time_panel_order is None:
-                        time_panel_order_use = ('sup_dyn', 'unsup_lat', 'unsup_dyn')
+                        time_panel_order_use = ('sup_dyn', 'unsup_lat', 'unsup_dyn', 'multi_dyn')
                     else:
                         time_panel_order_use = tuple(time_panel_order)
 
@@ -584,6 +624,7 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
                         'sup_dyn': bool(has_sup_dyn),
                         'unsup_lat': bool(has_unsup_lat),
                         'unsup_dyn': bool(has_unsup_dyn),
+                        'multi_dyn': bool(has_multi_dyn),
                     }
                     keys = [k for k in time_panel_order_use if key_to_on.get(k, False)]
                     if len(keys) == 0:
@@ -608,6 +649,7 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
                     ax_sup_dyn = None
                     ax_uns_lat = None
                     ax_uns_dyn = None
+                    ax_multi_dyn = None
                     for ii, k in enumerate(keys):
                         sharex = ax_time_ref if ax_time_ref is not None else None
                         ax_i = fig.add_subplot(gs_time[ii, 0], sharex=sharex)
@@ -619,20 +661,24 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
                             ax_uns_lat = ax_i
                         elif k == 'unsup_dyn':
                             ax_uns_dyn = ax_i
+                        elif k == 'multi_dyn':
+                            ax_multi_dyn = ax_i
                         else:
                             ax_i.set_axis_off()
                     # time_col: lowest = last in stack
-                    last_ax = ax_sup_dyn or ax_uns_lat or ax_uns_dyn
+                    last_ax = ax_multi_dyn or ax_sup_dyn or ax_uns_lat or ax_uns_dyn
                     if last_ax is not None:
                         bottom_time_axs = [last_ax]
                 else:
-                    # two_col default: 2x2 grid
+                    # two_col default: 2x2 grid (or 3x2 if multi_dyn)
+                    nrows_gs = 3 if has_multi_dyn else 2
+                    hr_gs = height_ratios_use if len(height_ratios_use) == nrows_gs else tuple([1.0] * nrows_gs)
                     gs = gridspec.GridSpec(
-                        nrows=2,
+                        nrows=nrows_gs,
                         ncols=2,
                         figure=fig,
                         width_ratios=tuple(width_ratios),
-                        height_ratios=height_ratios_use if len(height_ratios_use) == 2 else (1.0, 1.0),
+                        height_ratios=hr_gs,
                     )
                     if has_sup_traj and bool(traj_inset):
                         # container axis fills the cell; inset axis is square-ish and centered
@@ -654,18 +700,33 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
                     ax_uns_dyn = fig.add_subplot(gs[1, 1], sharex=ax_uns_lat) if has_unsup_dyn else None
                     time_ref = ax_uns_lat or ax_uns_dyn
                     ax_sup_dyn = fig.add_subplot(gs[1, 0], sharex=time_ref) if has_sup_dyn else None
-                    # two_col: lowest row = both bottom panels
-                    bottom_time_axs = [a for a in (ax_sup_dyn, ax_uns_dyn) if a is not None]
+                    ax_multi_dyn = fig.add_subplot(gs[2, 1], sharex=time_ref) if has_multi_dyn else None
+                    # two_col: lowest row = both bottom panels (or multi_dyn if present)
+                    if has_multi_dyn:
+                        bottom_time_axs = [a for a in (ax_sup_dyn, ax_uns_dyn, ax_multi_dyn) if a is not None]
+                    else:
+                        bottom_time_axs = [a for a in (ax_sup_dyn, ax_uns_dyn) if a is not None]
         else:
             ax_sup_traj = None
             ax_sup_dyn = None
             ax_uns_lat = None
             ax_uns_dyn = None
+            ax_multi_dyn = None
 
     # ---- plot supervised trajectory ----
     if has_sup_traj and ax_sup_traj is not None:
         decode_res = replay_res_sup.get('decode_res', None)
         if decode_res is not None:
+            sup_2d_kwargs_plot = dict(sup_2d_kwargs_)
+            if not plot_sup_line:
+                if 'map_traj_kwargs' not in sup_2d_kwargs_plot:
+                    sup_2d_kwargs_plot['map_traj_kwargs'] = {}
+                sup_2d_kwargs_plot['map_traj_kwargs'] = dict(sup_2d_kwargs_plot['map_traj_kwargs'])
+                sup_2d_kwargs_plot['map_traj_kwargs'].update({
+                    'plot_dotted_base': False,
+                    'alpha_solid': 0.0,
+                    'alpha_dotted': 0.0,
+                })
             ph.plot_decode_res_posterior_and_map_2d(
                 decode_res,
                 maze,
@@ -673,7 +734,7 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
                 position_tsdf,
                 fig=fig,
                 ax=ax_sup_traj,
-                **sup_2d_kwargs_,
+                **sup_2d_kwargs_plot,
             )
         # Title on container (keeps inset axis square-ish). Fallback to plotting axis.
         if ax_sup_traj_container is not None:
@@ -750,8 +811,38 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
         ax_uns_dyn.set_title('Decoded dynamics (unsupervised)')
         out_axs.append(ax_uns_dyn)
 
+    # ---- plot multi-dynamics dynamics ----
+    multi_dyn_plot_info = dict(mode=None, name=None)
+    if has_multi_dyn and (ax_multi_dyn is not None) and (post_dyn_multi is not None):
+        # Get state names from mean_probs_multi if available
+        if mean_probs_multi is not None:
+            state_names = [str(k) for k in mean_probs_multi.index]
+        else:
+            # Fallback: try to infer from post_dyn_multi columns
+            if hasattr(post_dyn_multi, 'columns'):
+                state_names = [str(c) for c in post_dyn_multi.columns]
+            else:
+                d = np.asarray(post_dyn_multi.d if hasattr(post_dyn_multi, 'd') else post_dyn_multi)
+                n_dyn = d.shape[1] if d.ndim == 2 else 1
+                state_names = [f'dyn_{i}' for i in range(n_dyn)]
+        multi_dyn_plot_info = _plot_dynamics_panel(
+            ax_multi_dyn,
+            post_dyn_multi,
+            dynamics_col=dynamics_col,
+            state_names=state_names,
+            title='Decoded dynamics (multi-dynamics)',
+            heatmap_cmap=dyn_cmap_unsup,
+            line_kwargs=dynamics_line_kwargs,
+            heatmap_vmin_q=dynamics_vmin_q,
+            heatmap_vmax_q=dynamics_vmax_q,
+        )
+        out_axs.append(ax_multi_dyn)
+    elif has_multi_dyn and (ax_multi_dyn is not None):
+        ax_multi_dyn.set_title('Decoded dynamics (multi-dynamics)')
+        out_axs.append(ax_multi_dyn)
+
     # ---- hide x ticks and labels on all time panels; scalebar (unit) on lowest row only ----
-    all_time_axs = [a for a in (ax_sup_dyn, ax_uns_lat, ax_uns_dyn) if a is not None]
+    all_time_axs = [a for a in (ax_sup_dyn, ax_uns_lat, ax_uns_dyn, ax_multi_dyn) if a is not None]
     for ax in all_time_axs:
         try:
             ax.tick_params(axis='x', which='both', length=0, labelbottom=False)
@@ -811,6 +902,13 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
                 pass
         if len(parts):
             title_l.append('UNSUP: ' + ', '.join(parts))
+        if use_multi_dynamics and mean_probs_multi is not None:
+            try:
+                mean_prob_str = ', '.join([f'{k}:{float(v):.2f}' for k, v in mean_probs_multi.items()])
+                mean_prob_str = textwrap.fill(mean_prob_str, width=int(title_wrap_width), subsequent_indent='  ')
+                title_l.append('MULTI-DYN: mean_prob=' + mean_prob_str)
+            except Exception:
+                pass
 
     title = '\n'.join(title_l)
     try:
@@ -897,6 +995,8 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
         dynamics_col=dynamics_col,
         sup_dynamics_plot=sup_dyn_plot_info,
         unsup_dynamics_plot=unsup_dyn_plot_info,
+        multi_dynamics_plot=multi_dyn_plot_info,
+        mean_probs_multi=None if mean_probs_multi is None else dict(mean_probs_multi),
     )
 
     return fig, out_axs, out
