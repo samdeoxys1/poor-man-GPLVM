@@ -1160,22 +1160,41 @@ def analyze_replay_unsupervised(
                 print(f'[analyze_replay_unsupervised] cached decode already uses gain={float(gain_used):.6g}; returning cached')
             return cached
 
+        # When only force_reload_multi_dynamics: update whole return from cache, recompute just multi-dynamics and overwrite those keys
+        if force_reload_multi_dynamics and use_multi_dynamics and cached_use_multi == use_multi_dynamics:
+            if bool(verbose):
+                print(f'[analyze_replay_unsupervised] force_reload_multi_dynamics=True: recomputing multi-dynamics only, updating full return')
+            out = dict(cached)
+            event_df_base = out['event_df_joint'].copy()
+            mean_cols = [c for c in event_df_base.columns if str(c).startswith('mean_')]
+            if mean_cols:
+                event_df_base = event_df_base.drop(columns=mean_cols)
+            pbe_multi, event_df_joint_new = _compute_multi_dynamics_only(
+                base_res, gain_used, event_df_base, decode_multiple_transition_kwargs=decode_multiple_transition_kwargs_)
+            out['pbe_multiple_transition_res'] = pbe_multi
+            out['event_df_joint'] = event_df_joint_new
+            out['best_gain'] = float(gain_used)
+            out_h = dict(out.get('hyperparams', {}))
+            out_h.update({
+                'final_gain': None if final_gain is None else float(final_gain),
+                'force_reload': str(reload_mode),
+                'gain_used': float(gain_used),
+                'use_multi_dynamics': bool(use_multi_dynamics),
+                'force_reload_multi_dynamics': bool(force_reload_multi_dynamics),
+            })
+            out['hyperparams'] = out_h
+            if bool(dosave):
+                pd.to_pickle(out, save_path)
+                print(f'[analyze_replay_unsupervised] saved: {save_path}')
+                with open(config_path, 'w') as f:
+                    json.dump(out_h, f, indent=2, sort_keys=True, default=_json_default)
+                print(f'[analyze_replay_unsupervised] saved: {config_path}')
+            return out
+
         if cached_use_multi == use_multi_dynamics:
             decode_stage = _compute_decode_stage(base_res, gain_used, sweep_gain_res_keep=sweep_gain_res_keep,
                                                 use_multi_dynamics=use_multi_dynamics,
                                                 decode_multiple_transition_kwargs=decode_multiple_transition_kwargs_)
-            # Force recompute multi-dynamics if requested, even if decode_stage already computed it
-            if force_reload_multi_dynamics and use_multi_dynamics:
-                if bool(verbose):
-                    print(f'[analyze_replay_unsupervised] force_reload_multi_dynamics=True: recomputing multi-dynamics')
-                pbe_multi, event_df_joint_new = _compute_multi_dynamics_only(
-                    base_res, gain_used, decode_stage['event_df_joint'], decode_multiple_transition_kwargs=decode_multiple_transition_kwargs_)
-                decode_stage['pbe_multiple_transition_res'] = pbe_multi
-                # Remove old mean_* columns before adding new ones
-                mean_cols = [c for c in decode_stage['event_df_joint'].columns if str(c).startswith('mean_')]
-                if mean_cols:
-                    decode_stage['event_df_joint'] = decode_stage['event_df_joint'].drop(columns=mean_cols)
-                decode_stage['event_df_joint'] = event_df_joint_new
         else:
             if bool(verbose):
                 print(f'[analyze_replay_unsupervised] add/strip multi-dynamics only (reload_mode={reload_mode}) gain_used={float(gain_used):.6g}')
