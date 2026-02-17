@@ -390,8 +390,9 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
 
     event_i = int(event_i)
 
-    # ---- extract multi-dynamics data early (needed for has_multi_dyn calculation) ----
+    # ---- extract multi-dynamics data early (needed for has_multi_dyn and unsup panel source) ----
     mean_probs_multi = None
+    post_latent_multi = None
     post_dyn_multi = None
     if use_multi_dynamics and replay_res_unsup is not None:
         multi_res = replay_res_unsup.get('pbe_multiple_transition_res', None)
@@ -402,6 +403,13 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
                     mean_probs_multi = mean_prob_df.iloc[event_i]
                 except Exception:
                     mean_probs_multi = None
+            post_lat_per_event = multi_res.get('posterior_latent_marg_per_event', None)
+            if post_lat_per_event is not None:
+                try:
+                    post_latent_multi = post_lat_per_event[event_i]
+                except Exception:
+                    post_latent_multi = None
+            post_latent_multi = _ensure_tsdframe(post_latent_multi)
             post_dyn_per_event = multi_res.get('posterior_dynamics_marg_per_event', None)
             if post_dyn_per_event is not None:
                 try:
@@ -410,11 +418,12 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
                     post_dyn_multi = None
             post_dyn_multi = _ensure_tsdframe(post_dyn_multi)
 
+    # When use_multi_dynamics: unsup panels show multi-dynamics latent/dynamics; no separate multi-dynamics panel
     has_sup_traj = bool(plot_sup_trajectory) and (replay_res_sup is not None)
     has_sup_dyn = bool(plot_sup_dynamics) and (replay_res_sup is not None)
     has_unsup_lat = bool(plot_unsup_latent) and (replay_res_unsup is not None)
     has_unsup_dyn = bool(plot_unsup_dynamics) and (replay_res_unsup is not None)
-    has_multi_dyn = bool(use_multi_dynamics) and (post_dyn_multi is not None)
+    has_multi_dyn = False  # when use_multi_dynamics, unsup panels show multi-dynamics; no extra panel
     n_panels_req = int(has_sup_traj) + int(has_sup_dyn) + int(has_unsup_lat) + int(has_unsup_dyn) + int(has_multi_dyn)
 
     if has_sup_traj and (position_tsdf is None):
@@ -481,6 +490,10 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
                 post_latent_best = _ensure_tsdframe(post_latent_best)
                 post_dyn_best = _ensure_tsdframe(post_dyn_best)
 
+    # Source for unsup latent/dynamics: multi-dynamics when use_multi_dynamics and available, else compare best kernel
+    post_latent_unsup = post_latent_multi if (use_multi_dynamics and post_latent_multi is not None) else post_latent_best
+    post_dyn_unsup = post_dyn_multi if (use_multi_dynamics and post_dyn_multi is not None) else post_dyn_best
+
     # ---- supervised posteriors per event ----
     sup_dyn_one = None
     if replay_res_sup is not None:
@@ -507,7 +520,7 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
         return binsize, block
     binsize_sec = None
     block_sec = None
-    for ts in (sup_dyn_one, post_latent_best, post_dyn_best, post_dyn_multi):
+    for ts in (sup_dyn_one, post_latent_unsup, post_dyn_unsup):
         b, blk = _binsize_and_block_from_ts(ts)
         if b is not None and b > 0:
             binsize_sec = b
@@ -773,14 +786,15 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
         ax_sup_dyn.set_title('Decoded dynamics (supervised)')
         out_axs.append(ax_sup_dyn)
 
-    # ---- plot unsupervised latent ----
-    if has_unsup_lat and (ax_uns_lat is not None) and (post_latent_best is not None):
+    # ---- plot unsupervised latent (from multi-dynamics when use_multi_dynamics else compare best kernel) ----
+    if has_unsup_lat and (ax_uns_lat is not None) and (post_latent_unsup is not None):
         sk = dict(s=4, c='yellow')
         sk.update({k: v for k, v in unsup_heatmap_kwargs_.items() if k.startswith('heatmap_scatter_')})
+        title_lat = 'Decoded latent (unsupervised)' if not use_multi_dynamics else 'Decoded latent (multi-dynamics)'
         _plot_posterior_heatmap(
             ax_uns_lat,
-            post_latent_best,
-            title='Decoded latent (unsupervised)',
+            post_latent_unsup,
+            title=title_lat,
             cmap=latent_cmap,
             vmin_q=latent_vmin_q,
             vmax_q=latent_vmax_q,
@@ -793,15 +807,22 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
         ax_uns_lat.set_title('Decoded latent (unsupervised)')
         out_axs.append(ax_uns_lat)
 
-    # ---- plot unsupervised dynamics ----
+    # ---- plot unsupervised dynamics (from multi-dynamics when use_multi_dynamics else compare best kernel) ----
     unsup_dyn_plot_info = dict(mode=None, name=None)
-    if has_unsup_dyn and (ax_uns_dyn is not None) and (post_dyn_best is not None):
+    if has_unsup_dyn and (ax_uns_dyn is not None) and (post_dyn_unsup is not None):
+        if use_multi_dynamics and mean_probs_multi is not None:
+            state_names = [str(k) for k in mean_probs_multi.index]
+        elif use_multi_dynamics and hasattr(post_dyn_unsup, 'columns'):
+            state_names = [str(c) for c in post_dyn_unsup.columns]
+        else:
+            state_names = ['consistent', 'inconsistent']
+        title_dyn = 'Decoded dynamics (unsupervised)' if not use_multi_dynamics else 'Decoded dynamics (multi-dynamics)'
         unsup_dyn_plot_info = _plot_dynamics_panel(
             ax_uns_dyn,
-            post_dyn_best,
+            post_dyn_unsup,
             dynamics_col=dynamics_col,
-            state_names=['consistent', 'inconsistent'],
-            title='Decoded dynamics (unsupervised)',
+            state_names=state_names,
+            title=title_dyn,
             heatmap_cmap=dyn_cmap_unsup,
             line_kwargs=dynamics_line_kwargs,
             heatmap_vmin_q=dynamics_vmin_q,
@@ -812,20 +833,17 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
         ax_uns_dyn.set_title('Decoded dynamics (unsupervised)')
         out_axs.append(ax_uns_dyn)
 
-    # ---- plot multi-dynamics dynamics ----
+    # ---- plot multi-dynamics dynamics (only when use_multi_dynamics but no unsup panels; else skipped) ----
     multi_dyn_plot_info = dict(mode=None, name=None)
     if has_multi_dyn and (ax_multi_dyn is not None) and (post_dyn_multi is not None):
-        # Get state names from mean_probs_multi if available
         if mean_probs_multi is not None:
             state_names = [str(k) for k in mean_probs_multi.index]
+        elif hasattr(post_dyn_multi, 'columns'):
+            state_names = [str(c) for c in post_dyn_multi.columns]
         else:
-            # Fallback: try to infer from post_dyn_multi columns
-            if hasattr(post_dyn_multi, 'columns'):
-                state_names = [str(c) for c in post_dyn_multi.columns]
-            else:
-                d = np.asarray(post_dyn_multi.d if hasattr(post_dyn_multi, 'd') else post_dyn_multi)
-                n_dyn = d.shape[1] if d.ndim == 2 else 1
-                state_names = [f'dyn_{i}' for i in range(n_dyn)]
+            d = np.asarray(post_dyn_multi.d if hasattr(post_dyn_multi, 'd') else post_dyn_multi)
+            n_dyn = d.shape[1] if d.ndim == 2 else 1
+            state_names = [f'dyn_{i}' for i in range(n_dyn)]
         multi_dyn_plot_info = _plot_dynamics_panel(
             ax_multi_dyn,
             post_dyn_multi,
