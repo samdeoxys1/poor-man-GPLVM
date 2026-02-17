@@ -88,6 +88,65 @@ def create_transition_prob_1d(possible_latent_bin,possible_dynamics,movement_var
 
     return latent_transition_kernel_l,log_latent_transition_kernel_l,dynamics_transition_kernel,log_dynamics_transition_kernel
 
+
+def create_transition_prob_from_transmat_list(possible_latent_bin, transmat_list, p_stay):
+    '''
+    Build transition kernels from a list of latent transition matrices + uniform fragmented.
+
+    Difference from create_transition_prob_1d:
+    - create_transition_prob_1d: uses p_move_to_jump / p_jump_to_move for 2-dynamics (continuous + jump).
+    - This function: uses single p_stay; equal probability to all other dynamics. Use for multi-dynamics
+      (several latent transition matrices + one uniform "fragmented" dynamics).
+
+    Parameters
+    ----------
+    possible_latent_bin : array
+        Same as in create_transition_prob_1d.
+    transmat_list : list of (L,L) arrays or (K,L,L) array
+        Latent transition matrix per "behavior" dynamics. Rows normalized inside.
+    p_stay : float in (0,1)
+        Probability to stay in current dynamics; (1-p_stay) split equally to other dynamics.
+
+    Returns
+    -------
+    Same 4-tuple as create_transition_prob_1d: latent_transition_kernel_l, log_latent_transition_kernel_l,
+    dynamics_transition_kernel, log_dynamics_transition_kernel. Shapes: (K+1,L,L), (K+1,L,L), (K+1,K+1), (K+1,K+1)
+    with K = len(transmat_list), L = n_latent. Last dynamics index = fragmented (uniform).
+
+    When using multi-dynamics (custom_kernel as list), do not: rely on index 0 = continuous or -1 = fragmented;
+    use clean_jump.compute_clean_transition_and_decode; use select_inverse_temperature_match_step_continuous
+    without redefining which index is continuous; or use helpers that assume posterior_dynamics_marg has
+    exactly 2 columns or column 0 = P(continuous).
+    '''
+    n_latent = len(possible_latent_bin)
+    if isinstance(transmat_list, (list, tuple)):
+        transmat_stack = jnp.stack([jnp.asarray(t) for t in transmat_list])
+    else:
+        transmat_stack = jnp.asarray(transmat_list)
+    K = transmat_stack.shape[0]
+    latent_kernels = []
+    for i in range(K):
+        m = transmat_stack[i]
+        normalizer = m.sum(axis=1, keepdims=True) + 1e-30
+        m_norm = m / normalizer
+        log_m = jnp.log(m_norm + 1e-30)
+        latent_kernels.append((m_norm, log_m))
+    uniform_k = jnp.ones((n_latent, n_latent)) / n_latent
+    log_uniform = jnp.log(uniform_k)
+    latent_transition_kernel_l = jnp.stack([lk[0] for lk in latent_kernels] + [uniform_k])
+    log_latent_transition_kernel_l = jnp.stack([lk[1] for lk in latent_kernels] + [log_uniform])
+    n_dyn = K + 1
+    off_diag = (1.0 - p_stay) / K
+    dynamics_transition_matrix = jnp.eye(n_dyn) * p_stay + (1.0 - jnp.eye(n_dyn)) * off_diag
+    possible_dynamics = jnp.arange(n_dyn)
+    dynamics_transition_kernel, log_dynamics_transition_kernel = vmap(
+        vmap(lambda x, y: discrete_transition_kernel(x, y, dynamics_transition_matrix),
+             in_axes=(0, None), out_axes=0),
+        in_axes=(None, 0), out_axes=1
+    )(possible_dynamics, possible_dynamics)
+    return latent_transition_kernel_l, log_latent_transition_kernel_l, dynamics_transition_kernel, log_dynamics_transition_kernel
+
+
 @jit
 def create_transition_prob_latent_1d(possible_latent_bin, movement_variance=1.,custom_kernel=None):
     '''

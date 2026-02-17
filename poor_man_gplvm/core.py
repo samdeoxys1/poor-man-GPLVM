@@ -617,6 +617,16 @@ class AbstractGPLVMJump1D(ABC):
         '''
         y: n_time x n_neuron, can be np array or TsdFrame. Its .t overrides t_l if TsdFrame
         if t_l is provided, then return TsdFrame
+
+        custom_transition_kernel:
+        - Single (K,K) matrix or None: only the continuous (index 0) latent transition is replaced;
+          jump (index 1) stays uniform. Standard 2-dynamics model.
+        - List of (K,K) matrices: multi-dynamics mode. One latent kernel per list element + one uniform
+          fragmented dynamics. Dynamics switching uses p_stay (default max(1-p_jump_to_move, 1-p_move_to_jump)).
+          Only as argument to decode_latent; do not set self.custom_transition_kernel = list.
+        - When using multi-dynamics, do not: rely on index 0 = continuous or -1 = fragmented;
+          use clean_jump.compute_clean_transition_and_decode; use select_inverse_temperature_match_step_continuous;
+          or use helpers that assume posterior_dynamics_marg has exactly 2 columns or column 0 = P(continuous).
         '''
         if isinstance(y,nap.TsdFrame):
             t_l = y.t
@@ -635,8 +645,15 @@ class AbstractGPLVMJump1D(ABC):
             custom_transition_kernel_ = self.custom_transition_kernel
         else:
             custom_transition_kernel_ = custom_transition_kernel
-        latent_transition_kernel_l,log_latent_transition_kernel_l,dynamics_transition_kernel,log_dynamics_transition_kernel = gpk.create_transition_prob_1d(
-            self.possible_latent_bin,self.possible_dynamics,movement_variance,p_move_to_jump,p_jump_to_move,custom_kernel=custom_transition_kernel_)
+        if isinstance(custom_transition_kernel_, (list, tuple)):
+            p_stay = hyperparam.get('p_stay', None)
+            if p_stay is None:
+                p_stay = max(1.0 - self.p_jump_to_move, 1.0 - self.p_move_to_jump)
+            latent_transition_kernel_l, log_latent_transition_kernel_l, dynamics_transition_kernel, log_dynamics_transition_kernel = gpk.create_transition_prob_from_transmat_list(
+                self.possible_latent_bin, custom_transition_kernel_, p_stay=p_stay)
+        else:
+            latent_transition_kernel_l, log_latent_transition_kernel_l, dynamics_transition_kernel, log_dynamics_transition_kernel = gpk.create_transition_prob_1d(
+                self.possible_latent_bin, self.possible_dynamics, movement_variance, p_move_to_jump, p_jump_to_move, custom_kernel=custom_transition_kernel_)
         log_posterior_all,log_marginal_final,log_causal_posterior_all,log_one_step_predictive_marginals_all,log_accumulated_joint_total,log_likelihood_all= self._decode_latent(y,tuning,hyperparam,log_latent_transition_kernel_l,log_dynamics_transition_kernel,ma_neuron,ma_latent=ma_latent,likelihood_scale=likelihood_scale,n_time_per_chunk=n_time_per_chunk)
         
         posterior_all = np.exp(log_posterior_all)
