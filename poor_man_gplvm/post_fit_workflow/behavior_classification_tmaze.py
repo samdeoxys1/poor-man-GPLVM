@@ -511,6 +511,7 @@ def get_behavior_type_transmat(
     time_stamps,
     speed=None,
     unknown_label=None,
+    include_unknown=False,
 ):
     """
     Assign behavior category to each time stamp via bc_ep_d intervals, then compute
@@ -527,12 +528,15 @@ def get_behavior_type_transmat(
         If not None, apply matrix exponential: P_out = expm(speed * logm(P)).
         Requires P to be embeddable (logm can fail on some matrices).
     unknown_label : str or None
-        Label for times not in any interval. If None, use "unknown". These are dropped for transition counts.
+        Label for times not in any interval. If None, use "unknown".
+    include_unknown : bool
+        If True, include unknown as a row/column when present. If False (default), exclude
+        unknown and renormalize rows so matrix is row-stochastic over known categories only.
 
     Returns
     -------
     pd.DataFrame
-        Transition probability matrix, index/columns = behavior types (incl. unknown if present in sequence).
+        Transition probability matrix, index/columns = behavior types.
     """
     t = np.asarray(time_stamps).ravel()
     if hasattr(time_stamps, "t"):
@@ -547,9 +551,10 @@ def get_behavior_type_transmat(
         mask = np.isfinite(d)
         labels[mask] = cat
     unk = unknown_label if unknown_label is not None else "unknown"
-    use_cats = list(categories)
-    if np.any(labels == unk):
-        use_cats = use_cats + [unk]
+    if include_unknown and np.any(labels == unk):
+        use_cats = list(categories) + [unk]
+    else:
+        use_cats = list(categories)
     cat_to_ix = {c: i for i, c in enumerate(use_cats)}
     n = len(use_cats)
     counts = np.zeros((n, n))
