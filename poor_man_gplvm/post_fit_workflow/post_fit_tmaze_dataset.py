@@ -770,6 +770,7 @@ def analyze_replay_unsupervised(
     decode_multiple_transition_kwargs=None,
     nb_decode_kwargs=None,
     use_multi_dynamics=False,
+    force_reload_multi_dynamics=False,
     verbose=True,
 ):
     '''
@@ -791,6 +792,9 @@ def analyze_replay_unsupervised(
     - False: load cached if exists; if final_gain is provided and differs from cached decode gain, redo decode-stage only
     - 'decode': redo decode-stage only (shuffle-test + decoding), reuse cached base if available
     - True or 'all': recompute everything (base + sweep + decode). If final_gain is provided, decode uses final_gain but sweep is still recomputed (reported in sweep_gain_res).
+
+    force_reload_multi_dynamics:
+    - If True, force recompute multi-dynamics part even if it exists in cache. Useful when changing p_stay or other decode_multiple_transition_kwargs.
 
     prep_res dictionary contains:
     - spk_mat: n_time x n_neuron
@@ -884,7 +888,7 @@ def analyze_replay_unsupervised(
     if decode_compare_kwargs is not None:
         decode_compare_kwargs_.update(dict(decode_compare_kwargs))
 
-    decode_multiple_transition_kwargs_ = {}
+    decode_multiple_transition_kwargs_ = {'p_stay': 0.95}  # default p_stay for multi-dynamics analysis
     if decode_multiple_transition_kwargs is not None:
         decode_multiple_transition_kwargs_.update(dict(decode_multiple_transition_kwargs))
 
@@ -905,6 +909,7 @@ def analyze_replay_unsupervised(
         'decode_multiple_transition_kwargs': decode_multiple_transition_kwargs_,
         'nb_decode_kwargs': nb_decode_kwargs_,
         'use_multi_dynamics': bool(use_multi_dynamics),
+        'force_reload_multi_dynamics': bool(force_reload_multi_dynamics),
         'save_dir': str(save_dir),
         'save_fn': str(save_fn),
         'data_dir_full': str(data_dir_full),
@@ -1159,6 +1164,18 @@ def analyze_replay_unsupervised(
             decode_stage = _compute_decode_stage(base_res, gain_used, sweep_gain_res_keep=sweep_gain_res_keep,
                                                 use_multi_dynamics=use_multi_dynamics,
                                                 decode_multiple_transition_kwargs=decode_multiple_transition_kwargs_)
+            # Force recompute multi-dynamics if requested, even if decode_stage already computed it
+            if force_reload_multi_dynamics and use_multi_dynamics:
+                if bool(verbose):
+                    print(f'[analyze_replay_unsupervised] force_reload_multi_dynamics=True: recomputing multi-dynamics')
+                pbe_multi, event_df_joint_new = _compute_multi_dynamics_only(
+                    base_res, gain_used, decode_stage['event_df_joint'], decode_multiple_transition_kwargs=decode_multiple_transition_kwargs_)
+                decode_stage['pbe_multiple_transition_res'] = pbe_multi
+                # Remove old mean_* columns before adding new ones
+                mean_cols = [c for c in decode_stage['event_df_joint'].columns if str(c).startswith('mean_')]
+                if mean_cols:
+                    decode_stage['event_df_joint'] = decode_stage['event_df_joint'].drop(columns=mean_cols)
+                decode_stage['event_df_joint'] = event_df_joint_new
         else:
             if bool(verbose):
                 print(f'[analyze_replay_unsupervised] add/strip multi-dynamics only (reload_mode={reload_mode}) gain_used={float(gain_used):.6g}')
@@ -1172,17 +1189,25 @@ def analyze_replay_unsupervised(
                 'event_df_joint': cached['event_df_joint'].copy(),
             }
             if use_multi_dynamics:
-                cached_multi = cached.get('pbe_multiple_transition_res')
-                if cached_multi is not None:
-                    mean_prob = cached_multi['mean_prob_category_per_event_df'].copy()
-                    mean_prob.columns = ['mean_' + str(c) for c in mean_prob.columns]
-                    decode_stage['event_df_joint'] = pd.concat([decode_stage['event_df_joint'], mean_prob], axis=1)
-                    decode_stage['pbe_multiple_transition_res'] = cached_multi
-                else:
+                if force_reload_multi_dynamics:
+                    if bool(verbose):
+                        print(f'[analyze_replay_unsupervised] force_reload_multi_dynamics=True: recomputing multi-dynamics')
                     pbe_multi, event_df_joint_new = _compute_multi_dynamics_only(
                         base_res, gain_used, decode_stage['event_df_joint'], decode_multiple_transition_kwargs=decode_multiple_transition_kwargs_)
                     decode_stage['pbe_multiple_transition_res'] = pbe_multi
                     decode_stage['event_df_joint'] = event_df_joint_new
+                else:
+                    cached_multi = cached.get('pbe_multiple_transition_res')
+                    if cached_multi is not None:
+                        mean_prob = cached_multi['mean_prob_category_per_event_df'].copy()
+                        mean_prob.columns = ['mean_' + str(c) for c in mean_prob.columns]
+                        decode_stage['event_df_joint'] = pd.concat([decode_stage['event_df_joint'], mean_prob], axis=1)
+                        decode_stage['pbe_multiple_transition_res'] = cached_multi
+                    else:
+                        pbe_multi, event_df_joint_new = _compute_multi_dynamics_only(
+                            base_res, gain_used, decode_stage['event_df_joint'], decode_multiple_transition_kwargs=decode_multiple_transition_kwargs_)
+                        decode_stage['pbe_multiple_transition_res'] = pbe_multi
+                        decode_stage['event_df_joint'] = event_df_joint_new
             else:
                 mean_cols = [c for c in decode_stage['event_df_joint'].columns if str(c).startswith('mean_')]
                 if mean_cols:
@@ -1197,6 +1222,7 @@ def analyze_replay_unsupervised(
             'force_reload': str(reload_mode),
             'gain_used': float(gain_used),
             'use_multi_dynamics': bool(use_multi_dynamics),
+            'force_reload_multi_dynamics': bool(force_reload_multi_dynamics),
         })
         out['hyperparams'] = out_h
 

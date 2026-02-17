@@ -646,7 +646,7 @@ def decode_with_multiple_transition_kernels(
     continuous_transition_mat_d : dict or list
         Dict name -> (L,L) or list of (L,L). Latent transition per behavior; last dynamics = fragmented (uniform).
     p_stay : float, optional
-        Passed to create_transition_prob_from_transmat_list. Default from model if neither p_stay nor p_dynamics_transmat.
+        Passed to create_transition_prob_from_transmat_list. Must be provided (no default in this function).
     p_dynamics_transmat : (K+1,K+1) array, optional
         Full dynamics transition matrix; overrides p_stay.
 
@@ -693,8 +693,6 @@ def decode_with_multiple_transition_kernels(
         latent_transition_kernel_l, log_latent_transition_kernel_l, dynamics_transition_kernel, log_dynamics_transition_kernel = gpk.create_transition_prob_from_transmat_list(
             possible_latent_bin, transmat_list, p_dynamics_transmat=p_dynamics_transmat)
     else:
-        if p_stay is None:
-            p_stay = max(1.0 - model.p_jump_to_move, 1.0 - model.p_move_to_jump)
         latent_transition_kernel_l, log_latent_transition_kernel_l, dynamics_transition_kernel, log_dynamics_transition_kernel = gpk.create_transition_prob_from_transmat_list(
             possible_latent_bin, transmat_list, p_stay=p_stay)
 
