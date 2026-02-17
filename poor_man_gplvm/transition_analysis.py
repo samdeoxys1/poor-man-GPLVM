@@ -28,6 +28,7 @@ import jax
 import jax.numpy as jnp
 import pandas as pd
 import poor_man_gplvm.decoder_trial as pdt
+import poor_man_gplvm.gp_kernel as gpk
 import pickle
 
 # =============================================================================
@@ -607,6 +608,152 @@ def decode_compare_transition_kernels(
         "n_time_per_event": n_time_per_event,
         "start_index": start_index,
         "end_index": end_index,
+    }
+    if time_l_ is not None:
+        out["time_l"] = time_l_
+    return out
+
+
+def decode_with_multiple_transition_kernels(
+    spk_tensor,
+    model,
+    continuous_transition_mat_d: Union[Dict[str, np.ndarray], List[np.ndarray]],
+    tensor_pad_mask=None,
+    *,
+    dt: float = 0.02,
+    gain: float = 1.0,
+    model_fit_dt: float = 0.1,
+    time_l=None,
+    kernel_names: Optional[List[str]] = None,
+    neuron_mask=None,
+    ma_latent=None,
+    n_trial_per_chunk: int = 400,
+    prior_magnifier: float = 1.0,
+    return_numpy: bool = True,
+    p_stay=None,
+    p_dynamics_transmat=None,
+) -> Dict[str, Any]:
+    """
+    Decode trial-tensor spike counts under one multi-dynamics model (list of latent
+    transition matrices + uniform fragmented). Returns posterior over dynamics; per-event
+    summary is mean-in-time of posterior_dynamics_marg (no model-comparison hierarchy).
+
+    Parameters
+    ----------
+    spk_tensor, model, tensor_pad_mask, dt, gain, model_fit_dt, time_l, kernel_names,
+    neuron_mask, ma_latent, n_trial_per_chunk, prior_magnifier, return_numpy
+        Same as decode_compare_transition_kernels.
+    continuous_transition_mat_d : dict or list
+        Dict name -> (L,L) or list of (L,L). Latent transition per behavior; last dynamics = fragmented (uniform).
+    p_stay : float, optional
+        Passed to create_transition_prob_from_transmat_list. Default from model if neither p_stay nor p_dynamics_transmat.
+    p_dynamics_transmat : (K+1,K+1) array, optional
+        Full dynamics transition matrix; overrides p_stay.
+
+    Returns
+    -------
+    kernel_names (list, includes "fragmented"), posterior_latent_marg, posterior_dynamics_marg,
+    posterior_latent_marg_per_event, posterior_dynamics_marg_per_event,
+    mean_prob_category_per_event_df (mean in time per event), n_time_per_event, start_index, end_index,
+    time_l (if provided), log_marginal.
+    """
+    if isinstance(continuous_transition_mat_d, dict):
+        if kernel_names is None:
+            kernel_names = list(continuous_transition_mat_d.keys())
+        transmat_list = [continuous_transition_mat_d[k] for k in kernel_names]
+    else:
+        transmat_list = list(continuous_transition_mat_d)
+        if kernel_names is None:
+            kernel_names = [f"kernel_{i}" for i in range(len(transmat_list))]
+    if len(kernel_names) != len(transmat_list):
+        raise ValueError("kernel_names must have same length as transmat list")
+    dyn_names = list(kernel_names) + ["fragmented"]
+
+    tensor_pad_mask_ = tensor_pad_mask
+    if tensor_pad_mask_ is None:
+        n_trial, t_max = int(spk_tensor.shape[0]), int(spk_tensor.shape[1])
+        tensor_pad_mask_ = np.ones((n_trial, t_max, 1), dtype=bool)
+    valid_mask_all = np.asarray(tensor_pad_mask_)[:, :, 0].astype(bool)
+    trial_lengths = valid_mask_all.sum(axis=1).astype(int)
+    ends = np.cumsum(trial_lengths).astype(int)
+    starts = np.concatenate([np.array([0], dtype=int), ends[:-1]])
+    start_index = starts
+    end_index = ends
+    n_time_per_event = trial_lengths
+
+    if neuron_mask is None:
+        neuron_mask = getattr(model, "neuron_mask", None)
+    if ma_latent is None:
+        ma_latent = getattr(model, "ma_latent", None)
+
+    tuning_hz = np.asarray(model.tuning) / float(model_fit_dt)
+    possible_latent_bin = model.possible_latent_bin
+
+    if p_dynamics_transmat is not None:
+        latent_transition_kernel_l, log_latent_transition_kernel_l, dynamics_transition_kernel, log_dynamics_transition_kernel = gpk.create_transition_prob_from_transmat_list(
+            possible_latent_bin, transmat_list, p_dynamics_transmat=p_dynamics_transmat)
+    else:
+        if p_stay is None:
+            p_stay = max(1.0 - model.p_jump_to_move, 1.0 - model.p_move_to_jump)
+        latent_transition_kernel_l, log_latent_transition_kernel_l, dynamics_transition_kernel, log_dynamics_transition_kernel = gpk.create_transition_prob_from_transmat_list(
+            possible_latent_bin, transmat_list, p_stay=p_stay)
+
+    res = pdt.decode_trials_padded_vmapped(
+        spk_tensor,
+        tuning_hz,
+        np.asarray(log_latent_transition_kernel_l),
+        np.asarray(log_dynamics_transition_kernel),
+        tensor_pad_mask=tensor_pad_mask_,
+        dt=dt,
+        gain=gain,
+        neuron_mask=neuron_mask,
+        ma_latent=ma_latent,
+        n_trial_per_chunk=n_trial_per_chunk,
+        prior_magnifier=prior_magnifier,
+        return_numpy=return_numpy,
+    )
+    log_post_padded = np.asarray(res["log_post_padded"])
+    n_trial, t_max, n_dyn, n_latent = log_post_padded.shape
+    log_post_flat = log_post_padded.reshape((n_trial * t_max, n_dyn, n_latent))
+    mask_flat = valid_mask_all.reshape((n_trial * t_max,))
+    log_posterior_all = log_post_flat[mask_flat]
+    posterior_all = np.exp(log_posterior_all)
+    posterior_latent_marg = posterior_all.sum(axis=1)
+    posterior_dynamics_marg = posterior_all.sum(axis=2)
+
+    time_l_ = None
+    if time_l is not None:
+        time_l_ = np.asarray(time_l)
+        if time_l_.ndim != 1:
+            raise ValueError("time_l must be 1D")
+        total_valid = int(ends[-1]) if ends.size else 0
+        if int(time_l_.shape[0]) != total_valid:
+            raise ValueError("time_l length must equal total valid bins")
+
+    posterior_latent_marg_per_event = [posterior_latent_marg[s:e] for s, e in zip(starts, ends)]
+    posterior_dynamics_marg_per_event = [posterior_dynamics_marg[s:e] for s, e in zip(starts, ends)]
+
+    mean_posterior_per_event = np.array([p.mean(axis=0) for p in posterior_dynamics_marg_per_event])
+    mean_prob_category_per_event_df = pd.DataFrame(mean_posterior_per_event, columns=dyn_names)
+
+    if time_l_ is not None:
+        posterior_latent_marg_tsdf = nap.TsdFrame(t=time_l_, d=posterior_latent_marg, columns=np.arange(n_latent))
+        dyn_cols = np.arange(n_dyn)
+        posterior_dynamics_marg_tsdf = nap.TsdFrame(t=time_l_, d=posterior_dynamics_marg, columns=dyn_cols)
+        posterior_latent_marg_per_event = [posterior_latent_marg_tsdf[s:e] for s, e in zip(starts, ends)]
+        posterior_dynamics_marg_per_event = [posterior_dynamics_marg_tsdf[s:e] for s, e in zip(starts, ends)]
+
+    out = {
+        "kernel_names": dyn_names,
+        "posterior_latent_marg": posterior_latent_marg,
+        "posterior_dynamics_marg": posterior_dynamics_marg,
+        "posterior_latent_marg_per_event": posterior_latent_marg_per_event,
+        "posterior_dynamics_marg_per_event": posterior_dynamics_marg_per_event,
+        "mean_prob_category_per_event_df": mean_prob_category_per_event_df,
+        "n_time_per_event": n_time_per_event,
+        "start_index": start_index,
+        "end_index": end_index,
+        "log_marginal": res["log_marginal"],
     }
     if time_l_ is not None:
         out["time_l"] = time_l_

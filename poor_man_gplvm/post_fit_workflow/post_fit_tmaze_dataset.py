@@ -767,7 +767,9 @@ def analyze_replay_unsupervised(
     behavior_kwargs=None,
     gain_sweep_kwargs=None,
     decode_compare_kwargs=None,
+    decode_multiple_transition_kwargs=None,
     nb_decode_kwargs=None,
+    use_multi_dynamics=False,
     verbose=True,
 ):
     '''
@@ -882,6 +884,10 @@ def analyze_replay_unsupervised(
     if decode_compare_kwargs is not None:
         decode_compare_kwargs_.update(dict(decode_compare_kwargs))
 
+    decode_multiple_transition_kwargs_ = {}
+    if decode_multiple_transition_kwargs is not None:
+        decode_multiple_transition_kwargs_.update(dict(decode_multiple_transition_kwargs))
+
     nb_decode_kwargs_ = {
         'n_time_per_chunk': 20000,
     }
@@ -896,7 +902,9 @@ def analyze_replay_unsupervised(
         'behavior_kwargs': behavior_kwargs_,
         'gain_sweep_kwargs': gain_sweep_kwargs_,
         'decode_compare_kwargs': decode_compare_kwargs_,
+        'decode_multiple_transition_kwargs': decode_multiple_transition_kwargs_,
         'nb_decode_kwargs': nb_decode_kwargs_,
+        'use_multi_dynamics': bool(use_multi_dynamics),
         'save_dir': str(save_dir),
         'save_fn': str(save_fn),
         'data_dir_full': str(data_dir_full),
@@ -987,7 +995,34 @@ def analyze_replay_unsupervised(
             'pbe_dt': float(pbe_dt),
         }
 
-    def _compute_decode_stage(base_res, gain_used, *, sweep_gain_res_keep=None):
+    def _compute_multi_dynamics_only(base_res, gain_used, event_df_joint, decode_multiple_transition_kwargs=None):
+        """Run only decode_with_multiple_transition_kernels and merge mean_* into event_df_joint. Independent module."""
+        spk_tensor_res = base_res['spk_tensor_res']
+        spk_tensor = spk_tensor_res['spike_tensor']
+        tensor_pad_mask = spk_tensor_res['mask']
+        time_l = spk_tensor_res['time_l']
+        binsize = float(base_res['pbe_dt'])
+        model_fit_dt_use = float(base_res['model_fit_dt'])
+        decode_multi_kw = dict(
+            tensor_pad_mask=tensor_pad_mask,
+            time_l=time_l,
+            dt=float(binsize),
+            gain=float(gain_used),
+            model_fit_dt=float(model_fit_dt_use),
+            n_trial_per_chunk=int(decode_compare_kwargs_['n_trial_per_chunk']),
+            prior_magnifier=float(decode_compare_kwargs_['prior_magnifier']),
+            return_numpy=bool(decode_compare_kwargs_['return_numpy']),
+        )
+        if decode_multiple_transition_kwargs:
+            decode_multi_kw.update(decode_multiple_transition_kwargs)
+        pbe_multiple_transition_res = trans.decode_with_multiple_transition_kernels(
+            spk_tensor, model_fit, base_res['trans_mat_d'], **decode_multi_kw)
+        mean_prob = pbe_multiple_transition_res['mean_prob_category_per_event_df'].copy()
+        mean_prob.columns = ['mean_' + str(c) for c in mean_prob.columns]
+        event_df_joint_out = pd.concat([event_df_joint, mean_prob], axis=1)
+        return pbe_multiple_transition_res, event_df_joint_out
+
+    def _compute_decode_stage(base_res, gain_used, *, sweep_gain_res_keep=None, use_multi_dynamics=False, decode_multiple_transition_kwargs=None):
         binsize = float(base_res['pbe_dt'])
         spk_tensor_res = base_res['spk_tensor_res']
         spk_tensor = spk_tensor_res['spike_tensor']
@@ -1059,12 +1094,20 @@ def analyze_replay_unsupervised(
         prob_category_per_event_df = pbe_compare_transition_res['prob_category_per_event_df']
         event_df_joint = pd.concat([event_df, prob_category_per_event_df], axis=1)  # output
 
+        pbe_multiple_transition_res = None
+        if use_multi_dynamics:
+            if bool(verbose):
+                print('[analyze_replay_unsupervised] decode PBE with multiple transition kernels (multi-dynamics)')
+            pbe_multiple_transition_res, event_df_joint = _compute_multi_dynamics_only(
+                base_res, gain_used, event_df_joint, decode_multiple_transition_kwargs=decode_multiple_transition_kwargs)
+
         out = {
             'sweep_gain_res': sweep_gain_res_keep,
             'shuffle_test_res_gain_used': shuffle_test_res,
             'best_gain': float(gain_used),
             'nb_decode_res': nb_decode_res,
             'pbe_compare_transition_res': pbe_compare_transition_res,
+            'pbe_multiple_transition_res': pbe_multiple_transition_res,
             'event_df_joint': event_df_joint,
         }
         return out
@@ -1107,14 +1150,44 @@ def analyze_replay_unsupervised(
         else:
             gain_used = float(final_gain)
 
-        if reload_mode == 'none' and (final_gain is not None) and (cached_gain is not None) and (float(cached_gain) == float(gain_used)):
+        cached_use_multi = hp.get('use_multi_dynamics', False)
+        if reload_mode == 'none' and (final_gain is not None) and (cached_gain is not None) and (float(cached_gain) == float(gain_used)) and (cached_use_multi == use_multi_dynamics):
             if bool(verbose):
                 print(f'[analyze_replay_unsupervised] cached decode already uses gain={float(gain_used):.6g}; returning cached')
             return cached
 
-        if bool(verbose):
-            print(f'[analyze_replay_unsupervised] redo decode-stage only (reload_mode={reload_mode}) gain_used={float(gain_used):.6g}')
-        decode_stage = _compute_decode_stage(base_res, gain_used, sweep_gain_res_keep=sweep_gain_res_keep)
+        if cached_use_multi == use_multi_dynamics:
+            decode_stage = _compute_decode_stage(base_res, gain_used, sweep_gain_res_keep=sweep_gain_res_keep,
+                                                use_multi_dynamics=use_multi_dynamics,
+                                                decode_multiple_transition_kwargs=decode_multiple_transition_kwargs_)
+        else:
+            if bool(verbose):
+                print(f'[analyze_replay_unsupervised] add/strip multi-dynamics only (reload_mode={reload_mode}) gain_used={float(gain_used):.6g}')
+            decode_stage = {
+                'sweep_gain_res': sweep_gain_res_keep,
+                'shuffle_test_res_gain_used': cached.get('shuffle_test_res_gain_used'),
+                'best_gain': float(gain_used),
+                'nb_decode_res': cached['nb_decode_res'],
+                'pbe_compare_transition_res': cached['pbe_compare_transition_res'],
+                'pbe_multiple_transition_res': None,
+                'event_df_joint': cached['event_df_joint'].copy(),
+            }
+            if use_multi_dynamics:
+                cached_multi = cached.get('pbe_multiple_transition_res')
+                if cached_multi is not None:
+                    mean_prob = cached_multi['mean_prob_category_per_event_df'].copy()
+                    mean_prob.columns = ['mean_' + str(c) for c in mean_prob.columns]
+                    decode_stage['event_df_joint'] = pd.concat([decode_stage['event_df_joint'], mean_prob], axis=1)
+                    decode_stage['pbe_multiple_transition_res'] = cached_multi
+                else:
+                    pbe_multi, event_df_joint_new = _compute_multi_dynamics_only(
+                        base_res, gain_used, decode_stage['event_df_joint'], decode_multiple_transition_kwargs=decode_multiple_transition_kwargs_)
+                    decode_stage['pbe_multiple_transition_res'] = pbe_multi
+                    decode_stage['event_df_joint'] = event_df_joint_new
+            else:
+                mean_cols = [c for c in decode_stage['event_df_joint'].columns if str(c).startswith('mean_')]
+                if mean_cols:
+                    decode_stage['event_df_joint'] = decode_stage['event_df_joint'].drop(columns=mean_cols)
 
         out = dict(cached)
         out.update(decode_stage)
@@ -1124,6 +1197,7 @@ def analyze_replay_unsupervised(
             'final_gain': None if final_gain is None else float(final_gain),
             'force_reload': str(reload_mode),
             'gain_used': float(gain_used),
+            'use_multi_dynamics': bool(use_multi_dynamics),
         })
         out['hyperparams'] = out_h
 
@@ -1188,7 +1262,9 @@ def analyze_replay_unsupervised(
         if bool(verbose):
             print(f'[analyze_replay_unsupervised] gain_used(final_gain)={gain_used:.6g}')
 
-    decode_stage = _compute_decode_stage(base_res, gain_used, sweep_gain_res_keep=sweep_keep)
+    decode_stage = _compute_decode_stage(base_res, gain_used, sweep_gain_res_keep=sweep_keep,
+                                        use_multi_dynamics=use_multi_dynamics,
+                                        decode_multiple_transition_kwargs=decode_multiple_transition_kwargs_)
 
     unsup_res = {
         'hyperparams': hyperparams,
@@ -1200,6 +1276,7 @@ def analyze_replay_unsupervised(
         'best_gain': float(gain_used),  # output (gain used in decode-stage)
         'nb_decode_res': decode_stage['nb_decode_res'],  # output
         'pbe_compare_transition_res': decode_stage['pbe_compare_transition_res'],  # output
+        'pbe_multiple_transition_res': decode_stage.get('pbe_multiple_transition_res'),  # output
         'event_df_joint': decode_stage['event_df_joint'],  # output
         'shuffle_test_res_gain_used': decode_stage.get('shuffle_test_res_gain_used', None),  # output
     }
