@@ -1119,12 +1119,12 @@ def analyze_replay_unsupervised(
         if bool(verbose):
             print(f'[analyze_replay_unsupervised] exists: {save_path}')
 
-    if cached is not None and reload_mode == 'none' and final_gain is None:
-        print(f'[analyze_replay_unsupervised] loading cached (force_reload=False, final_gain=None): {save_path}')
-        return cached
-
     if cached is not None and reload_mode in ['none', 'decode']:
         hp = cached.get('hyperparams', {})
+        cached_use_multi = hp.get('use_multi_dynamics', False)
+        if reload_mode == 'none' and final_gain is None and cached_use_multi == use_multi_dynamics:
+            print(f'[analyze_replay_unsupervised] loading cached (force_reload=False, final_gain=None, use_multi_dynamics={use_multi_dynamics}): {save_path}')
+            return cached
         cached_pbe_dt = hp.get('pbe_dt', None)
         if cached_pbe_dt is not None and float(cached_pbe_dt) != float(pbe_dt):
             if reload_mode == 'decode' or final_gain is not None:
@@ -1150,7 +1150,6 @@ def analyze_replay_unsupervised(
         else:
             gain_used = float(final_gain)
 
-        cached_use_multi = hp.get('use_multi_dynamics', False)
         if reload_mode == 'none' and (final_gain is not None) and (cached_gain is not None) and (float(cached_gain) == float(gain_used)) and (cached_use_multi == use_multi_dynamics):
             if bool(verbose):
                 print(f'[analyze_replay_unsupervised] cached decode already uses gain={float(gain_used):.6g}; returning cached')
