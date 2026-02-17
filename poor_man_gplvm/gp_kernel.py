@@ -89,13 +89,13 @@ def create_transition_prob_1d(possible_latent_bin,possible_dynamics,movement_var
     return latent_transition_kernel_l,log_latent_transition_kernel_l,dynamics_transition_kernel,log_dynamics_transition_kernel
 
 
-def create_transition_prob_from_transmat_list(possible_latent_bin, transmat_list, p_stay):
+def create_transition_prob_from_transmat_list(possible_latent_bin, transmat_list, p_stay=None, p_dynamics_transmat=None):
     '''
     Build transition kernels from a list of latent transition matrices + uniform fragmented.
 
     Difference from create_transition_prob_1d:
     - create_transition_prob_1d: uses p_move_to_jump / p_jump_to_move for 2-dynamics (continuous + jump).
-    - This function: uses single p_stay; equal probability to all other dynamics. Use for multi-dynamics
+    - This function: uses p_stay (or p_dynamics_transmat) for dynamics switching. Use for multi-dynamics
       (several latent transition matrices + one uniform "fragmented" dynamics).
 
     Parameters
@@ -104,8 +104,11 @@ def create_transition_prob_from_transmat_list(possible_latent_bin, transmat_list
         Same as in create_transition_prob_1d.
     transmat_list : list of (L,L) arrays or (K,L,L) array
         Latent transition matrix per "behavior" dynamics. Rows normalized inside.
-    p_stay : float in (0,1)
+    p_stay : float in (0,1), optional
         Probability to stay in current dynamics; (1-p_stay) split equally to other dynamics.
+        Ignored if p_dynamics_transmat is provided.
+    p_dynamics_transmat : (K+1,K+1) array, optional
+        Full dynamics transition matrix. When provided, overrides p_stay. Rows must sum to 1.
 
     Returns
     -------
@@ -136,8 +139,13 @@ def create_transition_prob_from_transmat_list(possible_latent_bin, transmat_list
     latent_transition_kernel_l = jnp.stack([lk[0] for lk in latent_kernels] + [uniform_k])
     log_latent_transition_kernel_l = jnp.stack([lk[1] for lk in latent_kernels] + [log_uniform])
     n_dyn = K + 1
-    off_diag = (1.0 - p_stay) / K
-    dynamics_transition_matrix = jnp.eye(n_dyn) * p_stay + (1.0 - jnp.eye(n_dyn)) * off_diag
+    if p_dynamics_transmat is not None:
+        dynamics_transition_matrix = jnp.asarray(p_dynamics_transmat)
+    else:
+        if p_stay is None:
+            raise ValueError("create_transition_prob_from_transmat_list: p_stay or p_dynamics_transmat required")
+        off_diag = (1.0 - p_stay) / K
+        dynamics_transition_matrix = jnp.eye(n_dyn) * p_stay + (1.0 - jnp.eye(n_dyn)) * off_diag
     possible_dynamics = jnp.arange(n_dyn)
     dynamics_transition_kernel, log_dynamics_transition_kernel = vmap(
         vmap(lambda x, y: discrete_transition_kernel(x, y, dynamics_transition_matrix),

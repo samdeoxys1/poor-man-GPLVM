@@ -2,6 +2,7 @@ import numpy as np
 import pynapple as nap
 import pandas as pd
 import scipy.spatial.distance as scipy_distance
+import scipy.linalg
 import matplotlib.pyplot as plt
 
 
@@ -503,3 +504,70 @@ def get_maze_xy_sampled(
     xy_sampled_all = maze_coord_df[["projected_x_position", "projected_y_position"]].to_numpy()
 
     return xy_sampled_all
+
+
+def get_behavior_type_transmat(
+    bc_ep_d,
+    time_stamps,
+    speed=None,
+    unknown_label=None,
+):
+    """
+    Assign behavior category to each time stamp via bc_ep_d intervals, then compute
+    transition probability matrix (row-stochastic). Optionally apply matrix exponential
+    with scalar speed: P_out = expm(speed * logm(P)).
+
+    Parameters
+    ----------
+    bc_ep_d : dict[str, nap.IntervalSet]
+        Behavior name -> IntervalSet (e.g. from get_behavior_ep_d: immobility, offmaze, locomotion).
+    time_stamps : array-like or nap.Tsd
+        Time points to label (seconds).
+    speed : float or None
+        If not None, apply matrix exponential: P_out = expm(speed * logm(P)).
+        Requires P to be embeddable (logm can fail on some matrices).
+    unknown_label : str or None
+        Label for times not in any interval. If None, use "unknown". These are dropped for transition counts.
+
+    Returns
+    -------
+    pd.DataFrame
+        Transition probability matrix, index/columns = behavior types (incl. unknown if present in sequence).
+    """
+    t = np.asarray(time_stamps).ravel()
+    if hasattr(time_stamps, "t"):
+        t = np.asarray(time_stamps.t).ravel()
+    categories = list(bc_ep_d.keys())
+    ts_obj = nap.Ts(t)
+    # assign label: first match in categories order
+    labels = np.full(len(t), unknown_label if unknown_label is not None else "unknown", dtype=object)
+    for cat in categories:
+        in_cat = bc_ep_d[cat].in_interval(ts_obj)
+        d = in_cat.d if hasattr(in_cat, "d") else np.asarray(in_cat)
+        mask = np.isfinite(d)
+        labels[mask] = cat
+    unk = unknown_label if unknown_label is not None else "unknown"
+    use_cats = list(categories)
+    if np.any(labels == unk):
+        use_cats = use_cats + [unk]
+    cat_to_ix = {c: i for i, c in enumerate(use_cats)}
+    n = len(use_cats)
+    counts = np.zeros((n, n))
+    for i in range(len(labels) - 1):
+        a, b = labels[i], labels[i + 1]
+        if a in cat_to_ix and b in cat_to_ix:
+            counts[cat_to_ix[a], cat_to_ix[b]] += 1
+    row_sum = counts.sum(axis=1, keepdims=True)
+    row_sum[row_sum == 0] = 1
+    P = counts / row_sum
+    if speed is not None:
+        try:
+            Q = scipy.linalg.logm(P)
+            P = scipy.linalg.expm(float(speed) * Q)
+            # re-normalize rows (numerical)
+            row_sum = P.sum(axis=1, keepdims=True)
+            row_sum[row_sum == 0] = 1
+            P = P / row_sum
+        except Exception as e:
+            raise ValueError("matrix exponential failed (P may not be embeddable); try speed=None") from e
+    return pd.DataFrame(P, index=use_cats, columns=use_cats)

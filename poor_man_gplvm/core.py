@@ -622,7 +622,8 @@ class AbstractGPLVMJump1D(ABC):
         - Single (K,K) matrix or None: only the continuous (index 0) latent transition is replaced;
           jump (index 1) stays uniform. Standard 2-dynamics model.
         - List of (K,K) matrices: multi-dynamics mode. One latent kernel per list element + one uniform
-          fragmented dynamics. Dynamics switching uses p_stay (default max(1-p_jump_to_move, 1-p_move_to_jump)).
+          fragmented dynamics. Dynamics: use hyperparam['p_dynamics_transmat'] if provided (full (K+1,K+1)
+          matrix); else p_stay (hyperparam['p_stay'] or max(1-p_jump_to_move, 1-p_move_to_jump)).
           Only as argument to decode_latent; do not set self.custom_transition_kernel = list.
         - When using multi-dynamics, do not: rely on index 0 = continuous or -1 = fragmented;
           use clean_jump.compute_clean_transition_and_decode; use select_inverse_temperature_match_step_continuous;
@@ -646,11 +647,16 @@ class AbstractGPLVMJump1D(ABC):
         else:
             custom_transition_kernel_ = custom_transition_kernel
         if isinstance(custom_transition_kernel_, (list, tuple)):
-            p_stay = hyperparam.get('p_stay', None)
-            if p_stay is None:
-                p_stay = max(1.0 - self.p_jump_to_move, 1.0 - self.p_move_to_jump)
-            latent_transition_kernel_l, log_latent_transition_kernel_l, dynamics_transition_kernel, log_dynamics_transition_kernel = gpk.create_transition_prob_from_transmat_list(
-                self.possible_latent_bin, custom_transition_kernel_, p_stay=p_stay)
+            p_dynamics_transmat = hyperparam.get('p_dynamics_transmat', None)
+            if p_dynamics_transmat is not None:
+                latent_transition_kernel_l, log_latent_transition_kernel_l, dynamics_transition_kernel, log_dynamics_transition_kernel = gpk.create_transition_prob_from_transmat_list(
+                    self.possible_latent_bin, custom_transition_kernel_, p_dynamics_transmat=p_dynamics_transmat)
+            else:
+                p_stay = hyperparam.get('p_stay', None)
+                if p_stay is None:
+                    p_stay = max(1.0 - self.p_jump_to_move, 1.0 - self.p_move_to_jump)
+                latent_transition_kernel_l, log_latent_transition_kernel_l, dynamics_transition_kernel, log_dynamics_transition_kernel = gpk.create_transition_prob_from_transmat_list(
+                    self.possible_latent_bin, custom_transition_kernel_, p_stay=p_stay)
         else:
             latent_transition_kernel_l, log_latent_transition_kernel_l, dynamics_transition_kernel, log_dynamics_transition_kernel = gpk.create_transition_prob_1d(
                 self.possible_latent_bin, self.possible_dynamics, movement_variance, p_move_to_jump, p_jump_to_move, custom_kernel=custom_transition_kernel_)
