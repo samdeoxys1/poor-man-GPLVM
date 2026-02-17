@@ -390,6 +390,26 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
 
     event_i = int(event_i)
 
+    # ---- extract multi-dynamics data early (needed for has_multi_dyn calculation) ----
+    mean_probs_multi = None
+    post_dyn_multi = None
+    if use_multi_dynamics and replay_res_unsup is not None:
+        multi_res = replay_res_unsup.get('pbe_multiple_transition_res', None)
+        if multi_res is not None:
+            mean_prob_df = multi_res.get('mean_prob_category_per_event_df', None)
+            if mean_prob_df is not None:
+                try:
+                    mean_probs_multi = mean_prob_df.iloc[event_i]
+                except Exception:
+                    mean_probs_multi = None
+            post_dyn_per_event = multi_res.get('posterior_dynamics_marg_per_event', None)
+            if post_dyn_per_event is not None:
+                try:
+                    post_dyn_multi = post_dyn_per_event[event_i]
+                except Exception:
+                    post_dyn_multi = None
+            post_dyn_multi = _ensure_tsdframe(post_dyn_multi)
+
     has_sup_traj = bool(plot_sup_trajectory) and (replay_res_sup is not None)
     has_sup_dyn = bool(plot_sup_dynamics) and (replay_res_sup is not None)
     has_unsup_lat = bool(plot_unsup_latent) and (replay_res_unsup is not None)
@@ -429,31 +449,12 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
     probs = None
     post_latent_best = None
     post_dyn_best = None
-    mean_probs_multi = None
-    post_dyn_multi = None
     if replay_res_unsup is not None:
         ev_df = replay_res_unsup.get('event_df_joint', None)
         if ev_df is not None and ('is_sig_overall' in ev_df.columns):
             v = _get_df_row_value(ev_df, event_i, 'is_sig_overall', default=None)
             if v is not None and not (isinstance(v, float) and np.isnan(v)):
                 unsup_sig = bool(v)
-
-        if use_multi_dynamics:
-            multi_res = replay_res_unsup.get('pbe_multiple_transition_res', None)
-            if multi_res is not None:
-                mean_prob_df = multi_res.get('mean_prob_category_per_event_df', None)
-                if mean_prob_df is not None:
-                    try:
-                        mean_probs_multi = mean_prob_df.iloc[event_i]
-                    except Exception:
-                        mean_probs_multi = None
-                post_dyn_per_event = multi_res.get('posterior_dynamics_marg_per_event', None)
-                if post_dyn_per_event is not None:
-                    try:
-                        post_dyn_multi = post_dyn_per_event[event_i]
-                    except Exception:
-                        post_dyn_multi = None
-                post_dyn_multi = _ensure_tsdframe(post_dyn_multi)
 
         cmp = replay_res_unsup.get('pbe_compare_transition_res', None)
         if cmp is not None:
