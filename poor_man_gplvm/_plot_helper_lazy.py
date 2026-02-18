@@ -243,7 +243,7 @@ def _plot_dynamics_panel(
         yticklabels = None
         if state_names is not None and n_state == len(state_names):
             yticks = (np.arange(n_state) + 0.5).tolist()
-            yticklabels = list(state_names)
+            yticklabels = [str(s).capitalize() for s in state_names]
         _plot_posterior_heatmap(
             ax,
             dyn_tsdf,
@@ -972,7 +972,7 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
                 cax.imshow(grad, aspect='auto', cmap=plt.get_cmap(cmap_name), extent=[t_lo, t_hi, 0, 1], interpolation=None)
                 cax.set_yticks([])
                 cax.set_xticks([t_lo, t_hi])
-                cax.set_xticklabels(['early', 'late'])
+                cax.set_xticklabels(['Start', 'End'])
                 cax.tick_params(axis='x', which='both', length=0)
                 cax.spines[:].set_visible(False)
             else:
@@ -995,7 +995,7 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
                 )
                 cbar = fig.colorbar(sm, cax=cax, orientation='horizontal')
                 cbar.set_ticks([0.0, 1.0])
-                cbar.set_ticklabels(['early', 'late'])
+                cbar.set_ticklabels(['Start', 'End'])
                 cbar.ax.tick_params(axis='x', which='both', length=0)
                 cbar.outline.set_visible(False)
         except Exception:
