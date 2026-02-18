@@ -122,6 +122,19 @@ def _robust_vmin_vmax(arr2d, *, q_low=0.01, q_high=0.99):
     return vmin, vmax
 
 
+# Display label and color for behavior dynamics (immobility, offmaze, locomotion, continuous, fragmented)
+_BEHAVIOR_LABEL_NORM = {'offmaze': 'Off-maze', 'off_maze': 'Off-maze', 'immobility': 'Immobility', 'locomotion': 'Locomotion', 'continuous': 'Continuous', 'fragmented': 'Fragmented'}
+_BEHAVIOR_LABEL_COLORS = {'Immobility': 'C0', 'Off-maze': 'C1', 'Locomotion': 'C2', 'Fragmented': '0.5', 'Continuous': 'k'}
+
+
+def _norm_behavior_label(s):
+    """Normalize to display form: offmaze/Offmaze -> Off-maze, etc."""
+    key = str(s).strip().lower().replace('-', '_').replace(' ', '_')
+    if key in _BEHAVIOR_LABEL_NORM:
+        return _BEHAVIOR_LABEL_NORM[key]
+    return str(s).capitalize() if s else str(s)
+
+
 def _plot_posterior_heatmap(
     ax,
     tsdf,
@@ -134,6 +147,7 @@ def _plot_posterior_heatmap(
     scatter_kwargs=None,
     yticks=None,
     yticklabels=None,
+    yticklabel_colors=None,
     ylabel=None,
 ):
     tsdf = _ensure_tsdframe(tsdf)
@@ -167,6 +181,9 @@ def _plot_posterior_heatmap(
         ax.set_yticks(yticks)
     if yticklabels is not None:
         ax.set_yticklabels(yticklabels)
+        if yticklabel_colors is not None:
+            for lbl, c in zip(ax.get_yticklabels(), yticklabel_colors):
+                lbl.set_color(c)
     if ylabel is not None:
         ax.set_ylabel(str(ylabel))
     if title is not None:
@@ -243,7 +260,10 @@ def _plot_dynamics_panel(
         yticklabels = None
         if state_names is not None and n_state == len(state_names):
             yticks = (np.arange(n_state) + 0.5).tolist()
-            yticklabels = [str(s).capitalize() for s in state_names]
+            yticklabels = [_norm_behavior_label(s) for s in state_names]
+            yticklabel_colors = [_BEHAVIOR_LABEL_COLORS.get(lbl, 'k') for lbl in yticklabels]
+        else:
+            yticklabel_colors = None
         _plot_posterior_heatmap(
             ax,
             dyn_tsdf,
@@ -253,6 +273,7 @@ def _plot_dynamics_panel(
             vmax_q=heatmap_vmax_q,
             yticks=yticks,
             yticklabels=yticklabels,
+            yticklabel_colors=yticklabel_colors,
         )
         return dict(mode='heatmap', dyn_tsdf=dyn_tsdf, p=None, name=None)
 
@@ -349,6 +370,8 @@ def plot_replay_sup_unsup_event(
       right: all time-based panels stacked (same width), including multi_dyn if use_multi_dynamics=True
     - layout='one_col': 1 column stacked panels
       unsup latent, unsup dynamics, sup trajectory, sup dynamics, (multi_dyn if use_multi_dynamics=True)
+      height_ratios order: (raster?, unsup_lat, unsup_dyn, sup_traj, sup_dyn). Trajectory has aspect='equal'
+      so its drawn size is limited by the axis width; use a wider figsize to get a bigger trajectory.
 
     Progress colorbar (2D trajectory)
     - sup_2d_cbar_bbox: (x0, y0, w, h) in trajectory axis axes coords. Default (0, -0.04, 1, 0.10).
