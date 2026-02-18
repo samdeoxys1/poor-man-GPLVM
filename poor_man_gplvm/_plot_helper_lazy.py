@@ -345,7 +345,8 @@ def plot_replay_sup_unsup_event(
     raster_mode='imshow',
     raster_kwargs=None,
     raster_argsort=None,
-    prob_vmax_quantile=0.99,
+    latent_vmax_quantile=0.95,
+    dynamics_vmax_quantile=0.99,
 ):
     """
     Plot replay for a single event from supervised + unsupervised pipelines.
@@ -554,23 +555,25 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
                 sup_dyn_one = None
     sup_dyn_one = _ensure_tsdframe(sup_dyn_one)
 
-    # Shared vmin=0, vmax: prob_vmax_quantile (e.g. 0.99) or full range 0-1 if None
-    _all_prob = []
-    for ts in (post_latent_unsup, post_dyn_unsup, sup_dyn_one):
+    # Shared vmin=0; latent vmax from latent quantile, dynamics vmax from dynamics quantile (None -> 1)
+    _latent = []
+    if post_latent_unsup is not None:
+        d = np.asarray(post_latent_unsup.d, dtype=float)
+        if d.size > 0:
+            _latent.append(d.ravel())
+    _dyn = []
+    for ts in (post_dyn_unsup, sup_dyn_one):
         if ts is not None:
             d = np.asarray(ts.d, dtype=float)
             if d.size > 0:
-                _all_prob.append(d.ravel())
-    if _all_prob:
-        _all_prob = np.concatenate(_all_prob)
-        _all_prob = _all_prob[np.isfinite(_all_prob)]
+                _dyn.append(d.ravel())
+    _latent = np.concatenate(_latent) if _latent else np.array([])
+    _latent = _latent[np.isfinite(_latent)] if _latent.size > 0 else _latent
+    _dyn = np.concatenate(_dyn) if _dyn else np.array([])
+    _dyn = _dyn[np.isfinite(_dyn)] if _dyn.size > 0 else _dyn
     shared_prob_vmin = 0.0
-    if prob_vmax_quantile is None:
-        shared_prob_vmax = 1.0
-    elif _all_prob.size > 0:
-        shared_prob_vmax = float(np.nanquantile(_all_prob, prob_vmax_quantile))
-    else:
-        shared_prob_vmax = 1.0
+    shared_prob_vmax_latent = 1.0 if latent_vmax_quantile is None else (float(np.nanquantile(_latent, latent_vmax_quantile)) if _latent.size > 0 else 1.0)
+    shared_prob_vmax_dynamics = 1.0 if dynamics_vmax_quantile is None else (float(np.nanquantile(_dyn, dynamics_vmax_quantile)) if _dyn.size > 0 else 1.0)
 
     # Binsize from data (t[1]-t[0]) for label; empirical block width (t.max()-t.min())/n for bar length
     def _binsize_and_block_from_ts(ts):
@@ -926,7 +929,7 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
             heatmap_cmap=dyn_cmap_sup,
             line_kwargs=dynamics_line_kwargs,
             heatmap_vmin=shared_prob_vmin,
-            heatmap_vmax=shared_prob_vmax,
+            heatmap_vmax=shared_prob_vmax_dynamics,
         )
         out_axs.append(ax_sup_dyn)
     elif has_sup_dyn and (ax_sup_dyn is not None):
@@ -944,7 +947,7 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
             title=title_lat,
             cmap=latent_cmap,
             vmin=shared_prob_vmin,
-            vmax=shared_prob_vmax,
+            vmax=shared_prob_vmax_latent,
             add_scatter_map=bool(heatmap_add_scatter_latent),
             scatter_kwargs=sk,
             ylabel='Latent bin',
@@ -973,7 +976,7 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
             heatmap_cmap=dyn_cmap_unsup,
             line_kwargs=dynamics_line_kwargs,
             heatmap_vmin=shared_prob_vmin,
-            heatmap_vmax=shared_prob_vmax,
+            heatmap_vmax=shared_prob_vmax_dynamics,
         )
         out_axs.append(ax_uns_dyn)
     elif has_unsup_dyn and (ax_uns_dyn is not None):
@@ -1000,7 +1003,7 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
             heatmap_cmap=dyn_cmap_unsup,
             line_kwargs=dynamics_line_kwargs,
             heatmap_vmin=shared_prob_vmin,
-            heatmap_vmax=shared_prob_vmax,
+            heatmap_vmax=shared_prob_vmax_dynamics,
         )
         out_axs.append(ax_multi_dyn)
     elif has_multi_dyn and (ax_multi_dyn is not None):
@@ -1169,8 +1172,8 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
         unsup_dynamics_plot=unsup_dyn_plot_info,
         multi_dynamics_plot=multi_dyn_plot_info,
         mean_probs_multi=None if mean_probs_multi is None else dict(mean_probs_multi),
-        latent_cbar=dict(vmin=shared_prob_vmin, vmax=shared_prob_vmax, cmap=latent_cmap),
-        dynamics_cbar=dict(vmin=shared_prob_vmin, vmax=shared_prob_vmax, cmap=dyn_cmap_unsup),
+        latent_cbar=dict(vmin=shared_prob_vmin, vmax=shared_prob_vmax_latent, cmap=latent_cmap),
+        dynamics_cbar=dict(vmin=shared_prob_vmin, vmax=shared_prob_vmax_dynamics, cmap=dyn_cmap_unsup),
     )
     if raster_out is not None:
         out['raster'] = raster_out
