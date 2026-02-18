@@ -320,10 +320,8 @@ def plot_replay_sup_unsup_event(
     Plot replay for a single event from supervised + unsupervised pipelines.
 
     Raster (above latent): set plot_raster=True and pass spk_times_pyr (TsGroup).
-    raster_mode='imshow': bin spikes with same binsize as latent, imshow with Greys_r.
-    raster_mode='raster': traditional raster (eventplot or scatter with marker='|').
-    raster_kwargs: e.g. cmap/vmin/vmax (imshow), linewidths/linelengths/colors (eventplot),
-    or raster_style='scatter' with s/color (scatter). Tune for crowded/sparse rasters.
+    raster_mode: 'imshow' (binned heatmap), 'raster' (eventplot), or 'scatter' (scatter with marker='|').
+    raster_kwargs: cmap/vmin/vmax (imshow); linewidths/linelengths/colors (raster); s/color/alpha (scatter).
 
     Panels (toggleable)
     - Decoded spatial trajectory (supervised): 2D posterior + MAP overlay.
@@ -765,6 +763,7 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
         ep = nap.IntervalSet(start=st, end=ed + _raster_jitter_sec)
         spk_restrict = spk_times_pyr.restrict(ep)
         mode = str(raster_mode).lower() if raster_mode else 'imshow'
+        use_scatter = (mode == 'scatter')
         if mode == 'imshow' and binsize_sec is not None and binsize_sec > 0:
             t_lat = None
             if post_latent_unsup is not None:
@@ -808,9 +807,8 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
                 unit_times = [unit_times[i] for i in np.asarray(raster_argsort)]
             n_units = len(unit_times)
             if n_units > 0:
-                use_scatter = raster_kwargs_.get('raster_style', None) == 'scatter'
                 if use_scatter:
-                    # scatter mode: pass raster_kwargs e.g. raster_style='scatter', s=..., color=..., marker='|', alpha=..., linewidths=..., edgecolors=...
+                    # raster_mode='scatter': raster_kwargs can set s, color, marker, alpha, linewidths, edgecolors
                     sc_kw = dict(marker='|', s=20, color='k', alpha=0.8)
                     sc_allow = ('marker', 's', 'c', 'color', 'alpha', 'linewidths', 'edgecolors', 'facecolors')
                     sc_kw.update({k: v for k, v in raster_kwargs_.items() if k in sc_allow})
