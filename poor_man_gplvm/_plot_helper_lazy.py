@@ -824,7 +824,7 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
             ax_raster.set_ylim(-0.5, max(1, n_units) - 0.5)
             ax_raster.set_rasterized(True)
             out_axs.append(ax_raster)
-        ax_raster.set_title('Raster (pyr)')
+        ax_raster.set_title('Spike trains')
 
     # ---- plot supervised trajectory ----
     if has_sup_traj and ax_sup_traj is not None:
@@ -889,7 +889,7 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
     if has_unsup_lat and (ax_uns_lat is not None) and (post_latent_unsup is not None):
         sk = dict(s=4, c='yellow')
         sk.update({k: v for k, v in unsup_heatmap_kwargs_.items() if k.startswith('heatmap_scatter_')})
-        title_lat = 'Decoded latent (unsupervised)' if not use_multi_dynamics else 'Decoded latent (multi-dynamics)'
+        title_lat = 'Decoded latent'
         _plot_posterior_heatmap(
             ax_uns_lat,
             post_latent_unsup,
@@ -903,7 +903,7 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
         )
         out_axs.append(ax_uns_lat)
     elif has_unsup_lat and (ax_uns_lat is not None):
-        ax_uns_lat.set_title('Decoded latent (unsupervised)')
+        ax_uns_lat.set_title('Decoded latent')
         out_axs.append(ax_uns_lat)
 
     # ---- plot unsupervised dynamics (from multi-dynamics when use_multi_dynamics else compare best kernel) ----
@@ -915,7 +915,7 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
             state_names = [str(c) for c in post_dyn_unsup.columns]
         else:
             state_names = ['consistent', 'inconsistent']
-        title_dyn = 'Decoded dynamics (unsupervised)' if not use_multi_dynamics else 'Decoded dynamics (multi-dynamics)'
+        title_dyn = 'Decoded dynamics'
         unsup_dyn_plot_info = _plot_dynamics_panel(
             ax_uns_dyn,
             post_dyn_unsup,
@@ -929,7 +929,7 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
         )
         out_axs.append(ax_uns_dyn)
     elif has_unsup_dyn and (ax_uns_dyn is not None):
-        ax_uns_dyn.set_title('Decoded dynamics (unsupervised)')
+        ax_uns_dyn.set_title('Decoded dynamics')
         out_axs.append(ax_uns_dyn)
 
     # ---- plot multi-dynamics dynamics (only when use_multi_dynamics but no unsup panels; else skipped) ----
@@ -948,7 +948,7 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
             post_dyn_multi,
             dynamics_col=dynamics_col,
             state_names=state_names,
-            title='Decoded dynamics (multi-dynamics)',
+            title='Decoded dynamics',
             heatmap_cmap=dyn_cmap_unsup,
             line_kwargs=dynamics_line_kwargs,
             heatmap_vmin_q=dynamics_vmin_q,
@@ -956,7 +956,7 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
         )
         out_axs.append(ax_multi_dyn)
     elif has_multi_dyn and (ax_multi_dyn is not None):
-        ax_multi_dyn.set_title('Decoded dynamics (multi-dynamics)')
+        ax_multi_dyn.set_title('Decoded dynamics')
         out_axs.append(ax_multi_dyn)
 
     # ---- hide x ticks and labels on all time panels; scalebar (unit) on lowest row only ----
@@ -973,15 +973,24 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
             pass
 
     if bool(time_scalebar) and block_sec is not None and block_sec > 0 and binsize_ms is not None and len(bottom_time_axs) > 0:
+        # Latent and dynamics share the same time grid; use one canonical start so scalebar aligns for all
+        scalebar_t_start = None
+        for ts in (post_latent_unsup, post_dyn_unsup, sup_dyn_one):
+            if ts is not None:
+                t = np.asarray(getattr(ts, 't', ts) if hasattr(ts, 't') else ts)
+                if getattr(t, 'size', len(t)) > 0:
+                    scalebar_t_start = float(np.nanmin(t))
+                    break
         trans_blend = mtransforms.blended_transform_factory
         y_bar = -0.05
         y_label = -0.10
         for ax in bottom_time_axs:
             try:
                 x0, x1 = ax.get_xlim()
+                t_start = scalebar_t_start if scalebar_t_start is not None else x0
                 trans = trans_blend(ax.transData, ax.transAxes)
-                ax.plot([x0, x0 + float(block_sec)], [y_bar, y_bar], color='k', lw=1.5, transform=trans, clip_on=False)
-                ax.text(x0 + float(block_sec) / 2.0, y_label, f'{binsize_ms} ms', transform=trans, ha='center', va='top', fontsize=8, clip_on=False)
+                ax.plot([t_start, t_start + float(block_sec)], [y_bar, y_bar], color='k', lw=1.5, transform=trans, clip_on=False)
+                ax.text(t_start + float(block_sec) / 2.0, y_label, f'{binsize_ms} ms', transform=trans, ha='center', va='top', fontsize=8, clip_on=False)
             except Exception:
                 pass
 
