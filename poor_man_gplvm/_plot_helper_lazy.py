@@ -789,7 +789,13 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
             ax_raster.set_xlim(t_start, t_end)
             out_axs.append(ax_raster)
         else:
-            # traditional raster: one row per unit, | at spike times
+            # traditional raster: one row per unit, | at spike times; xlim match latent to avoid white ends
+            if post_latent_unsup is not None:
+                t_lat = np.asarray(post_latent_unsup.t)
+                raster_t_start = float(t_lat[0])
+                raster_t_end = float(t_lat[-1])
+            else:
+                raster_t_start, raster_t_end = st, ed
             unit_times = []
             for uid, ts in spk_restrict.items():
                 t = np.asarray(ts.index) if hasattr(ts, 'index') else np.asarray(ts.t)
@@ -808,7 +814,7 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
                     raster_kw.update({k: v for k, v in raster_kwargs_.items() if k in ('colors', 'linewidths', 'lineoffsets', 'linelengths')})
                     ax_raster.eventplot(unit_times, **raster_kw)
             ax_raster.set_ylabel('Neuron')
-            ax_raster.set_xlim(st, ed)
+            ax_raster.set_xlim(raster_t_start, raster_t_end)
             ax_raster.set_ylim(-0.5, max(1, n_units) - 0.5)
             out_axs.append(ax_raster)
         ax_raster.set_title('Raster (pyr)')
