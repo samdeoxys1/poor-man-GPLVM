@@ -143,6 +143,8 @@ def _plot_posterior_heatmap(
     cmap='viridis',
     vmin_q=0.01,
     vmax_q=0.99,
+    vmin=None,
+    vmax=None,
     add_scatter_map=False,
     scatter_kwargs=None,
     yticks=None,
@@ -159,7 +161,10 @@ def _plot_posterior_heatmap(
     if d.ndim == 1:
         d = d[:, None]
 
-    vmin, vmax = _robust_vmin_vmax(d, q_low=vmin_q, q_high=vmax_q)
+    if vmin is not None and vmax is not None:
+        vmin, vmax = float(vmin), float(vmax)
+    else:
+        vmin, vmax = _robust_vmin_vmax(d, q_low=vmin_q, q_high=vmax_q)
     im = ax.imshow(
         d.T,
         aspect='auto',
@@ -249,6 +254,8 @@ def _plot_dynamics_panel(
     line_kwargs=None,
     heatmap_vmin_q=0.01,
     heatmap_vmax_q=0.99,
+    heatmap_vmin=None,
+    heatmap_vmax=None,
 ):
     dyn_tsdf, p, name = _pick_dynamics_column(dyn_tsdf, dynamics_col, state_names)
     if dyn_tsdf is None:
@@ -271,6 +278,8 @@ def _plot_dynamics_panel(
             cmap=heatmap_cmap,
             vmin_q=heatmap_vmin_q,
             vmax_q=heatmap_vmax_q,
+            vmin=heatmap_vmin,
+            vmax=heatmap_vmax,
             yticks=yticks,
             yticklabels=yticklabels,
             yticklabel_colors=yticklabel_colors,
@@ -318,7 +327,7 @@ def plot_replay_sup_unsup_event(
     unsup_heatmap_kwargs=None,
     heatmap_add_scatter_latent=False,
     heatmap_add_scatter_dynamics=False,
-    latent_cmap='Greys',
+    latent_cmap='Greys_r',
     dyn_cmap_sup='viridis',
     dyn_cmap_unsup='viridis',
     latent_vmin_q=0.01,
@@ -403,7 +412,7 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
     dynamics_line_kwargs=dict(lw=2, color='k'),
     sup_2d_kwargs=dict(cmap_name='plasma', binarize_thresh=0.01),
     dyn_cmap_sup='viridis',
-    latent_cmap='Greys',
+    latent_cmap='Greys_r',
     dyn_cmap_unsup='viridis',
     heatmap_add_scatter_latent=False,
     traj_inset_frac=1.0,
@@ -543,6 +552,19 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
             except Exception:
                 sup_dyn_one = None
     sup_dyn_one = _ensure_tsdframe(sup_dyn_one)
+
+    # Shared vmin=0, vmax=0.95 quantile across all latent and dynamics heatmaps (for Prob. colorbars)
+    _all_prob = []
+    for ts in (post_latent_unsup, post_dyn_unsup, sup_dyn_one):
+        if ts is not None:
+            d = np.asarray(ts.d, dtype=float)
+            if d.size > 0:
+                _all_prob.append(d.ravel())
+    if _all_prob:
+        _all_prob = np.concatenate(_all_prob)
+        _all_prob = _all_prob[np.isfinite(_all_prob)]
+    shared_prob_vmin = 0.0
+    shared_prob_vmax = float(np.nanquantile(_all_prob, 0.95)) if _all_prob.size > 0 else 1.0
 
     # Binsize from data (t[1]-t[0]) for label; empirical block width (t.max()-t.min())/n for bar length
     def _binsize_and_block_from_ts(ts):
@@ -897,8 +919,8 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
             title='Decoded dynamics (supervised)',
             heatmap_cmap=dyn_cmap_sup,
             line_kwargs=dynamics_line_kwargs,
-            heatmap_vmin_q=dynamics_vmin_q,
-            heatmap_vmax_q=dynamics_vmax_q,
+            heatmap_vmin=shared_prob_vmin,
+            heatmap_vmax=shared_prob_vmax,
         )
         out_axs.append(ax_sup_dyn)
     elif has_sup_dyn and (ax_sup_dyn is not None):
@@ -915,8 +937,8 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
             post_latent_unsup,
             title=title_lat,
             cmap=latent_cmap,
-            vmin_q=latent_vmin_q,
-            vmax_q=latent_vmax_q,
+            vmin=shared_prob_vmin,
+            vmax=shared_prob_vmax,
             add_scatter_map=bool(heatmap_add_scatter_latent),
             scatter_kwargs=sk,
             ylabel='Latent bin',
@@ -944,8 +966,8 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
             title=title_dyn,
             heatmap_cmap=dyn_cmap_unsup,
             line_kwargs=dynamics_line_kwargs,
-            heatmap_vmin_q=dynamics_vmin_q,
-            heatmap_vmax_q=dynamics_vmax_q,
+            heatmap_vmin=shared_prob_vmin,
+            heatmap_vmax=shared_prob_vmax,
         )
         out_axs.append(ax_uns_dyn)
     elif has_unsup_dyn and (ax_uns_dyn is not None):
@@ -971,8 +993,8 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
             title='Decoded dynamics',
             heatmap_cmap=dyn_cmap_unsup,
             line_kwargs=dynamics_line_kwargs,
-            heatmap_vmin_q=dynamics_vmin_q,
-            heatmap_vmax_q=dynamics_vmax_q,
+            heatmap_vmin=shared_prob_vmin,
+            heatmap_vmax=shared_prob_vmax,
         )
         out_axs.append(ax_multi_dyn)
     elif has_multi_dyn and (ax_multi_dyn is not None):
@@ -1141,6 +1163,8 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
         unsup_dynamics_plot=unsup_dyn_plot_info,
         multi_dynamics_plot=multi_dyn_plot_info,
         mean_probs_multi=None if mean_probs_multi is None else dict(mean_probs_multi),
+        latent_cbar=dict(vmin=shared_prob_vmin, vmax=shared_prob_vmax, cmap=latent_cmap),
+        dynamics_cbar=dict(vmin=shared_prob_vmin, vmax=shared_prob_vmax, cmap=dyn_cmap_unsup),
     )
     if raster_out is not None:
         out['raster'] = raster_out
