@@ -790,6 +790,7 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
                 ax_raster.imshow(spike_mat.T, extent=[t_start, t_end, 0, spike_mat.shape[1]], **imshow_kw)
             ax_raster.set_ylabel('Neuron')
             ax_raster.set_xlim(t_start, t_end)
+            ax_raster.set_rasterized(True)
             out_axs.append(ax_raster)
         else:
             # traditional raster: one row per unit, | at spike times; xlim match latent to avoid white ends
@@ -809,8 +810,10 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
             if n_units > 0:
                 use_scatter = raster_kwargs_.get('raster_style', None) == 'scatter'
                 if use_scatter:
+                    # scatter mode: pass raster_kwargs e.g. raster_style='scatter', s=..., color=..., marker='|', alpha=..., linewidths=..., edgecolors=...
                     sc_kw = dict(marker='|', s=20, color='k', alpha=0.8)
-                    sc_kw.update({k: v for k, v in raster_kwargs_.items() if k in ('marker', 's', 'color', 'alpha', 'linewidths')})
+                    sc_allow = ('marker', 's', 'c', 'color', 'alpha', 'linewidths', 'edgecolors', 'facecolors')
+                    sc_kw.update({k: v for k, v in raster_kwargs_.items() if k in sc_allow})
                     for i, t in enumerate(unit_times):
                         if len(t) > 0:
                             ax_raster.scatter(t, np.full_like(t, i, dtype=float), **sc_kw)
@@ -821,6 +824,7 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
             ax_raster.set_ylabel('Neuron')
             ax_raster.set_xlim(raster_t_start, raster_t_end)
             ax_raster.set_ylim(-0.5, max(1, n_units) - 0.5)
+            ax_raster.set_rasterized(True)
             out_axs.append(ax_raster)
         ax_raster.set_title('Raster (pyr)')
 
