@@ -310,9 +310,19 @@ def plot_replay_sup_unsup_event(
     sup_2d_cbar_thickness=None,
     sup_2d_cbar_tie_time_axis=True,
     time_scalebar=True,
+    plot_raster=False,
+    spk_times_pyr=None,
+    raster_mode='imshow',
+    raster_kwargs=None,
 ):
     """
     Plot replay for a single event from supervised + unsupervised pipelines.
+
+    Raster (above latent): set plot_raster=True and pass spk_times_pyr (TsGroup).
+    raster_mode='imshow': bin spikes with same binsize as latent, imshow with Greys_r.
+    raster_mode='raster': traditional raster (eventplot or scatter with marker='|').
+    raster_kwargs: e.g. cmap/vmin/vmax (imshow), linewidths/linelengths/colors (eventplot),
+    or raster_style='scatter' with s/color (scatter). Tune for crowded/sparse rasters.
 
     Panels (toggleable)
     - Decoded spatial trajectory (supervised): 2D posterior + MAP overlay.
@@ -435,6 +445,11 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
     st = st_sup if st_sup is not None else st_uns
     ed = ed_sup if ed_sup is not None else ed_uns
     dur = None if (st is None or ed is None) else float(ed - st)
+    has_raster = bool(plot_raster) and (spk_times_pyr is not None) and (st is not None) and (ed is not None)
+    # raster panel only in one_col or when axs provided (caller builds grid)
+    if has_raster and axs is None and str(layout).lower() not in ('one_col',):
+        has_raster = False
+    n_panels_req += int(has_raster)
 
     # ---- supervised stats ----
     sup_sig = None
@@ -533,13 +548,16 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
     out_axs = []
     ax_sup_traj_container = None
     bottom_time_axs = []
+    ax_raster = None
 
     if axs_flat is not None:
-        need = int(has_sup_traj) + int(has_sup_dyn) + int(has_unsup_lat) + int(has_unsup_dyn) + int(has_multi_dyn)
+        need = n_panels_req
         if len(axs_flat) < need:
             raise ValueError('Provided axs does not have enough axes for requested panels.')
 
         idx = 0
+        ax_raster = axs_flat[idx] if has_raster else None
+        idx += int(has_raster)
         ax_sup_traj = axs_flat[idx] if has_sup_traj else None
         idx += int(has_sup_traj)
         ax_sup_dyn = axs_flat[idx] if has_sup_dyn else None
@@ -551,7 +569,7 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
         ax_multi_dyn = axs_flat[idx] if has_multi_dyn else None
 
         if fig is None:
-            fig = (ax_sup_traj or ax_sup_dyn or ax_uns_lat or ax_uns_dyn).figure
+            fig = (ax_raster or ax_sup_traj or ax_sup_dyn or ax_uns_lat or ax_uns_dyn).figure
     else:
         if fig is None:
             layout_ = str(layout).lower()
@@ -592,18 +610,29 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
                     height_ratios=height_ratios_use,
                 )
                 rr = 0
+                time_ref = None
+                ax_raster = fig.add_subplot(gs[rr, 0]) if has_raster else None
+                if has_raster:
+                    rr += 1
                 ax_uns_lat = fig.add_subplot(gs[rr, 0]) if has_unsup_lat else None
+                if has_unsup_lat:
+                    time_ref = ax_uns_lat
                 rr += int(has_unsup_lat)
-                ax_uns_dyn = fig.add_subplot(gs[rr, 0], sharex=ax_uns_lat) if has_unsup_dyn else None
+                ax_uns_dyn = fig.add_subplot(gs[rr, 0], sharex=time_ref) if has_unsup_dyn else None
+                if has_unsup_dyn and time_ref is None:
+                    time_ref = ax_uns_dyn
                 rr += int(has_unsup_dyn)
                 # NOTE: do NOT share axes between spatial (x/y) and time-based panels.
                 ax_sup_traj = fig.add_subplot(gs[rr, 0]) if has_sup_traj else None
                 rr += int(has_sup_traj)
-                # dynamics is time-based; share with other time-based panels if present
-                time_ref = ax_uns_lat or ax_uns_dyn
                 ax_sup_dyn = fig.add_subplot(gs[rr, 0], sharex=time_ref) if has_sup_dyn else None
                 rr += int(has_sup_dyn)
                 ax_multi_dyn = fig.add_subplot(gs[rr, 0], sharex=time_ref) if has_multi_dyn else None
+                if has_raster and time_ref is not None:
+                    try:
+                        ax_raster.sharex(time_ref)
+                    except Exception:
+                        pass
                 # one_col: lowest row = last time panel
                 if ax_multi_dyn is not None:
                     bottom_time_axs = [ax_multi_dyn]
@@ -726,6 +755,48 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
             ax_uns_lat = None
             ax_uns_dyn = None
             ax_multi_dyn = None
+
+    # ---- plot raster (above latent) ----
+    raster_kwargs_ = {} if raster_kwargs is None else dict(raster_kwargs)
+    if has_raster and ax_raster is not None and st is not None and ed is not None:
+        ep = nap.IntervalSet(start=st, end=ed)
+        spk_restrict = spk_times_pyr.restrict(ep)
+        mode = str(raster_mode).lower() if raster_mode else 'imshow'
+        if mode == 'imshow' and binsize_sec is not None and binsize_sec > 0:
+            count_tsd = spk_restrict.count(bin_size=binsize_sec, time_units='s')
+            spike_mat = np.asarray(count_tsd.d)  # (n_bins, n_units)
+            if spike_mat.size > 0:
+                # time on x, units on y -> imshow (n_units, n_bins), extent [st, ed, 0, n_units]
+                imshow_kw = dict(cmap='Greys_r', aspect='auto', interpolation=None, origin='lower')
+                imshow_kw.update({k: v for k, v in raster_kwargs_.items() if k in ('cmap', 'vmin', 'vmax', 'aspect', 'interpolation')})
+                ax_raster.imshow(spike_mat.T, extent=[st, ed, 0, spike_mat.shape[1]], **imshow_kw)
+            ax_raster.set_ylabel('Neuron')
+            ax_raster.set_xlim(st, ed)
+            out_axs.append(ax_raster)
+        else:
+            # traditional raster: one row per unit, | at spike times
+            unit_times = []
+            for uid, ts in spk_restrict.items():
+                t = np.asarray(ts.index) if hasattr(ts, 'index') else np.asarray(ts.t)
+                unit_times.append(t)
+            n_units = len(unit_times)
+            if n_units > 0:
+                use_scatter = raster_kwargs_.get('raster_style', None) == 'scatter'
+                if use_scatter:
+                    sc_kw = dict(marker='|', s=20, color='k', alpha=0.8)
+                    sc_kw.update({k: v for k, v in raster_kwargs_.items() if k in ('marker', 's', 'color', 'alpha', 'linewidths')})
+                    for i, t in enumerate(unit_times):
+                        if len(t) > 0:
+                            ax_raster.scatter(t, np.full_like(t, i, dtype=float), **sc_kw)
+                else:
+                    raster_kw = dict(colors='k', linewidths=0.5, lineoffsets=np.arange(n_units))
+                    raster_kw.update({k: v for k, v in raster_kwargs_.items() if k in ('colors', 'linewidths', 'lineoffsets', 'linelengths')})
+                    ax_raster.eventplot(unit_times, **raster_kw)
+            ax_raster.set_ylabel('Neuron')
+            ax_raster.set_xlim(st, ed)
+            ax_raster.set_ylim(-0.5, max(1, n_units) - 0.5)
+            out_axs.append(ax_raster)
+        ax_raster.set_title('Raster (pyr)')
 
     # ---- plot supervised trajectory ----
     if has_sup_traj and ax_sup_traj is not None:
@@ -861,7 +932,7 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
         out_axs.append(ax_multi_dyn)
 
     # ---- hide x ticks and labels on all time panels; scalebar (unit) on lowest row only ----
-    all_time_axs = [a for a in (ax_sup_dyn, ax_uns_lat, ax_uns_dyn, ax_multi_dyn) if a is not None]
+    all_time_axs = [a for a in (ax_raster, ax_sup_dyn, ax_uns_lat, ax_uns_dyn, ax_multi_dyn) if a is not None]
     for ax in all_time_axs:
         try:
             ax.tick_params(axis='x', which='both', length=0, labelbottom=False)
