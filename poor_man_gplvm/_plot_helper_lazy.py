@@ -345,6 +345,7 @@ def plot_replay_sup_unsup_event(
     raster_mode='imshow',
     raster_kwargs=None,
     raster_argsort=None,
+    prob_vmax_quantile=0.99,
 ):
     """
     Plot replay for a single event from supervised + unsupervised pipelines.
@@ -553,7 +554,7 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
                 sup_dyn_one = None
     sup_dyn_one = _ensure_tsdframe(sup_dyn_one)
 
-    # Shared vmin=0, vmax=0.95 quantile across all latent and dynamics heatmaps (for Prob. colorbars)
+    # Shared vmin=0, vmax: prob_vmax_quantile (e.g. 0.99) or full range 0-1 if None
     _all_prob = []
     for ts in (post_latent_unsup, post_dyn_unsup, sup_dyn_one):
         if ts is not None:
@@ -564,7 +565,12 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
         _all_prob = np.concatenate(_all_prob)
         _all_prob = _all_prob[np.isfinite(_all_prob)]
     shared_prob_vmin = 0.0
-    shared_prob_vmax = float(np.nanquantile(_all_prob, 0.95)) if _all_prob.size > 0 else 1.0
+    if prob_vmax_quantile is None:
+        shared_prob_vmax = 1.0
+    elif _all_prob.size > 0:
+        shared_prob_vmax = float(np.nanquantile(_all_prob, prob_vmax_quantile))
+    else:
+        shared_prob_vmax = 1.0
 
     # Binsize from data (t[1]-t[0]) for label; empirical block width (t.max()-t.min())/n for bar length
     def _binsize_and_block_from_ts(ts):
