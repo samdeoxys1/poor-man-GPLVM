@@ -759,19 +759,34 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
     # ---- plot raster (above latent) ----
     _raster_jitter_sec = 1e-9
     raster_kwargs_ = {} if raster_kwargs is None else dict(raster_kwargs)
+    raster_out = None  # spkmat + alignment info for out dict
     if has_raster and ax_raster is not None and st is not None and ed is not None:
         ep = nap.IntervalSet(start=st, end=ed + _raster_jitter_sec)
         spk_restrict = spk_times_pyr.restrict(ep)
         mode = str(raster_mode).lower() if raster_mode else 'imshow'
         if mode == 'imshow' and binsize_sec is not None and binsize_sec > 0:
-            count_tsd = spk_restrict.count(bin_size=binsize_sec, time_units='s')
-            spike_mat = np.asarray(count_tsd.d)  # (n_bins, n_units)
+            t_lat = None
+            if post_latent_unsup is not None:
+                t_lat = np.asarray(post_latent_unsup.t)
+            if t_lat is not None and len(t_lat) > 0:
+                # align to latent grid: same n_bins and start time (use count(ep=...) per bin)
+                ep_bins = nap.IntervalSet(start=t_lat, end=t_lat + binsize_sec)
+                count_tsd = spk_restrict.count(ep=ep_bins)
+                spike_mat = np.asarray(count_tsd.d)  # (n_bins, n_units)
+                t_start = float(t_lat[0])
+                t_end = float(t_lat[-1])
+                raster_out = dict(spkmat=spike_mat, n_bins=spike_mat.shape[0], t_start=t_start, latent_n_bins=len(t_lat))
+            else:
+                count_tsd = spk_restrict.count(bin_size=binsize_sec, time_units='s')
+                spike_mat = np.asarray(count_tsd.d)
+                t_start, t_end = st, ed
+                raster_out = dict(spkmat=spike_mat, n_bins=spike_mat.shape[0], t_start=t_start, latent_n_bins=None)
             if spike_mat.size > 0:
                 imshow_kw = dict(cmap='Greys_r', aspect='auto', interpolation=None, origin='lower')
                 imshow_kw.update({k: v for k, v in raster_kwargs_.items() if k in ('cmap', 'vmin', 'vmax', 'aspect', 'interpolation')})
-                ax_raster.imshow(spike_mat.T, extent=[st, ed, 0, spike_mat.shape[1]], **imshow_kw)
+                ax_raster.imshow(spike_mat.T, extent=[t_start, t_end, 0, spike_mat.shape[1]], **imshow_kw)
             ax_raster.set_ylabel('Neuron')
-            ax_raster.set_xlim(st, ed)
+            ax_raster.set_xlim(t_start, t_end)
             out_axs.append(ax_raster)
         else:
             # traditional raster: one row per unit, | at spike times
@@ -1088,6 +1103,8 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
         multi_dynamics_plot=multi_dyn_plot_info,
         mean_probs_multi=None if mean_probs_multi is None else dict(mean_probs_multi),
     )
+    if raster_out is not None:
+        out['raster'] = raster_out
 
     return fig, out_axs, out
 
