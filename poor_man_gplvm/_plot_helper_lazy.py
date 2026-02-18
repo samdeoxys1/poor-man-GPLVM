@@ -757,16 +757,16 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
             ax_multi_dyn = None
 
     # ---- plot raster (above latent) ----
+    _raster_jitter_sec = 1e-9
     raster_kwargs_ = {} if raster_kwargs is None else dict(raster_kwargs)
     if has_raster and ax_raster is not None and st is not None and ed is not None:
-        ep = nap.IntervalSet(start=st, end=ed)
+        ep = nap.IntervalSet(start=st, end=ed + _raster_jitter_sec)
         spk_restrict = spk_times_pyr.restrict(ep)
         mode = str(raster_mode).lower() if raster_mode else 'imshow'
         if mode == 'imshow' and binsize_sec is not None and binsize_sec > 0:
             count_tsd = spk_restrict.count(bin_size=binsize_sec, time_units='s')
             spike_mat = np.asarray(count_tsd.d)  # (n_bins, n_units)
             if spike_mat.size > 0:
-                # time on x, units on y -> imshow (n_units, n_bins), extent [st, ed, 0, n_units]
                 imshow_kw = dict(cmap='Greys_r', aspect='auto', interpolation=None, origin='lower')
                 imshow_kw.update({k: v for k, v in raster_kwargs_.items() if k in ('cmap', 'vmin', 'vmax', 'aspect', 'interpolation')})
                 ax_raster.imshow(spike_mat.T, extent=[st, ed, 0, spike_mat.shape[1]], **imshow_kw)
