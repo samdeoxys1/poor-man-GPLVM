@@ -548,6 +548,7 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
     ax_sup_traj_container = None
     bottom_time_axs = []
     ax_raster = None
+    time_ref = None
 
     if axs_flat is not None:
         need = n_panels_req
@@ -627,11 +628,7 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
                 ax_sup_dyn = fig.add_subplot(gs[rr, 0], sharex=time_ref) if has_sup_dyn else None
                 rr += int(has_sup_dyn)
                 ax_multi_dyn = fig.add_subplot(gs[rr, 0], sharex=time_ref) if has_multi_dyn else None
-                if has_raster and time_ref is not None:
-                    try:
-                        ax_raster.sharex(time_ref)
-                    except Exception:
-                        pass
+                # do NOT share raster with time_ref: raster is plotted first and would set shared xlim before latent/dynamics, breaking scalebar alignment
                 # one_col: lowest row = last time panel
                 if ax_multi_dyn is not None:
                     bottom_time_axs = [ax_multi_dyn]
@@ -959,6 +956,12 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
         ax_multi_dyn.set_title('Decoded dynamics')
         out_axs.append(ax_multi_dyn)
 
+    # ---- sync raster xlim to time panels (raster is not sharex so it doesn't steal limits; align after latent/dynamics set them)
+    if has_raster and ax_raster is not None and time_ref is not None:
+        try:
+            ax_raster.set_xlim(time_ref.get_xlim())
+        except Exception:
+            pass
     # ---- hide x ticks and labels on all time panels; scalebar (unit) on lowest row only ----
     all_time_axs = [a for a in (ax_raster, ax_sup_dyn, ax_uns_lat, ax_uns_dyn, ax_multi_dyn) if a is not None]
     for ax in all_time_axs:
@@ -973,24 +976,15 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
             pass
 
     if bool(time_scalebar) and block_sec is not None and block_sec > 0 and binsize_ms is not None and len(bottom_time_axs) > 0:
-        # Latent and dynamics share the same time grid; use one canonical start so scalebar aligns for all
-        scalebar_t_start = None
-        for ts in (post_latent_unsup, post_dyn_unsup, sup_dyn_one):
-            if ts is not None:
-                t = np.asarray(getattr(ts, 't', ts) if hasattr(ts, 't') else ts)
-                if getattr(t, 'size', len(t)) > 0:
-                    scalebar_t_start = float(np.nanmin(t))
-                    break
         trans_blend = mtransforms.blended_transform_factory
         y_bar = -0.05
         y_label = -0.10
         for ax in bottom_time_axs:
             try:
                 x0, x1 = ax.get_xlim()
-                t_start = scalebar_t_start if scalebar_t_start is not None else x0
                 trans = trans_blend(ax.transData, ax.transAxes)
-                ax.plot([t_start, t_start + float(block_sec)], [y_bar, y_bar], color='k', lw=1.5, transform=trans, clip_on=False)
-                ax.text(t_start + float(block_sec) / 2.0, y_label, f'{binsize_ms} ms', transform=trans, ha='center', va='top', fontsize=8, clip_on=False)
+                ax.plot([x0, x0 + float(block_sec)], [y_bar, y_bar], color='k', lw=1.5, transform=trans, clip_on=False)
+                ax.text(x0 + float(block_sec) / 2.0, y_label, f'{binsize_ms} ms', transform=trans, ha='center', va='top', fontsize=8, clip_on=False)
             except Exception:
                 pass
 
