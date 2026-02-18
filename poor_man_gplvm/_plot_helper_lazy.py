@@ -314,6 +314,7 @@ def plot_replay_sup_unsup_event(
     spk_times_pyr=None,
     raster_mode='imshow',
     raster_kwargs=None,
+    raster_argsort=None,
 ):
     """
     Plot replay for a single event from supervised + unsupervised pipelines.
@@ -781,6 +782,8 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
                 spike_mat = np.asarray(count_tsd.d)
                 t_start, t_end = st, ed
                 raster_out = dict(spkmat=spike_mat, n_bins=spike_mat.shape[0], t_start=t_start, latent_n_bins=None)
+            if raster_argsort is not None and len(raster_argsort) == spike_mat.shape[1]:
+                spike_mat = np.asarray(spike_mat)[:, np.asarray(raster_argsort)]
             if spike_mat.size > 0:
                 imshow_kw = dict(cmap='Greys_r', aspect='auto', interpolation=None, origin='lower')
                 imshow_kw.update({k: v for k, v in raster_kwargs_.items() if k in ('cmap', 'vmin', 'vmax', 'aspect', 'interpolation')})
@@ -800,6 +803,8 @@ fig, axs, out = phl.plot_replay_sup_unsup_event(
             for uid, ts in spk_restrict.items():
                 t = np.asarray(ts.index) if hasattr(ts, 'index') else np.asarray(ts.t)
                 unit_times.append(t)
+            if raster_argsort is not None and len(raster_argsort) == len(unit_times):
+                unit_times = [unit_times[i] for i in np.asarray(raster_argsort)]
             n_units = len(unit_times)
             if n_units > 0:
                 use_scatter = raster_kwargs_.get('raster_style', None) == 'scatter'
