@@ -1282,16 +1282,12 @@ def analyze_replay_unsupervised(
     base_res = _compute_base()
 
     # ---- 5) gain sweep for shuffle test ----
-    # In force_reload='all' mode, we recompute sweep even if final_gain is provided
-    # (final_gain still overrides gain used for decode-stage).
-    do_sweep = (final_gain is None) or (reload_mode == 'all')
+    # Only sweep when we need to find best_gain (final_gain is None).
+    do_sweep = (final_gain is None)
     sweep_keep = None
     if bool(do_sweep):
         if bool(verbose):
-            if final_gain is None:
-                print('[analyze_replay_unsupervised] 5/6 sweep gain (shuffle test)')
-            else:
-                print('[analyze_replay_unsupervised] 5/6 sweep gain (shuffle test; final_gain override enabled)')
+            print('[analyze_replay_unsupervised] 5/6 sweep gain (shuffle test)')
         spk_tensor_res = base_res['spk_tensor_res']
         sweep_gain_res = shuf.sweep_gain_shuffle_test_naive_bayes_marginal_l(
             spk_tensor_res['spike_mat'],
