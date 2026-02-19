@@ -1562,7 +1562,9 @@ def plot_replay_posterior_trajectory_2d(posterior_position_one,position_tsdf,sta
         fig,ax=plt.subplots(figsize=figsize,constrained_layout=True)
     # Keep posterior (imshow) visually on top of the maze trajectory
     ax.imshow(toplot, aspect='auto', extent=extent, origin='lower', zorder=2, interpolation='none')
-    ax.plot(position_tsdf[x_key],position_tsdf[y_key],c='grey',alpha=maze_alpha, zorder=1)
+    line = ax.plot(position_tsdf[x_key],position_tsdf[y_key],c='grey',alpha=maze_alpha, zorder=1)
+    if line:
+        line[0].set_rasterized(True)
     if despine:
         sns.despine(ax=ax,left=True,bottom=True)
         ax.set_xticks([])
