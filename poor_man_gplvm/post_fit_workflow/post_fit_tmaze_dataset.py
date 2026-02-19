@@ -771,6 +771,7 @@ def analyze_replay_unsupervised(
     nb_decode_kwargs=None,
     use_multi_dynamics=False,
     force_reload_multi_dynamics=False,
+    skip_compare_transition=False,
     verbose=True,
 ):
     '''
@@ -910,6 +911,7 @@ def analyze_replay_unsupervised(
         'nb_decode_kwargs': nb_decode_kwargs_,
         'use_multi_dynamics': bool(use_multi_dynamics),
         'force_reload_multi_dynamics': bool(force_reload_multi_dynamics),
+        'skip_compare_transition': bool(skip_compare_transition),
         'save_dir': str(save_dir),
         'save_fn': str(save_fn),
         'data_dir_full': str(data_dir_full),
@@ -1027,7 +1029,7 @@ def analyze_replay_unsupervised(
         event_df_joint_out = pd.concat([event_df_joint, mean_prob], axis=1)
         return pbe_multiple_transition_res, event_df_joint_out
 
-    def _compute_decode_stage(base_res, gain_used, *, sweep_gain_res_keep=None, use_multi_dynamics=False, decode_multiple_transition_kwargs=None):
+    def _compute_decode_stage(base_res, gain_used, *, sweep_gain_res_keep=None, use_multi_dynamics=False, decode_multiple_transition_kwargs=None, skip_compare_transition=False):
         binsize = float(base_res['pbe_dt'])
         spk_tensor_res = base_res['spk_tensor_res']
         spk_tensor = spk_tensor_res['spike_tensor']
@@ -1080,24 +1082,28 @@ def analyze_replay_unsupervised(
             'tuning_scaled_as': 'tuning_hz = model_fit.tuning / model_fit_dt; dt_l = dt * gain',
         }
 
-        # decode PBE under behavior-specific transitions
-        if bool(verbose):
-            print('[analyze_replay_unsupervised] decode PBE under behavior-specific transitions')
-        pbe_compare_transition_res = trans.decode_compare_transition_kernels(
-            spk_tensor,
-            model_fit,
-            base_res['trans_mat_d'],
-            tensor_pad_mask=tensor_pad_mask,
-            time_l=time_l,
-            dt=float(binsize),
-            gain=float(gain_used),
-            model_fit_dt=float(model_fit_dt_use),
-            n_trial_per_chunk=int(decode_compare_kwargs_['n_trial_per_chunk']),
-            prior_magnifier=float(decode_compare_kwargs_['prior_magnifier']),
-            return_numpy=bool(decode_compare_kwargs_['return_numpy']),
-        )  # output
-        prob_category_per_event_df = pbe_compare_transition_res['prob_category_per_event_df']
-        event_df_joint = pd.concat([event_df, prob_category_per_event_df], axis=1)  # output
+        # decode PBE under behavior-specific transitions (skip if skip_compare_transition and using multi-dynamics)
+        pbe_compare_transition_res = None
+        if skip_compare_transition:
+            event_df_joint = event_df.copy()
+        else:
+            if bool(verbose):
+                print('[analyze_replay_unsupervised] decode PBE under behavior-specific transitions')
+            pbe_compare_transition_res = trans.decode_compare_transition_kernels(
+                spk_tensor,
+                model_fit,
+                base_res['trans_mat_d'],
+                tensor_pad_mask=tensor_pad_mask,
+                time_l=time_l,
+                dt=float(binsize),
+                gain=float(gain_used),
+                model_fit_dt=float(model_fit_dt_use),
+                n_trial_per_chunk=int(decode_compare_kwargs_['n_trial_per_chunk']),
+                prior_magnifier=float(decode_compare_kwargs_['prior_magnifier']),
+                return_numpy=bool(decode_compare_kwargs_['return_numpy']),
+            )  # output
+            prob_category_per_event_df = pbe_compare_transition_res['prob_category_per_event_df']
+            event_df_joint = pd.concat([event_df, prob_category_per_event_df], axis=1)  # output
 
         pbe_multiple_transition_res = None
         if use_multi_dynamics:
@@ -1127,8 +1133,9 @@ def analyze_replay_unsupervised(
     if cached is not None and reload_mode in ['none', 'decode']:
         hp = cached.get('hyperparams', {})
         cached_use_multi = hp.get('use_multi_dynamics', False)
-        if reload_mode == 'none' and final_gain is None and cached_use_multi == use_multi_dynamics and not force_reload_multi_dynamics:
-            print(f'[analyze_replay_unsupervised] loading cached (force_reload=False, final_gain=None, use_multi_dynamics={use_multi_dynamics}, force_reload_multi_dynamics=False): {save_path}')
+        cached_skip_compare = hp.get('skip_compare_transition', False)
+        if reload_mode == 'none' and final_gain is None and cached_use_multi == use_multi_dynamics and cached_skip_compare == skip_compare_transition and not force_reload_multi_dynamics:
+            print(f'[analyze_replay_unsupervised] loading cached (force_reload=False, final_gain=None, use_multi_dynamics={use_multi_dynamics}, skip_compare_transition={skip_compare_transition}, force_reload_multi_dynamics=False): {save_path}')
             return cached
         cached_pbe_dt = hp.get('pbe_dt', None)
         if cached_pbe_dt is not None and float(cached_pbe_dt) != float(pbe_dt):
@@ -1155,7 +1162,7 @@ def analyze_replay_unsupervised(
         else:
             gain_used = float(final_gain)
 
-        if reload_mode == 'none' and (final_gain is not None) and (cached_gain is not None) and (float(cached_gain) == float(gain_used)) and (cached_use_multi == use_multi_dynamics) and not force_reload_multi_dynamics:
+        if reload_mode == 'none' and (final_gain is not None) and (cached_gain is not None) and (float(cached_gain) == float(gain_used)) and (cached_use_multi == use_multi_dynamics) and (cached_skip_compare == skip_compare_transition) and not force_reload_multi_dynamics:
             if bool(verbose):
                 print(f'[analyze_replay_unsupervised] cached decode already uses gain={float(gain_used):.6g}; returning cached')
             return cached
@@ -1194,7 +1201,8 @@ def analyze_replay_unsupervised(
         if cached_use_multi == use_multi_dynamics:
             decode_stage = _compute_decode_stage(base_res, gain_used, sweep_gain_res_keep=sweep_gain_res_keep,
                                                 use_multi_dynamics=use_multi_dynamics,
-                                                decode_multiple_transition_kwargs=decode_multiple_transition_kwargs_)
+                                                decode_multiple_transition_kwargs=decode_multiple_transition_kwargs_,
+                                                skip_compare_transition=skip_compare_transition)
         else:
             if bool(verbose):
                 print(f'[analyze_replay_unsupervised] add/strip multi-dynamics only (reload_mode={reload_mode}) gain_used={float(gain_used):.6g}')
@@ -1308,7 +1316,8 @@ def analyze_replay_unsupervised(
 
     decode_stage = _compute_decode_stage(base_res, gain_used, sweep_gain_res_keep=sweep_keep,
                                         use_multi_dynamics=use_multi_dynamics,
-                                        decode_multiple_transition_kwargs=decode_multiple_transition_kwargs_)
+                                        decode_multiple_transition_kwargs=decode_multiple_transition_kwargs_,
+                                        skip_compare_transition=skip_compare_transition)
 
     unsup_res = {
         'hyperparams': hyperparams,
