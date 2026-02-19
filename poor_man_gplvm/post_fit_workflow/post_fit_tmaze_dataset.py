@@ -772,6 +772,7 @@ def analyze_replay_unsupervised(
     use_multi_dynamics=False,
     force_reload_multi_dynamics=False,
     skip_compare_transition=False,
+    neuron_indices=None,
     verbose=True,
 ):
     '''
@@ -1134,13 +1135,25 @@ def analyze_replay_unsupervised(
         hp = cached.get('hyperparams', {})
         cached_use_multi = hp.get('use_multi_dynamics', False)
         cached_skip_compare = hp.get('skip_compare_transition', False)
-        if reload_mode == 'none' and final_gain is None and cached_use_multi == use_multi_dynamics and cached_skip_compare == skip_compare_transition and not force_reload_multi_dynamics:
+        if reload_mode == 'none' and final_gain is None and neuron_indices is None and cached_use_multi == use_multi_dynamics and cached_skip_compare == skip_compare_transition and not force_reload_multi_dynamics:
             print(f'[analyze_replay_unsupervised] loading cached (force_reload=False, final_gain=None, use_multi_dynamics={use_multi_dynamics}, skip_compare_transition={skip_compare_transition}, force_reload_multi_dynamics=False): {save_path}')
             return cached
         cached_pbe_dt = hp.get('pbe_dt', None)
         if cached_pbe_dt is not None and float(cached_pbe_dt) != float(pbe_dt):
             if reload_mode == 'decode' or final_gain is not None:
                 raise ValueError(f"decode-only reuse requires pbe_dt match cached (cached={cached_pbe_dt}, requested={pbe_dt}). Use force_reload='all'.")
+
+    def _subselect_spk_tensor_res_neuron(spk_tensor_res, neuron_indices):
+        """Subselect neuron dimension; indices are into the full (e.g. pyr) population."""
+        idx = np.asarray(neuron_indices, dtype=int)
+        out = dict(spk_tensor_res)
+        out['spike_tensor'] = np.asarray(spk_tensor_res['spike_tensor'])[..., idx]
+        sm = spk_tensor_res['spike_mat']
+        if hasattr(sm, 'd'):
+            out['spike_mat'] = nap.TsdFrame(t=sm.t, d=np.asarray(sm.d)[:, idx])
+        else:
+            out['spike_mat'] = np.asarray(sm)[:, idx]
+        return out
 
     # ---- compute base (either reuse cache base or recompute all) ----
     if cached is not None and reload_mode in ['none', 'decode']:
@@ -1153,6 +1166,10 @@ def analyze_replay_unsupervised(
             'tuning_fit': tuning_fit,
             'pbe_dt': float(cached.get('hyperparams', {}).get('pbe_dt', pbe_dt)),
         }
+        if neuron_indices is not None:
+            idx = np.asarray(neuron_indices, dtype=int)
+            base_res['spk_tensor_res'] = _subselect_spk_tensor_res_neuron(base_res['spk_tensor_res'], idx)
+            # tuning_fit already from prep_res / model_fit (subsampled); leave base_res['tuning_fit'] as is
         sweep_gain_res_keep = cached.get('sweep_gain_res', None)
         cached_gain = cached.get('best_gain', None)
         if final_gain is None:
