@@ -488,7 +488,7 @@ def get_smoothing_matrix(bin_centers_l, grid_shape, smooth_std=None, custom_smoo
 
 def get_tuning(spk_mat, label_l, ep=None, custom_smooth_func=None,
                label_bin_size=1., smooth_std=None, occupancy_threshold=None,
-               label_min=None, label_max=None, categorical_labels=None):
+               label_min=None, label_max=None, categorical_labels=None, verbose=True):
     '''
     Compute tuning curves from labels and spike matrix.
     
@@ -518,6 +518,8 @@ def get_tuning(spk_mat, label_l, ep=None, custom_smooth_func=None,
         []: explicitly no categorical columns (use interpolation for all).
         ['col1', 'col2']: specific columns are categorical.
         True: all columns are categorical.
+    verbose : bool, optional
+        If True, print grid summary per maze. Default True.
     
     Returns
     -------
@@ -671,8 +673,9 @@ def get_tuning(spk_mat, label_l, ep=None, custom_smooth_func=None,
             'n_valid_timepoints': valid_mask.sum(),
         }
         
-        print(f"[get_tuning] maze={k}: grid_shape={grid_shape}, n_neurons={n_neuron}, "
-              f"dt={dt:.4f}s, n_valid_time={valid_mask.sum()}, n_occupied_bins={occupied_mask.sum()}")
+        if verbose:
+            print(f"[get_tuning] maze={k}: grid_shape={grid_shape}, n_neurons={n_neuron}, "
+                  f"dt={dt:.4f}s, n_valid_time={valid_mask.sum()}, n_occupied_bins={occupied_mask.sum()}")
     
     # build output
     if not is_multi:
