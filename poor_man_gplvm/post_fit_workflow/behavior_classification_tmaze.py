@@ -169,8 +169,15 @@ def get_behavior_ep_d(
     Get behavior epochs used in lr_7/lr_8:
       - immobility: speed < speed_immo_thresh
       - locomotion: speed > speed_loco_thresh AND not offmaze
-      - offmaze: from detect_offmaze_ep
+      - offmaze: from detect_offmaze_ep (empty if offmaze_method='none' or 'linear')
     """
+    if str(offmaze_method).lower() in ("none", "linear"):
+        ep_offmaze = nap.IntervalSet(start=np.array([]), end=np.array([]))
+        offmaze_res = {"ep_offmaze": ep_offmaze}
+        ep_immobility = speed_tsd.threshold(speed_immo_thresh, method="below").time_support
+        ep_locomotion = speed_tsd.threshold(speed_loco_thresh, method="above").time_support
+        ep_d = {"immobility": ep_immobility, "offmaze": ep_offmaze, "locomotion": ep_locomotion}
+        return {"ep_d": ep_d, "offmaze_res": offmaze_res}
     offmaze_res = detect_offmaze_ep(position_tsdf, method=offmaze_method, **offmaze_kwargs)
     ep_offmaze = offmaze_res["ep_offmaze"]
     ep_immobility = speed_tsd.threshold(speed_immo_thresh, method="below").time_support
