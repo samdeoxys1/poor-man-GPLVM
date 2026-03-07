@@ -181,7 +181,7 @@ def create_transition_prob_latent_1d(possible_latent_bin, movement_variance=1.,c
     # Normalize to make it a proper transition matrix
     normalizer = latent_transition_kernel.sum(axis=1, keepdims=True)
     latent_transition_kernel = latent_transition_kernel / normalizer
-    log_latent_transition_kernel = log_latent_transition_kernel - jnp.log(normalizer)
+    log_latent_transition_kernel = log_latent_transition_kernel - jnp.log(normalizer+1e-30)
     
     return latent_transition_kernel, log_latent_transition_kernel
 
