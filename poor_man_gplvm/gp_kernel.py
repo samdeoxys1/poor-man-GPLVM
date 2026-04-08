@@ -186,6 +186,91 @@ def create_transition_prob_latent_1d(possible_latent_bin, movement_variance=1.,c
     return latent_transition_kernel, log_latent_transition_kernel
 
 
+def create_transition_prob_latent_nd(grid_shape, movement_variance=1., custom_kernel=None):
+    '''
+    Kronecker-product ND transition kernel from per-dim 1D RBF kernels.
+
+    grid_shape: tuple, e.g. (n_x, n_y)
+    movement_variance: scalar (same for all dims) or array-like (per dim)
+    custom_kernel: if provided, (n_flat, n_flat) matrix used directly (skips Kronecker)
+
+    Returns same as create_transition_prob_latent_1d:
+        latent_transition_kernel: (n_flat, n_flat)
+        log_latent_transition_kernel: (n_flat, n_flat)
+    '''
+    import numpy as np
+    grid_shape = tuple(grid_shape)
+    n_dim = len(grid_shape)
+    n_flat = int(np.prod(grid_shape))
+
+    if custom_kernel is not None:
+        normalizer = custom_kernel.sum(axis=1, keepdims=True) + 1e-30
+        latent_transition_kernel = custom_kernel / normalizer
+        log_latent_transition_kernel = jnp.log(latent_transition_kernel + 1e-30)
+        return latent_transition_kernel, log_latent_transition_kernel
+
+    mv = jnp.broadcast_to(jnp.atleast_1d(jnp.asarray(movement_variance, dtype=float)), (n_dim,))
+
+    kernel_1d_l = []
+    for d in range(n_dim):
+        k_d, _ = create_transition_prob_latent_1d(jnp.arange(grid_shape[d]), mv[d])
+        kernel_1d_l.append(k_d)
+
+    latent_transition_kernel = kernel_1d_l[0]
+    for k_d in kernel_1d_l[1:]:
+        latent_transition_kernel = jnp.kron(latent_transition_kernel, k_d)
+
+    # re-normalize after Kronecker (numerics)
+    normalizer = latent_transition_kernel.sum(axis=1, keepdims=True)
+    latent_transition_kernel = latent_transition_kernel / normalizer
+    log_latent_transition_kernel = jnp.log(latent_transition_kernel + 1e-30)
+
+    return latent_transition_kernel, log_latent_transition_kernel
+
+
+def create_transition_prob_nd(grid_shape, possible_dynamics, movement_variance=1.,
+                              p_move_to_jump=0.01, p_jump_to_move=0.01, custom_kernel=None):
+    '''
+    ND version of create_transition_prob_1d (jump model).
+    Builds per-dynamics latent transition kernels via Kronecker of 1D RBF kernels,
+    plus uniform kernel for jump dynamics.
+
+    grid_shape: tuple, e.g. (n_x, n_y)
+    possible_dynamics: array, e.g. arange(2)
+    movement_variance: scalar or per-dim array
+    custom_kernel: (n_flat, n_flat) matrix for continuous dynamics, or None
+
+    Returns same 4-tuple as create_transition_prob_1d.
+    '''
+    import numpy as np
+    n_flat = int(np.prod(grid_shape))
+
+    # continuous dynamics kernel (Kronecker or custom)
+    cont_kernel, log_cont_kernel = create_transition_prob_latent_nd(
+        grid_shape, movement_variance, custom_kernel=custom_kernel)
+
+    # uniform (jump) kernel
+    uniform_k = jnp.ones((n_flat, n_flat)) / n_flat
+    log_uniform_k = jnp.log(uniform_k)
+
+    latent_transition_kernel_l = jnp.stack([cont_kernel, uniform_k])
+    log_latent_transition_kernel_l = jnp.stack([log_cont_kernel, log_uniform_k])
+
+    # dynamics transition (same as 1D)
+    dynamics_transition_matrix = jnp.array([
+        [1 - p_move_to_jump, p_move_to_jump],
+        [p_jump_to_move, 1 - p_jump_to_move],
+    ])
+    dynamics_transition_kernel, log_dynamics_transition_kernel = vmap(
+        vmap(lambda x, y: discrete_transition_kernel(x, y, dynamics_transition_matrix),
+             in_axes=(0, None), out_axes=0),
+        in_axes=(None, 0), out_axes=1,
+    )(possible_dynamics, possible_dynamics)
+
+    return (latent_transition_kernel_l, log_latent_transition_kernel_l,
+            dynamics_transition_kernel, log_dynamics_transition_kernel)
+
+
 def get_custom_kernel_rbf_plus_isolated(possible_latent_bin,tuning_lengthscale,transition_lengthscale,var=1,p_to_isolated=0.001):
     '''
     get custom kernel for tuning and transition:
