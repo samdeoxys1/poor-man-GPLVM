@@ -6,6 +6,7 @@ import jax.numpy as jnp
 import jax.random as jr
 from jax import jit
 from jax.scipy.special import logsumexp
+import xarray as xr
 
 import pynapple as nap
 import tqdm
@@ -78,6 +79,7 @@ class AbstractGPLVMJump2D(core.AbstractGPLVMJump1D):
                  w_init_variance=1., w_init_mean=0.,
                  p_move_to_jump=0.01, p_jump_to_move=0.01,
                  basis_type='rbf',
+                 bin_centers_per_dim=None,
                  custom_tuning_kernel=None,
                  custom_transition_kernel=None,
                  smoothness_penalty=0.):
@@ -89,6 +91,15 @@ class AbstractGPLVMJump2D(core.AbstractGPLVMJump1D):
         self.n_latent_bin_per_dim = n_latent_bin_per_dim
         self.grid_shape = n_latent_bin_per_dim
         self.n_latent_bin = int(np.prod(n_latent_bin_per_dim))
+        self.grid_dim_names = tuple(f'dim{d + 1}' for d in range(n_dim))
+        if bin_centers_per_dim is None:
+            self.bin_centers_per_dim = tuple(
+                np.arange(self.grid_shape[d], dtype=float) for d in range(n_dim)
+            )
+        else:
+            self.bin_centers_per_dim = tuple(
+                np.asarray(bin_centers_per_dim[d]) for d in range(n_dim)
+            )
 
         # broadcast scalar -> per-dim arrays
         self.tuning_lengthscale_per_dim = np.broadcast_to(
@@ -171,6 +182,13 @@ class AbstractGPLVMJump2D(core.AbstractGPLVMJump1D):
             self.possible_dynamics = jnp.arange(2)
         if "grid_shape" not in d and "n_latent_bin_per_dim" in d:
             d["grid_shape"] = d["n_latent_bin_per_dim"]
+        n_dim = len(d["grid_shape"])
+        if "grid_dim_names" not in d:
+            d["grid_dim_names"] = tuple(f'dim{i + 1}' for i in range(n_dim))
+        if "bin_centers_per_dim" not in d:
+            d["bin_centers_per_dim"] = tuple(
+                np.arange(d["grid_shape"][i], dtype=float) for i in range(n_dim)
+            )
         if ("log_latent_transition_kernel_l" not in d) or ("log_dynamics_transition_kernel" not in d):
             self._refresh_transition_cache()
         return self
@@ -420,25 +438,62 @@ class AbstractGPLVMJump2D(core.AbstractGPLVMJump1D):
     # ------------------------------------------------------------------
 
     def posterior_to_grid(self, posterior_flat):
-        """Reshape flat posterior to grid.
+        """Reshape flat posterior to labeled grid xarray.
 
         posterior_flat: (n_time, n_flat) or (n_time, n_dynamics, n_flat)
-        Returns: (n_time, *grid_shape) or (n_time, n_dynamics, *grid_shape)
+        Returns:
+            xr.DataArray with dims ('time', *grid_dims) or
+            xr.DataArray with dims ('time', 'dynamics', *grid_dims)
         """
+        t_coord = None
+        posterior_data = posterior_flat
         if isinstance(posterior_flat, nap.TsdFrame):
-            posterior_flat = posterior_flat.d
-        arr = np.asarray(posterior_flat)
+            t_coord = np.asarray(posterior_flat.t)
+            posterior_data = posterior_flat.d
+        elif hasattr(posterior_flat, 't'):
+            try:
+                t_coord = np.asarray(posterior_flat.t)
+            except Exception:
+                t_coord = None
+        elif hasattr(posterior_flat, 'coords') and ('time' in posterior_flat.coords):
+            try:
+                t_coord = np.asarray(posterior_flat.coords['time'])
+            except Exception:
+                t_coord = None
+
+        arr = np.asarray(posterior_data)
         if arr.ndim == 2:
-            return arr.reshape(arr.shape[0], *self.grid_shape)
-        elif arr.ndim == 3:
-            return arr.reshape(arr.shape[0], arr.shape[1], *self.grid_shape)
-        return arr.reshape(*arr.shape[:-1], *self.grid_shape)
+            arr_grid = arr.reshape(arr.shape[0], *self.grid_shape)
+            dims = ('time',) + tuple(self.grid_dim_names)
+            coords = {'time': t_coord if t_coord is not None else np.arange(arr.shape[0])}
+            for d, dim_name in enumerate(self.grid_dim_names):
+                coords[dim_name] = self.bin_centers_per_dim[d]
+            return xr.DataArray(arr_grid, dims=dims, coords=coords)
+
+        if arr.ndim == 3:
+            arr_grid = arr.reshape(arr.shape[0], arr.shape[1], *self.grid_shape)
+            dims = ('time', 'dynamics') + tuple(self.grid_dim_names)
+            coords = {
+                'time': t_coord if t_coord is not None else np.arange(arr.shape[0]),
+                'dynamics': np.arange(arr.shape[1]),
+            }
+            for d, dim_name in enumerate(self.grid_dim_names):
+                coords[dim_name] = self.bin_centers_per_dim[d]
+            return xr.DataArray(arr_grid, dims=dims, coords=coords)
+
+        arr_grid = arr.reshape(*arr.shape[:-1], *self.grid_shape)
+        return xr.DataArray(arr_grid)
 
     def tuning_to_grid(self, tuning_flat=None):
-        """Reshape tuning (n_flat, n_neuron) -> (*grid_shape, n_neuron)."""
+        """Reshape tuning (n_flat, n_neuron) -> labeled xarray."""
         if tuning_flat is None:
             tuning_flat = self.tuning
-        return np.asarray(tuning_flat).reshape(*self.grid_shape, -1)
+        arr = np.asarray(tuning_flat).reshape(*self.grid_shape, -1)
+        dims = tuple(self.grid_dim_names) + ('neuron',)
+        coords = {'neuron': np.arange(arr.shape[-1])}
+        for d, dim_name in enumerate(self.grid_dim_names):
+            coords[dim_name] = self.bin_centers_per_dim[d]
+        return xr.DataArray(arr, dims=dims, coords=coords)
 
     def flat_to_grid_idx(self, flat_idx):
         """flat_idx (int or array) -> tuple of per-dim index arrays."""
