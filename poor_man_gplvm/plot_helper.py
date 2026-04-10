@@ -708,6 +708,183 @@ def subplots_wrapper(nplots,return_axs=True,basewidth=6,baseheight=4,figsize=Non
         fig = plt.figure(figsize=figsize)
         return fig, nrows, ncols
 
+def plot_2d_posterior_multi_frames(
+    posterior,
+    n_frames=9,
+    frame_inds=None,
+    fig=None,
+    axs=None,
+    figsize=None,
+    basewidth=2.2,
+    baseheight=2.2,
+    cmap='viridis',
+    vmin=None,
+    vmax=None,
+    interpolation='none',
+    origin='lower',
+    aspect='auto',
+    add_colorbar=False,
+    colorbar_shrink=0.9,
+    suptitle=None,
+    title_prefix='t=',
+    title_fmt='.3g',
+    show_title=True,
+    show_xlabel=True,
+    show_ylabel=True,
+    xticks_two=True,
+    yticks_two=True,
+):
+    '''
+    Plot multiple 2D posterior heatmaps from subselected time frames.
+
+    posterior: np.ndarray (n_time, n_x, n_y) or xr.DataArray with 3 dims.
+    If xarray, uses coordinate labels/names for axis labels and frame titles.
+
+    Cluster Jupyter example
+    ```python
+    import poor_man_gplvm.plot_helper as ph
+
+    fig, axs, out = ph.plot_2d_posterior_multi_frames(
+        posterior_2d,  # (time, x, y), np array or xr.DataArray
+        n_frames=12,
+        cmap='magma',
+        add_colorbar=True,
+    )
+    ```
+    '''
+    is_xr = hasattr(posterior, 'dims') and hasattr(posterior, 'coords')
+    arr = np.asarray(posterior)
+    if arr.ndim != 3:
+        raise ValueError(f'posterior must be 3D (n_time, n_x, n_y), got shape={arr.shape}')
+
+    n_time = int(arr.shape[0])
+    n_frames = int(min(max(1, n_frames), n_time))
+
+    if frame_inds is None:
+        frame_inds = np.linspace(0, n_time - 1, n_frames)
+        frame_inds = np.unique(np.round(frame_inds).astype(int))
+    else:
+        frame_inds = np.asarray(frame_inds).astype(int)
+        frame_inds = frame_inds[(frame_inds >= 0) & (frame_inds < n_time)]
+        if frame_inds.size == 0:
+            raise ValueError('frame_inds has no valid frame index.')
+    n_plot = int(frame_inds.size)
+
+    if (axs is None) or (fig is None):
+        if figsize is None:
+            figsize = None
+        fig, axs = subplots_wrapper(
+            n_plot,
+            figsize=figsize,
+            basewidth=basewidth,
+            baseheight=baseheight,
+            constrained_layout=True,
+        )
+
+    axs_arr = np.asarray(axs, dtype=object).ravel()
+    if axs_arr.size < n_plot:
+        raise ValueError(f'Not enough axes: need {n_plot}, got {axs_arr.size}')
+
+    # xarray labels/coords (if available)
+    xlab = 'x'
+    ylab = 'y'
+    t_dim_name = 'time'
+    x_coords = None
+    y_coords = None
+    time_coords = None
+    extent = None
+    if is_xr:
+        dim_l = list(posterior.dims)
+        t_dim_name, x_dim_name, y_dim_name = dim_l[0], dim_l[1], dim_l[2]
+        xlab = str(x_dim_name)
+        ylab = str(y_dim_name)
+        if t_dim_name in posterior.coords:
+            time_coords = np.asarray(posterior.coords[t_dim_name])
+        if x_dim_name in posterior.coords:
+            x_coords = np.asarray(posterior.coords[x_dim_name], dtype=float)
+        if y_dim_name in posterior.coords:
+            y_coords = np.asarray(posterior.coords[y_dim_name], dtype=float)
+        if (x_coords is not None) and (y_coords is not None) and (x_coords.size > 1) and (y_coords.size > 1):
+            dx = float(np.median(np.diff(x_coords)))
+            dy = float(np.median(np.diff(y_coords)))
+            extent = [
+                float(x_coords[0] - dx / 2),
+                float(x_coords[-1] + dx / 2),
+                float(y_coords[0] - dy / 2),
+                float(y_coords[-1] + dy / 2),
+            ]
+
+    if vmin is None:
+        vmin = float(np.nanquantile(arr, 0.01))
+    if vmax is None:
+        vmax = float(np.nanquantile(arr, 0.99))
+    if not np.isfinite(vmin):
+        vmin = 0.0
+    if not np.isfinite(vmax) or vmax <= vmin:
+        vmax = vmin + 1e-6
+
+    im_l = []
+    for ii, tt in enumerate(frame_inds):
+        ax = axs_arr[ii]
+        frame = arr[int(tt)]
+        if extent is None:
+            im = ax.imshow(
+                frame.T,
+                cmap=cmap,
+                vmin=vmin,
+                vmax=vmax,
+                interpolation=interpolation,
+                origin=origin,
+                aspect=aspect,
+            )
+        else:
+            im = ax.imshow(
+                frame.T,
+                cmap=cmap,
+                vmin=vmin,
+                vmax=vmax,
+                interpolation=interpolation,
+                origin=origin,
+                aspect=aspect,
+                extent=extent,
+            )
+        im_l.append(im)
+
+        if show_title:
+            if (time_coords is not None) and (int(tt) < time_coords.size):
+                tval = float(time_coords[int(tt)])
+                ax.set_title(f'{title_prefix}{tval:{title_fmt}}')
+            else:
+                ax.set_title(f'frame={int(tt)}')
+
+        if show_xlabel:
+            ax.set_xlabel(xlab if is_xr else 'x')
+        if show_ylabel:
+            ax.set_ylabel(ylab if is_xr else 'y')
+
+        if xticks_two:
+            set_two_ticks(ax, apply_to='x', do_int=False)
+        if yticks_two:
+            set_two_ticks(ax, apply_to='y', do_int=False)
+
+    # hide unused axes if wrapper made more
+    for jj in range(n_plot, axs_arr.size):
+        axs_arr[jj].set_axis_off()
+
+    if add_colorbar and len(im_l) > 0:
+        fig.colorbar(im_l[-1], ax=axs_arr[:n_plot].tolist(), shrink=colorbar_shrink)
+
+    if suptitle is not None:
+        fig.suptitle(str(suptitle))
+
+    out = {
+        'frame_inds': frame_inds,
+        'vmin': vmin,
+        'vmax': vmax,
+        'is_xarray': bool(is_xr),
+    }
+    return fig, axs, out
+
 
 def plot_paired_line_median(
     df: pd.DataFrame,
