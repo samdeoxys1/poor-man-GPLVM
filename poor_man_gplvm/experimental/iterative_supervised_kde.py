@@ -38,6 +38,7 @@ res["final"]["decode"]["posterior_latent_marg_xr"]
 """
 
 import numpy as np
+import pandas as pd
 import xarray as xr
 import jax
 import jax.numpy as jnp
@@ -306,6 +307,46 @@ def _initial_tuning_full_from_supervised(tuning_res):
     return {"single": arr}
 
 
+def _movement_variance_to_smooth_std_single(continuous_transition_movement_variance, n_dim):
+    var = continuous_transition_movement_variance
+    if isinstance(var, dict):
+        if "single" in var:
+            var = var["single"]
+        else:
+            var = list(var.values())[0]
+    var_arr = np.asarray(np.atleast_1d(var), dtype=float)
+    if var_arr.size == 1:
+        return np.repeat(np.sqrt(var_arr[0]), n_dim)
+    if var_arr.size != n_dim:
+        raise ValueError(f'continuous_transition_movement_variance size={var_arr.size} != n_dim={n_dim}')
+    return np.sqrt(var_arr)
+
+
+def _build_full_transition_kernel_single(tuning_res, continuous_transition_movement_variance):
+    bin_centers_l = tuning_res["bin_centers"]
+    grid_shape = tuning_res["grid_shape"]
+    n_dim = len(bin_centers_l)
+    smooth_std = _movement_variance_to_smooth_std_single(continuous_transition_movement_variance, n_dim=n_dim)
+    kernel = get_tuning_supervised.get_smoothing_matrix(
+        bin_centers_l=bin_centers_l,
+        grid_shape=grid_shape,
+        smooth_std=smooth_std,
+    )
+    return _row_normalize(np.asarray(kernel, dtype=float))
+
+
+def _build_full_flat_idx_to_coord_single(tuning_res):
+    bin_centers_l = tuning_res["bin_centers"]
+    label_dim_names = tuning_res["label_dim_names"]
+    mesh = np.meshgrid(*bin_centers_l, indexing="ij")
+    coord_cols = [m.reshape(-1) for m in mesh]
+    df = pd.DataFrame({k: v for k, v in zip(label_dim_names, coord_cols)})
+    df.insert(0, "maze", "single")
+    df.index = np.arange(df.shape[0], dtype=int)
+    df.index.name = "flat_idx"
+    return df
+
+
 def fit_decode_iterative_supervised_kde(
     spk_mat,
     label,
@@ -366,51 +407,98 @@ def fit_decode_iterative_supervised_kde(
     )
 
     full_grid_ops = _prepare_full_grid_iteration_ops(tuning_res)
-    current_tuning = jnp.asarray(tuning_res["tuning_flat"], dtype=jnp.float32)
     spk_j = jnp.asarray(spk_arr, dtype=jnp.float32)
+    is_multi = isinstance(tuning_res["tuning"], dict)
+    current_tuning_full = _initial_tuning_full_from_supervised(tuning_res)
 
     if verbose:
-        print(f"[iterative_supervised_kde] init: n_time={spk_arr.shape[0]}, n_neuron={spk_arr.shape[1]}, n_latent={current_tuning.shape[0]}")
+        if is_multi:
+            n_latent_msg = int(np.asarray(tuning_res["tuning_flat"]).shape[0])
+            print(f"[iterative_supervised_kde] init: n_time={spk_arr.shape[0]}, n_neuron={spk_arr.shape[1]}, n_latent_valid={n_latent_msg} (multi-maze valid-bin decode)")
+        else:
+            n_latent_msg = int(current_tuning_full["single"].shape[0])
+            print(f"[iterative_supervised_kde] init: n_time={spk_arr.shape[0]}, n_neuron={spk_arr.shape[1]}, n_latent_full={n_latent_msg} (full-grid decode)")
 
-    def _decode_once(tuning_flat):
-        return decoder_supervised.decode_with_dynamics(
-            spk_arr,
-            np.asarray(tuning_flat),
-            coord_to_flat_idx=tuning_res["coord_to_flat_idx"],
-            flat_idx_to_coord=None,
-            dt=float(dt),
-            gain=float(gain),
+    if is_multi:
+        current_tuning_valid = jnp.asarray(tuning_res["tuning_flat"], dtype=jnp.float32)
+
+        def _decode_once_valid(tuning_flat):
+            return decoder_supervised.decode_with_dynamics(
+                spk_arr,
+                np.asarray(tuning_flat),
+                coord_to_flat_idx=tuning_res["coord_to_flat_idx"],
+                flat_idx_to_coord=None,
+                dt=float(dt),
+                gain=float(gain),
+                continuous_transition_movement_variance=continuous_transition_movement_variance,
+                p_move_to_jump=0.0,
+                p_jump_to_move=0.0,
+                n_time_per_chunk=int(n_time_per_chunk),
+                observation_model="poisson",
+            )
+
+        decode_init = _decode_once_valid(current_tuning_valid)
+        decode_curr = decode_init
+    else:
+        transition_full_kernel = _build_full_transition_kernel_single(
+            tuning_res,
             continuous_transition_movement_variance=continuous_transition_movement_variance,
-            p_move_to_jump=0.0,
-            p_jump_to_move=0.0,
-            n_time_per_chunk=int(n_time_per_chunk),
-            observation_model="poisson",
         )
 
-    decode_init = _decode_once(current_tuning)
-    decode_curr = decode_init
-    current_tuning_full = _initial_tuning_full_from_supervised(tuning_res)
+        def _decode_once_full(tuning_full):
+            return decoder_supervised.decode_with_dynamics(
+                spk_arr,
+                np.asarray(tuning_full),
+                coord_to_flat_idx=None,
+                flat_idx_to_coord=None,
+                dt=float(dt),
+                gain=float(gain),
+                custom_continuous_transition_kernel=transition_full_kernel,
+                p_move_to_jump=0.0,
+                p_jump_to_move=0.0,
+                n_time_per_chunk=int(n_time_per_chunk),
+                observation_model="poisson",
+            )
+
+        decode_init = _decode_once_full(current_tuning_full["single"])
+        decode_curr = decode_init
 
     log_marginal_history = [float(np.asarray(decode_init["log_marginal"]))]
     occupancy_history = []
     spk_count_history = []
 
     for iter_i in range(int(n_iter)):
-        y_weighted, t_weighted = _posterior_weighted_stats_chunked(
-            decode_curr["log_posterior_latent_marg"],
-            spk_j,
-            stats_chunk_size=stats_chunk_size,
-        )
-        updated_tuning, spk_count_smth, occupancy_smth, updated_tuning_full = _kde_update_on_full_grid(
-            y_weighted,
-            t_weighted,
-            full_grid_ops=full_grid_ops,
-            dt=dt,
-            eps=eps,
-        )
-        current_tuning = jnp.asarray(updated_tuning, dtype=jnp.float32)
-        current_tuning_full = updated_tuning_full
-        decode_curr = _decode_once(current_tuning)
+        if is_multi:
+            y_weighted, t_weighted = _posterior_weighted_stats_chunked(
+                decode_curr["log_posterior_latent_marg"],
+                spk_j,
+                stats_chunk_size=stats_chunk_size,
+            )
+            updated_tuning, spk_count_smth, occupancy_smth, updated_tuning_full = _kde_update_on_full_grid(
+                y_weighted,
+                t_weighted,
+                full_grid_ops=full_grid_ops,
+                dt=dt,
+                eps=eps,
+            )
+            current_tuning_valid = jnp.asarray(updated_tuning, dtype=jnp.float32)
+            current_tuning_full = updated_tuning_full
+            decode_curr = _decode_once_valid(current_tuning_valid)
+        else:
+            y_weighted, t_weighted = _posterior_weighted_stats_chunked(
+                decode_curr["log_posterior_latent_marg"],
+                spk_j,
+                stats_chunk_size=stats_chunk_size,
+            )
+            occupancy_weighted = t_weighted * jnp.asarray(dt, dtype=jnp.float32)
+            tuning_full_next, spk_count_smth, occupancy_smth = _smooth_ratio_update_jit(
+                y_weighted,
+                occupancy_weighted,
+                jnp.asarray(transition_full_kernel, dtype=jnp.float32),
+                jnp.asarray(eps, dtype=jnp.float32),
+            )
+            current_tuning_full["single"] = np.asarray(jax.device_get(tuning_full_next))
+            decode_curr = _decode_once_full(current_tuning_full["single"])
 
         occupancy_history.append(np.asarray(occupancy_smth))
         spk_count_history.append(np.asarray(spk_count_smth))
@@ -419,20 +507,26 @@ def fit_decode_iterative_supervised_kde(
         if verbose:
             print(f"[iterative_supervised_kde] iter={iter_i+1}/{n_iter}, log_marginal={log_marginal_history[-1]:.6f}")
 
-    initial_tuning_flat = np.asarray(tuning_res["tuning_flat"])
-    final_tuning_flat = np.asarray(jax.device_get(current_tuning))
+    if is_multi:
+        initial_tuning_flat = np.asarray(tuning_res["tuning_flat"])
+        final_tuning_flat = np.asarray(jax.device_get(current_tuning_valid))
+        flat_idx_to_coord_decode = tuning_res["flat_idx_to_coord"]
+    else:
+        valid_mask = np.asarray(tuning_res["valid_flat_mask"], dtype=bool)
+        initial_tuning_flat = np.asarray(tuning_res["tuning_flat"])
+        final_tuning_flat = np.asarray(current_tuning_full["single"])[valid_mask]
+        flat_idx_to_coord_decode = _build_full_flat_idx_to_coord_single(tuning_res)
 
     initial_tuning_flat_xr = _make_tuning_flat_xr(initial_tuning_flat, tuning_res)
     final_tuning_flat_xr = _make_tuning_flat_xr(final_tuning_flat, tuning_res)
 
-    is_multi = isinstance(tuning_res["tuning"], dict)
     if is_multi:
         final_tuning_grid_xr = _multi_maze_tuning_grid_from_full(current_tuning_full, tuning_res)
     else:
         final_tuning_grid_xr = _single_maze_tuning_grid_from_full(current_tuning_full["single"], tuning_res)
 
-    decode_init_xr = _make_decode_xr(decode_init, tuning_res["flat_idx_to_coord"], time_coord=time_coord)
-    decode_final_xr = _make_decode_xr(decode_curr, tuning_res["flat_idx_to_coord"], time_coord=time_coord)
+    decode_init_xr = _make_decode_xr(decode_init, flat_idx_to_coord_decode, time_coord=time_coord)
+    decode_final_xr = _make_decode_xr(decode_curr, flat_idx_to_coord_decode, time_coord=time_coord)
 
     diagnostics = {
         "log_marginal_history_xr": xr.DataArray(
