@@ -102,24 +102,68 @@ def _ensure_supervised_inputs(spk_mat, label, dt):
     return spk_tsdf, label_tsdf
 
 
-def _build_smoothing_valid_matrix(tuning_res):
+def _prepare_full_grid_iteration_ops(tuning_res):
     if isinstance(tuning_res["smoothing_matrix"], dict):
-        coord_to_flat_idx = tuning_res["coord_to_flat_idx"]
-        n_latent = int(tuning_res["tuning_flat"].shape[0])
-        smoothing_valid = np.zeros((n_latent, n_latent), dtype=float)
-
+        op_l = []
         for maze_key, smoothing_full in tuning_res["smoothing_matrix"].items():
-            valid_mask = np.asarray(tuning_res["valid_flat_mask"][maze_key], dtype=bool)
-            smoothing_sub = np.asarray(smoothing_full)[np.ix_(valid_mask, valid_mask)]
-            smoothing_sub = _row_normalize(smoothing_sub)
-            global_flat_idx = np.asarray(coord_to_flat_idx[maze_key].values, dtype=int)
-            smoothing_valid[np.ix_(global_flat_idx, global_flat_idx)] = smoothing_sub
-        return smoothing_valid
+            valid_mask_local = np.asarray(tuning_res["valid_flat_mask"][maze_key], dtype=bool)
+            global_flat_idx = np.asarray(tuning_res["coord_to_flat_idx"][maze_key].values, dtype=int)
+            op_l.append(
+                {
+                    "maze_key": maze_key,
+                    "smoothing_full_j": jnp.asarray(np.asarray(smoothing_full), dtype=jnp.float32),
+                    "valid_mask_local": valid_mask_local,
+                    "global_flat_idx": global_flat_idx,
+                    "n_full": int(valid_mask_local.size),
+                }
+            )
+        return {"is_multi": True, "ops": op_l}
 
-    valid_mask = np.asarray(tuning_res["valid_flat_mask"], dtype=bool)
-    smoothing_sub = np.asarray(tuning_res["smoothing_matrix"])[np.ix_(valid_mask, valid_mask)]
-    smoothing_sub = _row_normalize(smoothing_sub)
-    return smoothing_sub
+    valid_mask_local = np.asarray(tuning_res["valid_flat_mask"], dtype=bool)
+    return {
+        "is_multi": False,
+        "ops": [
+            {
+                "maze_key": "single",
+                "smoothing_full_j": jnp.asarray(np.asarray(tuning_res["smoothing_matrix"]), dtype=jnp.float32),
+                "valid_mask_local": valid_mask_local,
+                "global_flat_idx": np.arange(int(np.asarray(tuning_res["tuning_flat"]).shape[0]), dtype=int),
+                "n_full": int(valid_mask_local.size),
+            }
+        ],
+    }
+
+
+def _kde_update_on_full_grid(y_weighted_valid, t_weighted_valid, full_grid_ops, dt, eps):
+    n_latent_valid = int(y_weighted_valid.shape[0])
+    n_neuron = int(y_weighted_valid.shape[1])
+    tuning_valid_next = np.zeros((n_latent_valid, n_neuron), dtype=float)
+    occ_smth_valid_next = np.zeros((n_latent_valid,), dtype=float)
+    spk_smth_valid_next = np.zeros((n_latent_valid, n_neuron), dtype=float)
+
+    for one in full_grid_ops["ops"]:
+        global_flat_idx = one["global_flat_idx"]
+        valid_mask_local = one["valid_mask_local"]
+        smoothing_full_j = one["smoothing_full_j"]
+        n_full = int(one["n_full"])
+
+        spk_full_local = np.zeros((n_full, n_neuron), dtype=float)
+        occ_full_local = np.zeros((n_full,), dtype=float)
+        spk_full_local[valid_mask_local] = np.asarray(y_weighted_valid)[global_flat_idx]
+        occ_full_local[valid_mask_local] = np.asarray(t_weighted_valid)[global_flat_idx] * float(dt)
+
+        tuning_full_local, spk_smth_full_local, occ_smth_full_local = _smooth_ratio_update_jit(
+            jnp.asarray(spk_full_local, dtype=jnp.float32),
+            jnp.asarray(occ_full_local, dtype=jnp.float32),
+            smoothing_full_j,
+            jnp.asarray(eps, dtype=jnp.float32),
+        )
+
+        tuning_valid_next[global_flat_idx] = np.asarray(jax.device_get(tuning_full_local))[valid_mask_local]
+        occ_smth_valid_next[global_flat_idx] = np.asarray(jax.device_get(occ_smth_full_local))[valid_mask_local]
+        spk_smth_valid_next[global_flat_idx] = np.asarray(jax.device_get(spk_smth_full_local))[valid_mask_local]
+
+    return tuning_valid_next, spk_smth_valid_next, occ_smth_valid_next
 
 
 def _posterior_weighted_stats_chunked(log_posterior_latent, spk_arr, stats_chunk_size):
@@ -223,7 +267,7 @@ def _make_tuning_flat_xr(tuning_flat, tuning_res):
 def _single_maze_tuning_grid_from_flat(tuning_flat, tuning_res):
     full_valid_mask = np.asarray(tuning_res["valid_flat_mask"], dtype=bool)
     n_neuron = tuning_flat.shape[1]
-    full_flat = np.full((full_valid_mask.size, n_neuron), np.nan, dtype=float)
+    full_flat = np.zeros((full_valid_mask.size, n_neuron), dtype=float)
     full_flat[full_valid_mask] = np.asarray(tuning_flat)
     grid_shape = tuple(int(x) for x in tuning_res["grid_shape"])
     grid_arr = full_flat.reshape((*grid_shape, n_neuron))
@@ -243,7 +287,7 @@ def _multi_maze_tuning_grid_from_flat(tuning_flat, tuning_res):
         tuning_maze_flat = np.asarray(tuning_flat)[global_flat_idx]
         full_valid_mask = np.asarray(tuning_res["valid_flat_mask"][maze_key], dtype=bool)
         n_neuron = tuning_maze_flat.shape[1]
-        full_flat = np.full((full_valid_mask.size, n_neuron), np.nan, dtype=float)
+        full_flat = np.zeros((full_valid_mask.size, n_neuron), dtype=float)
         full_flat[full_valid_mask] = tuning_maze_flat
         grid_shape = tuple(int(x) for x in tuning_res["grid_shape"][maze_key])
         grid_arr = full_flat.reshape((*grid_shape, n_neuron))
@@ -315,8 +359,7 @@ def fit_decode_iterative_supervised_kde(
         verbose=verbose,
     )
 
-    smoothing_valid = _build_smoothing_valid_matrix(tuning_res)
-    smoothing_valid_j = jnp.asarray(smoothing_valid, dtype=jnp.float32)
+    full_grid_ops = _prepare_full_grid_iteration_ops(tuning_res)
     current_tuning = jnp.asarray(tuning_res["tuning_flat"], dtype=jnp.float32)
     spk_j = jnp.asarray(spk_arr, dtype=jnp.float32)
 
@@ -351,19 +394,18 @@ def fit_decode_iterative_supervised_kde(
             spk_j,
             stats_chunk_size=stats_chunk_size,
         )
-        occupancy_weighted = t_weighted * jnp.asarray(dt, dtype=jnp.float32)
-
-        updated_tuning, spk_count_smth, occupancy_smth = _smooth_ratio_update_jit(
+        updated_tuning, spk_count_smth, occupancy_smth = _kde_update_on_full_grid(
             y_weighted,
-            occupancy_weighted,
-            smoothing_valid_j,
-            jnp.asarray(eps, dtype=jnp.float32),
+            t_weighted,
+            full_grid_ops=full_grid_ops,
+            dt=dt,
+            eps=eps,
         )
-        current_tuning = updated_tuning
+        current_tuning = jnp.asarray(updated_tuning, dtype=jnp.float32)
         decode_curr = _decode_once(current_tuning)
 
-        occupancy_history.append(np.asarray(jax.device_get(occupancy_smth)))
-        spk_count_history.append(np.asarray(jax.device_get(spk_count_smth)))
+        occupancy_history.append(np.asarray(occupancy_smth))
+        spk_count_history.append(np.asarray(spk_count_smth))
         log_marginal_history.append(float(np.asarray(decode_curr["log_marginal"])))
 
         if verbose:
