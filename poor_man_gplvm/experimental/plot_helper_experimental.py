@@ -33,6 +33,7 @@ def tuning_browser_prev_next_jshtml(
     panel_title_init="initial",
     panel_title_final="final",
     render_mode="client_canvas",
+    color_range_mode="per_image",
 ):
     """
     Build a Prev/Next HTML browser for tuning maps across neurons (no ipywidgets).
@@ -62,24 +63,26 @@ def tuning_browser_prev_next_jshtml(
     else:
         neuron_ids = np.asarray(neuron_ids)
 
+    global_vmin = float(
+        np.nanmin(
+            [
+                np.asarray(tuning_init.sel(neuron=neuron_ids).values),
+                np.asarray(tuning_final.sel(neuron=neuron_ids).values),
+            ]
+        )
+    )
+    global_vmax = float(
+        np.nanmax(
+            [
+                np.asarray(tuning_init.sel(neuron=neuron_ids).values),
+                np.asarray(tuning_final.sel(neuron=neuron_ids).values),
+            ]
+        )
+    )
     if vmin is None:
-        vmin = float(
-            np.nanmin(
-                [
-                    np.asarray(tuning_init.sel(neuron=neuron_ids).values),
-                    np.asarray(tuning_final.sel(neuron=neuron_ids).values),
-                ]
-            )
-        )
+        vmin = global_vmin
     if vmax is None:
-        vmax = float(
-            np.nanmax(
-                [
-                    np.asarray(tuning_init.sel(neuron=neuron_ids).values),
-                    np.asarray(tuning_final.sel(neuron=neuron_ids).values),
-                ]
-            )
-        )
+        vmax = global_vmax
 
     if render_mode != "client_canvas":
         raise ValueError(f"Unsupported render_mode={render_mode}, use 'client_canvas'")
@@ -144,8 +147,9 @@ def tuning_browser_prev_next_jshtml(
   const dataInit = {init_data_json};
   const dataFinal = {final_data_json};
   const lut = {lut_json};
-  const vmin = {float(vmin)};
-  const vmax = {float(vmax)};
+  const vminGlobal = {float(vmin)};
+  const vmaxGlobal = {float(vmax)};
+  const colorRangeMode = {repr(color_range_mode)};
   const titleInitBase = {repr(panel_title_init)};
   const titleFinalBase = {repr(panel_title_final)};
   const idxBox = document.getElementById("{container_id}_idx");
@@ -165,7 +169,30 @@ def tuning_browser_prev_next_jshtml(
     return Math.max(0, Math.min(dataInit.length - 1, v));
   }}
 
-  function drawHeatmap(ctx, arr2d) {{
+  function getArrayMinMax(arr2d) {{
+    let vmin = Infinity;
+    let vmax = -Infinity;
+    for (let y = 0; y < arr2d.length; y++) {{
+      const row = arr2d[y];
+      for (let x = 0; x < row.length; x++) {{
+        const v = row[x];
+        if (!Number.isFinite(v)) {{
+          continue;
+        }}
+        if (v < vmin) vmin = v;
+        if (v > vmax) vmax = v;
+      }}
+    }}
+    if (!Number.isFinite(vmin) || !Number.isFinite(vmax)) {{
+      return [0.0, 1.0];
+    }}
+    if (vmax <= vmin) {{
+      return [vmin, vmin + 1e-12];
+    }}
+    return [vmin, vmax];
+  }}
+
+  function drawHeatmap(ctx, arr2d, vmin, vmax) {{
     const h = arr2d.length;
     const w = arr2d[0].length;
     const img = ctx.createImageData(w, h);
@@ -193,8 +220,20 @@ def tuning_browser_prev_next_jshtml(
 
   function render(i) {{
     idx = clamp(i);
-    drawHeatmap(ctxInit, dataInit[idx]);
-    drawHeatmap(ctxFinal, dataFinal[idx]);
+    const arrInit = dataInit[idx];
+    const arrFinal = dataFinal[idx];
+    let vminInit = vminGlobal;
+    let vmaxInit = vmaxGlobal;
+    let vminFinal = vminGlobal;
+    let vmaxFinal = vmaxGlobal;
+
+    if (colorRangeMode === "per_image") {{
+      [vminInit, vmaxInit] = getArrayMinMax(arrInit);
+      [vminFinal, vmaxFinal] = getArrayMinMax(arrFinal);
+    }}
+
+    drawHeatmap(ctxInit, arrInit, vminInit, vmaxInit);
+    drawHeatmap(ctxFinal, arrFinal, vminFinal, vmaxFinal);
     idxBox.value = idx;
     slider.value = idx;
     neuronText.textContent = neuronIds[idx];
@@ -238,6 +277,7 @@ def tuning_browser_prev_next_jshtml(
         "vmin": float(vmin),
         "vmax": float(vmax),
         "render_mode": render_mode,
+        "color_range_mode": color_range_mode,
     }
     print(f"rendered tuning browser ({render_mode}) for n_neuron={len(neuron_ids_json)}")
     return out
