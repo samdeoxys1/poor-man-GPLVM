@@ -234,7 +234,7 @@ def run_kde_vs_mstep_debug(
         log_latent_transition_kernel_l,
         log_dynamics_transition_kernel,
         ma_neuron,
-        ma_latent=ma_latent,
+        ma_latent=ma_lat,
         likelihood_scale=1.0,
         n_time_per_chunk=n_time_per_chunk,
         observation_model="poisson",
