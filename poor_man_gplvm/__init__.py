@@ -20,6 +20,9 @@ from poor_man_gplvm.supervised_analysis.xarray_wrappers import (
     latent_time_series_to_xr,
     supervised_tuning_views,
 )
+import poor_man_gplvm.experimental.iterative_supervised_kde as iterative_supervised_kde
+
+fit_decode_iterative_supervised_kde = iterative_supervised_kde.fit_decode_iterative_supervised_kde
 
 # Import modules to enable pmg.core, pmg.utils access
 from . import core,core_2d,test,utils,model_selection_helper,experimental,plot_helper,analysis_helper,distance_analysis
