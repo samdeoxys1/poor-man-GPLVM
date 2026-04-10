@@ -674,6 +674,91 @@ def set_symmetric_ticks(axis, xlim=None, ylim=None, do_int=False, apply_to='y'):
             axis.set_xlim(xlim)
     return axis
 
+
+def add_valid_border_and_invalid_shade(
+    ax,
+    valid_mask,
+    x_coords=None,
+    y_coords=None,
+    border_color='white',
+    border_lw=1.5,
+    invalid_color=(0.2, 0.2, 0.2, 0.25),
+    invalid_cmap=None,
+    invalid_interpolation='none',
+    invalid_zorder=5,
+    border_zorder=6,
+):
+    '''
+    Overlay invalid-region shading and valid/invalid border on an existing axis.
+
+    valid_mask: (n_x, n_y) bool
+      True = valid region, False = invalid region.
+    x_coords, y_coords: optional 1D coordinates (for contour/imshow extent alignment).
+
+    Cluster Jupyter example
+    ```python
+    import numpy as np
+    import poor_man_gplvm.plot_helper as ph
+
+    valid_mask = np.isfinite(res['initial']['tuning_grid_xr'].isel(neuron=0).values)
+    fig, ax = ph.plt.subplots(figsize=(3, 3), constrained_layout=True)
+    ax.imshow(res['final']['decode']['posterior_latent_marg_xr'].isel(time=100).values.T,
+              origin='lower', interpolation='none', cmap='magma')
+    ph.add_valid_border_and_invalid_shade(ax, valid_mask, border_color='w')
+    ```
+    '''
+    valid = np.asarray(valid_mask).astype(bool)
+    invalid = ~valid
+
+    if x_coords is None:
+        x_coords = np.arange(valid.shape[0], dtype=float)
+    else:
+        x_coords = np.asarray(x_coords, dtype=float)
+    if y_coords is None:
+        y_coords = np.arange(valid.shape[1], dtype=float)
+    else:
+        y_coords = np.asarray(y_coords, dtype=float)
+
+    if x_coords.size > 1:
+        dx = float(np.median(np.diff(x_coords)))
+    else:
+        dx = 1.0
+    if y_coords.size > 1:
+        dy = float(np.median(np.diff(y_coords)))
+    else:
+        dy = 1.0
+    extent = [
+        float(x_coords[0] - dx / 2.0),
+        float(x_coords[-1] + dx / 2.0),
+        float(y_coords[0] - dy / 2.0),
+        float(y_coords[-1] + dy / 2.0),
+    ]
+
+    invalid_ma = np.ma.masked_where(~invalid, invalid.astype(float))
+    if invalid_cmap is None:
+        invalid_cmap = plt.matplotlib.colors.ListedColormap([invalid_color])
+
+    invalid_im = ax.imshow(
+        invalid_ma.T,
+        origin='lower',
+        extent=extent,
+        interpolation=invalid_interpolation,
+        cmap=invalid_cmap,
+        vmin=0,
+        vmax=1,
+        zorder=invalid_zorder,
+    )
+    border_cs = ax.contour(
+        x_coords,
+        y_coords,
+        valid.T.astype(float),
+        levels=[0.5],
+        colors=[border_color],
+        linewidths=border_lw,
+        zorder=border_zorder,
+    )
+    return ax, {'invalid_im': invalid_im, 'border_cs': border_cs, 'extent': extent}
+
 # for plotting the distribution of the shuffle data and the data itself
 def plot_shuffle_data_dist_with_thresh(shuffle,data,bins=20,alpha=0.025,fig=None,ax=None,lw=4,plot_ci_high=True,plot_ci_low=False,figsize=(2,1.3)):
     thresh_high=np.quantile(shuffle,(1-alpha))
