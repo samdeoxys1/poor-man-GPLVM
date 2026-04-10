@@ -680,12 +680,14 @@ def add_valid_border_and_invalid_shade(
     valid_mask,
     x_coords=None,
     y_coords=None,
+    shade_invalid=False,
+    draw_border=True,
     border_color='white',
     border_lw=1.5,
-    invalid_color=(0.2, 0.2, 0.2, 0.25),
+    invalid_color=(0.2, 0.2, 0.2, 0.08),
     invalid_cmap=None,
     invalid_interpolation='none',
-    invalid_zorder=5,
+    invalid_zorder=-10,
     border_zorder=6,
 ):
     '''
@@ -734,29 +736,33 @@ def add_valid_border_and_invalid_shade(
         float(y_coords[-1] + dy / 2.0),
     ]
 
-    invalid_ma = np.ma.masked_where(~invalid, invalid.astype(float))
-    if invalid_cmap is None:
-        invalid_cmap = plt.matplotlib.colors.ListedColormap([invalid_color])
+    invalid_im = None
+    if shade_invalid:
+        invalid_ma = np.ma.masked_where(~invalid, invalid.astype(float))
+        if invalid_cmap is None:
+            invalid_cmap = plt.matplotlib.colors.ListedColormap([invalid_color])
+        invalid_im = ax.imshow(
+            invalid_ma.T,
+            origin='lower',
+            extent=extent,
+            interpolation=invalid_interpolation,
+            cmap=invalid_cmap,
+            vmin=0,
+            vmax=1,
+            zorder=invalid_zorder,
+        )
 
-    invalid_im = ax.imshow(
-        invalid_ma.T,
-        origin='lower',
-        extent=extent,
-        interpolation=invalid_interpolation,
-        cmap=invalid_cmap,
-        vmin=0,
-        vmax=1,
-        zorder=invalid_zorder,
-    )
-    border_cs = ax.contour(
-        x_coords,
-        y_coords,
-        valid.T.astype(float),
-        levels=[0.5],
-        colors=[border_color],
-        linewidths=border_lw,
-        zorder=border_zorder,
-    )
+    border_cs = None
+    if draw_border:
+        border_cs = ax.contour(
+            x_coords,
+            y_coords,
+            valid.T.astype(float),
+            levels=[0.5],
+            colors=[border_color],
+            linewidths=border_lw,
+            zorder=border_zorder,
+        )
     return ax, {'invalid_im': invalid_im, 'border_cs': border_cs, 'extent': extent}
 
 # for plotting the distribution of the shuffle data and the data itself
