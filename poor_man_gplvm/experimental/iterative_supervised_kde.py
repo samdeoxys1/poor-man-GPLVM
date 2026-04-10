@@ -140,12 +140,14 @@ def _kde_update_on_full_grid(y_weighted_valid, t_weighted_valid, full_grid_ops, 
     tuning_valid_next = np.zeros((n_latent_valid, n_neuron), dtype=float)
     occ_smth_valid_next = np.zeros((n_latent_valid,), dtype=float)
     spk_smth_valid_next = np.zeros((n_latent_valid, n_neuron), dtype=float)
+    tuning_full_next = {}
 
     for one in full_grid_ops["ops"]:
         global_flat_idx = one["global_flat_idx"]
         valid_mask_local = one["valid_mask_local"]
         smoothing_full_j = one["smoothing_full_j"]
         n_full = int(one["n_full"])
+        maze_key = one["maze_key"]
 
         spk_full_local = np.zeros((n_full, n_neuron), dtype=float)
         occ_full_local = np.zeros((n_full,), dtype=float)
@@ -158,12 +160,13 @@ def _kde_update_on_full_grid(y_weighted_valid, t_weighted_valid, full_grid_ops, 
             smoothing_full_j,
             jnp.asarray(eps, dtype=jnp.float32),
         )
+        tuning_full_next[maze_key] = np.asarray(jax.device_get(tuning_full_local))
 
         tuning_valid_next[global_flat_idx] = np.asarray(jax.device_get(tuning_full_local))[valid_mask_local]
         occ_smth_valid_next[global_flat_idx] = np.asarray(jax.device_get(occ_smth_full_local))[valid_mask_local]
         spk_smth_valid_next[global_flat_idx] = np.asarray(jax.device_get(spk_smth_full_local))[valid_mask_local]
 
-    return tuning_valid_next, spk_smth_valid_next, occ_smth_valid_next
+    return tuning_valid_next, spk_smth_valid_next, occ_smth_valid_next, tuning_full_next
 
 
 def _posterior_weighted_stats_chunked(log_posterior_latent, spk_arr, stats_chunk_size):
@@ -264,13 +267,9 @@ def _make_tuning_flat_xr(tuning_flat, tuning_res):
     )
 
 
-def _single_maze_tuning_grid_from_flat(tuning_flat, tuning_res):
-    full_valid_mask = np.asarray(tuning_res["valid_flat_mask"], dtype=bool)
-    n_neuron = tuning_flat.shape[1]
-    full_flat = np.zeros((full_valid_mask.size, n_neuron), dtype=float)
-    full_flat[full_valid_mask] = np.asarray(tuning_flat)
+def _single_maze_tuning_grid_from_full(tuning_full_single, tuning_res):
     grid_shape = tuple(int(x) for x in tuning_res["grid_shape"])
-    grid_arr = full_flat.reshape((*grid_shape, n_neuron))
+    grid_arr = np.asarray(tuning_full_single).reshape((*grid_shape, int(np.asarray(tuning_full_single).shape[1])))
     template = tuning_res["tuning"]
     return xr.DataArray(
         grid_arr,
@@ -280,17 +279,11 @@ def _single_maze_tuning_grid_from_flat(tuning_flat, tuning_res):
     )
 
 
-def _multi_maze_tuning_grid_from_flat(tuning_flat, tuning_res):
+def _multi_maze_tuning_grid_from_full(tuning_full_d, tuning_res):
     out = {}
     for maze_key, template in tuning_res["tuning"].items():
-        global_flat_idx = np.asarray(tuning_res["coord_to_flat_idx"][maze_key].values, dtype=int)
-        tuning_maze_flat = np.asarray(tuning_flat)[global_flat_idx]
-        full_valid_mask = np.asarray(tuning_res["valid_flat_mask"][maze_key], dtype=bool)
-        n_neuron = tuning_maze_flat.shape[1]
-        full_flat = np.zeros((full_valid_mask.size, n_neuron), dtype=float)
-        full_flat[full_valid_mask] = tuning_maze_flat
         grid_shape = tuple(int(x) for x in tuning_res["grid_shape"][maze_key])
-        grid_arr = full_flat.reshape((*grid_shape, n_neuron))
+        grid_arr = np.asarray(tuning_full_d[maze_key]).reshape((*grid_shape, int(np.asarray(tuning_full_d[maze_key]).shape[1])))
         out[maze_key] = xr.DataArray(
             grid_arr,
             dims=template.dims,
@@ -298,6 +291,19 @@ def _multi_maze_tuning_grid_from_flat(tuning_flat, tuning_res):
             name="tuning",
         )
     return out
+
+
+def _initial_tuning_full_from_supervised(tuning_res):
+    if isinstance(tuning_res["tuning"], dict):
+        out = {}
+        for maze_key, da in tuning_res["tuning"].items():
+            arr = np.asarray(da.values, dtype=float).reshape((-1, int(np.asarray(tuning_res["tuning_flat"]).shape[1])))
+            arr = np.nan_to_num(arr, nan=0.0)
+            out[maze_key] = arr
+        return out
+    arr = np.asarray(tuning_res["tuning"].values, dtype=float).reshape((-1, int(np.asarray(tuning_res["tuning_flat"]).shape[1])))
+    arr = np.nan_to_num(arr, nan=0.0)
+    return {"single": arr}
 
 
 def fit_decode_iterative_supervised_kde(
@@ -383,6 +389,7 @@ def fit_decode_iterative_supervised_kde(
 
     decode_init = _decode_once(current_tuning)
     decode_curr = decode_init
+    current_tuning_full = _initial_tuning_full_from_supervised(tuning_res)
 
     log_marginal_history = [float(np.asarray(decode_init["log_marginal"]))]
     occupancy_history = []
@@ -394,7 +401,7 @@ def fit_decode_iterative_supervised_kde(
             spk_j,
             stats_chunk_size=stats_chunk_size,
         )
-        updated_tuning, spk_count_smth, occupancy_smth = _kde_update_on_full_grid(
+        updated_tuning, spk_count_smth, occupancy_smth, updated_tuning_full = _kde_update_on_full_grid(
             y_weighted,
             t_weighted,
             full_grid_ops=full_grid_ops,
@@ -402,6 +409,7 @@ def fit_decode_iterative_supervised_kde(
             eps=eps,
         )
         current_tuning = jnp.asarray(updated_tuning, dtype=jnp.float32)
+        current_tuning_full = updated_tuning_full
         decode_curr = _decode_once(current_tuning)
 
         occupancy_history.append(np.asarray(occupancy_smth))
@@ -419,9 +427,9 @@ def fit_decode_iterative_supervised_kde(
 
     is_multi = isinstance(tuning_res["tuning"], dict)
     if is_multi:
-        final_tuning_grid_xr = _multi_maze_tuning_grid_from_flat(final_tuning_flat, tuning_res)
+        final_tuning_grid_xr = _multi_maze_tuning_grid_from_full(current_tuning_full, tuning_res)
     else:
-        final_tuning_grid_xr = _single_maze_tuning_grid_from_flat(final_tuning_flat, tuning_res)
+        final_tuning_grid_xr = _single_maze_tuning_grid_from_full(current_tuning_full["single"], tuning_res)
 
     decode_init_xr = _make_decode_xr(decode_init, tuning_res["flat_idx_to_coord"], time_coord=time_coord)
     decode_final_xr = _make_decode_xr(decode_curr, tuning_res["flat_idx_to_coord"], time_coord=time_coord)
