@@ -2,14 +2,11 @@
 Experimental plotting helpers (cluster-notebook friendly).
 """
 
-import base64
-import io
 import pathlib
 import uuid
 
 import IPython.display as ipd
 import matplotlib
-import matplotlib.pyplot as plt
 import numpy as np
 
 
@@ -35,6 +32,7 @@ def tuning_browser_prev_next_jshtml(
     save_html_path=None,
     panel_title_init="initial",
     panel_title_final="final",
+    render_mode="client_canvas",
 ):
     """
     Build a Prev/Next HTML browser for tuning maps across neurons (no ipywidgets).
@@ -83,67 +81,35 @@ def tuning_browser_prev_next_jshtml(
             )
         )
 
-    if axs is None:
-        fig, axs = plt.subplots(1, 2, figsize=figsize, constrained_layout=constrained_layout)
-    axs = np.asarray(axs).ravel()
+    if render_mode != "client_canvas":
+        raise ValueError(f"Unsupported render_mode={render_mode}, use 'client_canvas'")
 
-    if axs.size < 2:
-        raise ValueError(f"Need 2 axes, got {axs.size}")
+    init_arr = np.asarray(tuning_init.sel(neuron=neuron_ids).values, dtype=np.float32)
+    final_arr = np.asarray(tuning_final.sel(neuron=neuron_ids).values, dtype=np.float32)
 
-    data_urls = []
-    cbar = None
-    for neuron_id in neuron_ids:
-        da_init = tuning_init.sel(neuron=neuron_id)
-        da_final = tuning_final.sel(neuron=neuron_id)
+    # Keep same orientation as previous imshow(arr.T, ...)
+    init_arr = np.transpose(init_arr, (0, 2, 1))
+    final_arr = np.transpose(final_arr, (0, 2, 1))
 
-        arr_init = np.asarray(da_init.values)
-        arr_final = np.asarray(da_final.values)
+    h_px = int(init_arr.shape[1])
+    w_px = int(init_arr.shape[2])
 
-        axs[0].clear()
-        axs[1].clear()
+    dim_init = list(tuning_init.dims)
+    if len(dim_init) >= 3:
+        xlabel = str(dim_init[1])
+        ylabel = str(dim_init[2])
+    else:
+        xlabel = "x"
+        ylabel = "y"
 
-        im0 = axs[0].imshow(
-            arr_init.T,
-            cmap=cmap,
-            interpolation=interpolation,
-            vmin=vmin,
-            vmax=vmax,
-            origin=origin,
-            aspect=aspect,
-        )
-        axs[1].imshow(
-            arr_final.T,
-            cmap=cmap,
-            interpolation=interpolation,
-            vmin=vmin,
-            vmax=vmax,
-            origin=origin,
-            aspect=aspect,
-        )
-
-        dim_init = list(da_init.dims)
-        if len(dim_init) >= 2:
-            axs[0].set_xlabel(str(dim_init[0]))
-            axs[0].set_ylabel(str(dim_init[1]))
-            axs[1].set_xlabel(str(dim_init[0]))
-            axs[1].set_ylabel(str(dim_init[1]))
-
-        axs[0].set_title(f"{panel_title_init} | neuron={int(neuron_id)}")
-        axs[1].set_title(f"{panel_title_final} | neuron={int(neuron_id)}")
-
-        if add_colorbar and (cbar is None):
-            cbar = fig.colorbar(im0, ax=axs.tolist(), shrink=0.9)
-
-        buf = io.BytesIO()
-        fig.savefig(buf, format="png", dpi=image_dpi, bbox_inches=None)
-        buf.seek(0)
-        encoded = base64.b64encode(buf.read()).decode("utf-8")
-        data_urls.append(f"data:image/png;base64,{encoded}")
-        buf.close()
+    cmap_obj = matplotlib.colormaps.get_cmap(cmap)
+    lut = np.asarray(cmap_obj(np.linspace(0, 1, 256))[:, :3] * 255, dtype=np.uint8).tolist()
 
     container_id = f"tuning_browser_{uuid.uuid4().hex[:8]}"
     neuron_ids_json = np.asarray(neuron_ids).astype(int).tolist()
-    data_urls_json = data_urls
+    init_data_json = init_arr.tolist()
+    final_data_json = final_arr.tolist()
+    lut_json = lut
 
     html = f"""
 <div id="{container_id}" style="font-family: sans-serif; max-width: 1200px;">
@@ -156,30 +122,84 @@ def tuning_browser_prev_next_jshtml(
     <span id="{container_id}_neuron" style="min-width: 50px; display: inline-block;"></span>
     <input id="{container_id}_slider" type="range" min="0" max="{len(neuron_ids_json)-1}" value="0" step="1" style="width: 360px;" />
   </div>
-  <img id="{container_id}_img" src="" style="max-width: 100%; border: 1px solid #ddd;" />
+  <div style="margin-bottom: 4px; font-size: 12px;">
+    <span id="{container_id}_title_init" style="display:inline-block; width: 49%;"></span>
+    <span id="{container_id}_title_final" style="display:inline-block; width: 49%;"></span>
+  </div>
+  <div style="display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap;">
+    <div>
+      <canvas id="{container_id}_canvas_init" width="{w_px}" height="{h_px}" style="border:1px solid #ddd; image-rendering: pixelated;"></canvas>
+      <div style="font-size: 11px; margin-top: 2px;">{ylabel} vs {xlabel}</div>
+    </div>
+    <div>
+      <canvas id="{container_id}_canvas_final" width="{w_px}" height="{h_px}" style="border:1px solid #ddd; image-rendering: pixelated;"></canvas>
+      <div style="font-size: 11px; margin-top: 2px;">{ylabel} vs {xlabel}</div>
+    </div>
+  </div>
+  {"<div style='margin-top:6px; font-size:11px;'>color range: " + str(round(vmin, 4)) + " to " + str(round(vmax, 4)) + "</div>" if add_colorbar else ""}
 </div>
 <script>
 (function() {{
   const neuronIds = {neuron_ids_json};
-  const dataUrls = {data_urls_json};
-  const img = document.getElementById("{container_id}_img");
+  const dataInit = {init_data_json};
+  const dataFinal = {final_data_json};
+  const lut = {lut_json};
+  const vmin = {float(vmin)};
+  const vmax = {float(vmax)};
+  const titleInitBase = {repr(panel_title_init)};
+  const titleFinalBase = {repr(panel_title_final)};
   const idxBox = document.getElementById("{container_id}_idx");
   const neuronText = document.getElementById("{container_id}_neuron");
   const slider = document.getElementById("{container_id}_slider");
   const prevBtn = document.getElementById("{container_id}_prev");
   const nextBtn = document.getElementById("{container_id}_next");
+  const titleInit = document.getElementById("{container_id}_title_init");
+  const titleFinal = document.getElementById("{container_id}_title_final");
+  const canvasInit = document.getElementById("{container_id}_canvas_init");
+  const canvasFinal = document.getElementById("{container_id}_canvas_final");
+  const ctxInit = canvasInit.getContext("2d");
+  const ctxFinal = canvasFinal.getContext("2d");
   let idx = 0;
 
   function clamp(v) {{
-    return Math.max(0, Math.min(dataUrls.length - 1, v));
+    return Math.max(0, Math.min(dataInit.length - 1, v));
+  }}
+
+  function drawHeatmap(ctx, arr2d) {{
+    const h = arr2d.length;
+    const w = arr2d[0].length;
+    const img = ctx.createImageData(w, h);
+    const out = img.data;
+    const den = (vmax - vmin) > 1e-12 ? (vmax - vmin) : 1.0;
+    let p = 0;
+    for (let y = 0; y < h; y++) {{
+      for (let x = 0; x < w; x++) {{
+        const v = arr2d[y][x];
+        let t = (v - vmin) / den;
+        if (!Number.isFinite(t)) {{
+          t = 0.0;
+        }}
+        t = Math.max(0.0, Math.min(1.0, t));
+        const k = Math.min(255, Math.max(0, Math.floor(t * 255)));
+        out[p] = lut[k][0];
+        out[p + 1] = lut[k][1];
+        out[p + 2] = lut[k][2];
+        out[p + 3] = 255;
+        p += 4;
+      }}
+    }}
+    ctx.putImageData(img, 0, 0);
   }}
 
   function render(i) {{
     idx = clamp(i);
-    img.src = dataUrls[idx];
+    drawHeatmap(ctxInit, dataInit[idx]);
+    drawHeatmap(ctxFinal, dataFinal[idx]);
     idxBox.value = idx;
     slider.value = idx;
     neuronText.textContent = neuronIds[idx];
+    titleInit.textContent = titleInitBase + " | neuron=" + neuronIds[idx];
+    titleFinal.textContent = titleFinalBase + " | neuron=" + neuronIds[idx];
   }}
 
   prevBtn.onclick = function() {{
@@ -213,7 +233,11 @@ def tuning_browser_prev_next_jshtml(
         "html": html,
         "n_neuron": int(len(neuron_ids_json)),
         "neuron_ids": np.asarray(neuron_ids_json),
+        "shape_init": np.asarray(init_arr.shape),
+        "shape_final": np.asarray(final_arr.shape),
         "vmin": float(vmin),
         "vmax": float(vmax),
+        "render_mode": render_mode,
     }
+    print(f"rendered tuning browser ({render_mode}) for n_neuron={len(neuron_ids_json)}")
     return out
