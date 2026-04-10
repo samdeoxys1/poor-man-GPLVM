@@ -527,6 +527,8 @@ def fit_decode_iterative_supervised_kde(
 
     decode_init_xr = _make_decode_xr(decode_init, flat_idx_to_coord_decode, time_coord=time_coord)
     decode_final_xr = _make_decode_xr(decode_curr, flat_idx_to_coord_decode, time_coord=time_coord)
+    diag_label_coord = decode_final_xr["posterior_latent_marg_xr"].coords["label_bin"]
+    n_diag_label = int(diag_label_coord.size)
 
     diagnostics = {
         "log_marginal_history_xr": xr.DataArray(
@@ -536,17 +538,17 @@ def fit_decode_iterative_supervised_kde(
             name="log_marginal",
         ),
         "occupancy_smth_history_xr": xr.DataArray(
-            np.asarray(occupancy_history, dtype=float) if len(occupancy_history) else np.zeros((0, final_tuning_flat.shape[0])),
+            np.asarray(occupancy_history, dtype=float) if len(occupancy_history) else np.zeros((0, n_diag_label)),
             dims=("iteration", "label_bin"),
-            coords={"iteration": np.arange(len(occupancy_history)), "label_bin": final_tuning_flat_xr.coords["label_bin"]},
+            coords={"iteration": np.arange(len(occupancy_history)), "label_bin": diag_label_coord},
             name="occupancy_smth",
         ),
         "spk_count_smth_history_xr": xr.DataArray(
-            np.asarray(spk_count_history, dtype=float) if len(spk_count_history) else np.zeros((0, final_tuning_flat.shape[0], final_tuning_flat.shape[1])),
+            np.asarray(spk_count_history, dtype=float) if len(spk_count_history) else np.zeros((0, n_diag_label, final_tuning_flat.shape[1])),
             dims=("iteration", "label_bin", "neuron"),
             coords={
                 "iteration": np.arange(len(spk_count_history)),
-                "label_bin": final_tuning_flat_xr.coords["label_bin"],
+                "label_bin": diag_label_coord,
                 "neuron": final_tuning_flat_xr.coords["neuron"],
             },
             name="spk_count_smth",
