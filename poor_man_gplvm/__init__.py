@@ -15,6 +15,11 @@ from poor_man_gplvm.core_2d import (
 from poor_man_gplvm.supervised_analysis.get_tuning_supervised import (
     get_tuning_supervised,
 )
+from poor_man_gplvm.supervised_analysis.xarray_wrappers import (
+    tuning_flat_to_xr,
+    latent_time_series_to_xr,
+    supervised_tuning_views,
+)
 
 # Import modules to enable pmg.core, pmg.utils access
 from . import core,core_2d,test,utils,model_selection_helper,experimental,plot_helper,analysis_helper,distance_analysis
