@@ -709,8 +709,27 @@ def add_valid_border_and_invalid_shade(
     ph.add_valid_border_and_invalid_shade(ax, valid_mask, border_color='w')
     ```
     '''
-    valid = np.asarray(valid_mask).astype(bool)
+    is_xr_mask = hasattr(valid_mask, 'dims') and hasattr(valid_mask, 'coords')
+    if is_xr_mask:
+        valid = np.asarray(valid_mask.values).astype(bool)
+    else:
+        valid = np.asarray(valid_mask).astype(bool)
     invalid = ~valid
+
+    if (x_coords is None) and is_xr_mask:
+        try:
+            x_dim = valid_mask.dims[0]
+            if x_dim in valid_mask.coords:
+                x_coords = np.asarray(valid_mask.coords[x_dim], dtype=float)
+        except Exception:
+            x_coords = None
+    if (y_coords is None) and is_xr_mask:
+        try:
+            y_dim = valid_mask.dims[1]
+            if y_dim in valid_mask.coords:
+                y_coords = np.asarray(valid_mask.coords[y_dim], dtype=float)
+        except Exception:
+            y_coords = None
 
     if x_coords is None:
         x_coords = np.arange(valid.shape[0], dtype=float)
