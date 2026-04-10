@@ -43,6 +43,21 @@ out = dbg.run_kde_vs_mstep_debug(
 )
 print(out["summary"])
 ```
+
+**Extreme case where KDE and oracle M-step should almost agree**
+
+1. **KDE = histogram (no extra smoothness):** when building `tuning_res`, use
+   `smooth_std=(0.0, 0.0)` (or `None` per dim) so `S` is identity and `tuning` is the raw
+   binned rate on the same grid as the full raster.
+2. **Basis ≈ one function per bin:** pass `custom_tuning_kernel="identity"` and
+   `explained_variance_threshold_basis=1.0` so the SVD of `I` keeps full rank (with bias column
+   from `include_bias`, softplus can approximate positive rates binwise).
+3. **Weak prior, long optimization:** `param_prior_std` large (e.g. `1e6`), raise
+   `m_step_maxiter`, tighten `m_step_tol`.
+4. **Compare the right pair:** `rate_hz_kde_full` vs `rate_mstep_oracle_full` (one-hot **true**
+   labels). Decode M-step will still differ if you keep the smooth decoder path.
+
+See `agreement_mode_kwargs()` for a starting dict of arguments.
 """
 
 import numpy as np
@@ -87,6 +102,27 @@ def ma_latent_full(tuning_res):
     """Boolean (n_flat,) — decode / M-step mask for bins we allow."""
     occ = np.asarray(tuning_res["occupied_mask"]).reshape(-1)
     return occ
+
+
+def agreement_mode_kwargs():
+    """
+    Starting kwargs for the limiting case: histogram KDE vs oracle M-step on an identity-class
+    basis. Merge into your `get_tuning(...)` and `run_kde_vs_mstep_debug(...)`.
+    """
+    return {
+        "get_tuning": {
+            "smooth_std": (0.0, 0.0),
+        },
+        "run_kde_vs_mstep_debug": {
+            "custom_tuning_kernel": "identity",
+            "explained_variance_threshold_basis": 1.0,
+            "param_prior_std": 1.0e6,
+            "m_step_maxiter": 5000,
+            "m_step_tol": 1e-10,
+            "m_step_step_size": 0.05,
+            "scale_t_weighted_by_dt": True,
+        },
+    }
 
 
 def inv_softplus_np(y):
@@ -186,6 +222,7 @@ def run_kde_vs_mstep_debug(
     label_bin_size,
     explained_variance_threshold_basis=0.999,
     basis_type="rbf",
+    custom_tuning_kernel=None,
     param_prior_std=1.0,
     m_step_step_size=0.02,
     m_step_maxiter=800,
@@ -200,7 +237,11 @@ def run_kde_vs_mstep_debug(
     4) One GPLVM-style M-step (Adam on `fth.poisson_m_step_objective`)
     5) Oracle M-step with sharp labels (optional comparison)
 
-    Returns dict with kde / glm rates, summaries, and raw arrays.
+    custom_tuning_kernel: None (Kronecker RBF), ``\"identity\"`` for ``jnp.eye(n_flat)`` (full
+    SVD basis — use with ``explained_variance_threshold_basis=1.0``), or an
+    ``(n_flat, n_flat)`` array passed to ``generate_basis_nd``.
+
+    Returns dict with KDE rates, M-step rates (decode vs oracle q), summaries, and raw arrays.
     """
     spk = jnp.asarray(spk, dtype=jnp.float32)
     rate_hz_full, grid_shape = rate_hz_full_from_tuning_xarray(tuning_res)
@@ -215,13 +256,20 @@ def run_kde_vs_mstep_debug(
         grid_shape, mv_idx
     )
 
+    if custom_tuning_kernel == "identity":
+        custom_kernel = jnp.eye(n_flat, dtype=jnp.float32)
+    elif custom_tuning_kernel is not None:
+        custom_kernel = jnp.asarray(custom_tuning_kernel, dtype=jnp.float32)
+    else:
+        custom_kernel = None
+
     tuning_basis = core_2d.generate_basis_nd(
         tuning_lengthscale_bins,
         grid_shape,
         explained_variance_threshold_basis=explained_variance_threshold_basis,
         include_bias=True,
         basis_type=basis_type,
-        custom_kernel=None,
+        custom_kernel=custom_kernel,
     )
 
     rate_hz_j = jnp.asarray(np.nan_to_num(rate_hz_full, nan=0.0), dtype=jnp.float32)
@@ -242,6 +290,7 @@ def run_kde_vs_mstep_debug(
     log_post_latent = jscipy.special.logsumexp(log_post_all, axis=1)
 
     params_init = params_init_lstsq_from_rates(tuning_basis, rate_hz_full)
+    rate_init_full = np.asarray(fth.get_tuning_softplus(params_init, tuning_basis))
     adam_runner, opt_init = fth.make_adam_runner(
         fth.poisson_m_step_objective,
         step_size=m_step_step_size,
@@ -261,7 +310,8 @@ def run_kde_vs_mstep_debug(
         dt,
     )
     params_fit = adam_res["params"]
-    rate_glm = np.asarray(fth.get_tuning_softplus(params_fit, tuning_basis))
+    # Same object: M-step = fit softplus(B@W) via fth.poisson_m_step_objective (GLM-shaped emission, not a second method).
+    rate_mstep_decode = np.asarray(fth.get_tuning_softplus(params_fit, tuning_basis))
 
     bin_centers = tuning_res["bin_centers"]
     log_post_oracle = oracle_log_posterior_from_labels(label_xy, grid_shape, bin_centers_per_dim=bin_centers)
@@ -277,12 +327,12 @@ def run_kde_vs_mstep_debug(
         scale_t_weighted_by_dt,
         dt,
     )
-    rate_oracle = np.asarray(fth.get_tuning_softplus(adam_res_o["params"], tuning_basis))
+    rate_mstep_oracle = np.asarray(fth.get_tuning_softplus(adam_res_o["params"], tuning_basis))
 
     mask = np.asarray(ma_lat) & np.isfinite(rate_hz_full[:, 0])
     kde_m = rate_hz_full[mask]
-    glm_m = rate_glm[mask]
-    ora_m = rate_oracle[mask]
+    mstep_dec_m = rate_mstep_decode[mask]
+    mstep_ora_m = rate_mstep_oracle[mask]
 
     def _rmse(a, b):
         return float(np.sqrt(np.nanmean((a - b) ** 2)))
@@ -291,10 +341,10 @@ def run_kde_vs_mstep_debug(
         return float(np.corrcoef(a.ravel(), b.ravel())[0, 1])
 
     summary = {
-        "rmse_glm_vs_kde": _rmse(glm_m, kde_m),
-        "corr_glm_vs_kde": _corr(glm_m, kde_m),
-        "rmse_oracle_vs_kde": _rmse(ora_m, kde_m),
-        "corr_oracle_vs_kde": _corr(ora_m, kde_m),
+        "rmse_mstep_decode_vs_kde": _rmse(mstep_dec_m, kde_m),
+        "corr_mstep_decode_vs_kde": _corr(mstep_dec_m, kde_m),
+        "rmse_mstep_oracle_vs_kde": _rmse(mstep_ora_m, kde_m),
+        "corr_mstep_oracle_vs_kde": _corr(mstep_ora_m, kde_m),
         "n_basis": int(tuning_basis.shape[1]),
         "n_latent_full": int(n_flat),
         "n_occupied_mask": int(mask.sum()),
@@ -304,8 +354,12 @@ def run_kde_vs_mstep_debug(
     return {
         "summary": summary,
         "rate_hz_kde_full": rate_hz_full,
-        "rate_hz_glm_full": rate_glm,
-        "rate_hz_oracle_mstep_full": rate_oracle,
+        "rate_init_full": rate_init_full,
+        "rate_mstep_decode_full": rate_mstep_decode,
+        "rate_mstep_oracle_full": rate_mstep_oracle,
+        # Deprecated aliases (same arrays as above); "glm" was a misnomer for M-step output.
+        "rate_hz_glm_full": rate_mstep_decode,
+        "rate_hz_oracle_mstep_full": rate_mstep_oracle,
         "tuning_basis": tuning_basis,
         "params_init": params_init,
         "params_fit_decode": params_fit,
