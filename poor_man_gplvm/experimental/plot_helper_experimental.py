@@ -4,6 +4,7 @@ Experimental plotting helpers (cluster-notebook friendly).
 
 import pathlib
 import uuid
+import json
 
 import IPython.display as ipd
 import matplotlib
@@ -87,20 +88,26 @@ def tuning_browser_prev_next_jshtml(
     if render_mode != "client_canvas":
         raise ValueError(f"Unsupported render_mode={render_mode}, use 'client_canvas'")
 
-    init_arr = np.asarray(tuning_init.sel(neuron=neuron_ids).values, dtype=np.float32)
-    final_arr = np.asarray(tuning_final.sel(neuron=neuron_ids).values, dtype=np.float32)
-
-    # Keep same orientation as previous imshow(arr.T, ...)
-    init_arr = np.transpose(init_arr, (0, 2, 1))
-    final_arr = np.transpose(final_arr, (0, 2, 1))
+    # Robust to neuron axis position and xarray dim order:
+    # always build [n_neuron, height, width] with same orientation as imshow(arr.T)
+    init_arr = np.asarray(
+        [np.asarray(tuning_init.sel(neuron=nid).values, dtype=np.float32).T for nid in neuron_ids],
+        dtype=np.float32,
+    )
+    final_arr = np.asarray(
+        [np.asarray(tuning_final.sel(neuron=nid).values, dtype=np.float32).T for nid in neuron_ids],
+        dtype=np.float32,
+    )
 
     h_px = int(init_arr.shape[1])
     w_px = int(init_arr.shape[2])
 
-    dim_init = list(tuning_init.dims)
-    if len(dim_init) >= 3:
-        xlabel = str(dim_init[1])
-        ylabel = str(dim_init[2])
+    da0 = tuning_init.sel(neuron=neuron_ids[0])
+    dim_init = list(da0.dims)
+    if len(dim_init) >= 2:
+        # Because we plot arr.T, axes labels are swapped from raw da order
+        xlabel = str(dim_init[0])
+        ylabel = str(dim_init[1])
     else:
         xlabel = "x"
         ylabel = "y"
@@ -109,10 +116,14 @@ def tuning_browser_prev_next_jshtml(
     lut = np.asarray(cmap_obj(np.linspace(0, 1, 256))[:, :3] * 255, dtype=np.uint8).tolist()
 
     container_id = f"tuning_browser_{uuid.uuid4().hex[:8]}"
-    neuron_ids_json = np.asarray(neuron_ids).astype(int).tolist()
-    init_data_json = init_arr.tolist()
-    final_data_json = final_arr.tolist()
-    lut_json = lut
+    neuron_ids_json = json.dumps(np.asarray(neuron_ids).astype(int).tolist())
+    # Use JSON so NaN becomes JS NaN (valid in script), not python "nan" (invalid JS)
+    init_data_json = json.dumps(np.asarray(init_arr, dtype=np.float32).tolist(), allow_nan=True)
+    final_data_json = json.dumps(np.asarray(final_arr, dtype=np.float32).tolist(), allow_nan=True)
+    lut_json = json.dumps(lut)
+    panel_title_init_json = json.dumps(str(panel_title_init))
+    panel_title_final_json = json.dumps(str(panel_title_final))
+    color_range_mode_json = json.dumps(str(color_range_mode))
 
     html = f"""
 <div id="{container_id}" style="font-family: sans-serif; max-width: 1200px;">
@@ -120,10 +131,10 @@ def tuning_browser_prev_next_jshtml(
     <button id="{container_id}_prev" style="padding: 4px 10px;">Prev</button>
     <button id="{container_id}_next" style="padding: 4px 10px;">Next</button>
     <label style="margin-left: 8px;">index</label>
-    <input id="{container_id}_idx" type="number" min="0" max="{len(neuron_ids_json)-1}" value="0" style="width: 70px;" />
+    <input id="{container_id}_idx" type="number" min="0" max="{len(neuron_ids)-1}" value="0" style="width: 70px;" />
     <label>neuron</label>
     <span id="{container_id}_neuron" style="min-width: 50px; display: inline-block;"></span>
-    <input id="{container_id}_slider" type="range" min="0" max="{len(neuron_ids_json)-1}" value="0" step="1" style="width: 360px;" />
+    <input id="{container_id}_slider" type="range" min="0" max="{len(neuron_ids)-1}" value="0" step="1" style="width: 360px;" />
   </div>
   <div style="margin-bottom: 4px; font-size: 12px;">
     <span id="{container_id}_title_init" style="display:inline-block; width: 49%;"></span>
@@ -149,9 +160,9 @@ def tuning_browser_prev_next_jshtml(
   const lut = {lut_json};
   const vminGlobal = {float(vmin)};
   const vmaxGlobal = {float(vmax)};
-  const colorRangeMode = {repr(color_range_mode)};
-  const titleInitBase = {repr(panel_title_init)};
-  const titleFinalBase = {repr(panel_title_final)};
+  const colorRangeMode = {color_range_mode_json};
+  const titleInitBase = {panel_title_init_json};
+  const titleFinalBase = {panel_title_final_json};
   const idxBox = document.getElementById("{container_id}_idx");
   const neuronText = document.getElementById("{container_id}_neuron");
   const slider = document.getElementById("{container_id}_slider");
