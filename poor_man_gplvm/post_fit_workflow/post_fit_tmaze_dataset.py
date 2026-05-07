@@ -778,6 +778,8 @@ def analyze_replay_unsupervised(
     force_reload_multi_dynamics=False,
     skip_compare_transition=False,
     neuron_indices=None,
+    pyr_only_pbe=True,
+    pbe_res_precomputed=None,
     verbose=True,
 ):
     '''
@@ -802,6 +804,11 @@ def analyze_replay_unsupervised(
 
     force_reload_multi_dynamics:
     - If True, force recompute multi-dynamics part even if it exists in cache. Useful when changing p_stay or other decode_multiple_transition_kwargs.
+
+    pyr_only_pbe: if True (default), filter spk_times to pyramidal cells for PBE detection and spike binning.
+        Set False for regions like RSC where the model was fit on all cell types.
+
+    pbe_res_precomputed: if provided, skip PBE detection and use this pbe_res directly.
 
     prep_res dictionary contains:
     - spk_mat: n_time x n_neuron
@@ -952,26 +959,31 @@ def analyze_replay_unsupervised(
         # ---- 1) PBE detection ----
         if bool(verbose):
             print('[analyze_replay_unsupervised] 1/6 detect PBE')
-        spk_times_pyr = spk_times[spk_times['is_pyr']]
-        ep_use = ep_full if (pbe_kwargs_.get('ep', None) is None) else pbe_kwargs_['ep']
-        threshold_ep_use = sleep_ep if (pbe_kwargs_.get('threshold_ep', None) is None) else pbe_kwargs_['threshold_ep']
-        pbe_res = gew.detect_population_burst_event(
-            spk_times_pyr,
-            mask=None,
-            ep=ep_use,
-            threshold_ep=threshold_ep_use,
-            bin_size=float(pbe_kwargs_['bin_size']),
-            smooth_std=float(pbe_kwargs_['smooth_std']),
-            z_thresh=float(pbe_kwargs_['z_thresh']),
-            min_duration=float(pbe_kwargs_['min_duration']),
-            max_duration=float(pbe_kwargs_['max_duration']),
-            ripple_intervals=ripple_intervals,
-            return_population_rate=bool(pbe_kwargs_['return_population_rate']),
-            save_dir=str(pbe_kwargs_['save_dir']),
-            save_fn=str(pbe_kwargs_['save_fn']),
-            force_reload=bool(pbe_kwargs_['force_reload']),
-            dosave=bool(pbe_kwargs_['dosave']),
-        )  # output
+        spk_times_pyr = spk_times[spk_times['is_pyr']] if pyr_only_pbe else spk_times
+        if pbe_res_precomputed is not None:
+            pbe_res = pbe_res_precomputed
+            if bool(verbose):
+                print('[analyze_replay_unsupervised] using precomputed pbe_res')
+        else:
+            ep_use = ep_full if (pbe_kwargs_.get('ep', None) is None) else pbe_kwargs_['ep']
+            threshold_ep_use = sleep_ep if (pbe_kwargs_.get('threshold_ep', None) is None) else pbe_kwargs_['threshold_ep']
+            pbe_res = gew.detect_population_burst_event(
+                spk_times_pyr,
+                mask=None,
+                ep=ep_use,
+                threshold_ep=threshold_ep_use,
+                bin_size=float(pbe_kwargs_['bin_size']),
+                smooth_std=float(pbe_kwargs_['smooth_std']),
+                z_thresh=float(pbe_kwargs_['z_thresh']),
+                min_duration=float(pbe_kwargs_['min_duration']),
+                max_duration=float(pbe_kwargs_['max_duration']),
+                ripple_intervals=ripple_intervals,
+                return_population_rate=bool(pbe_kwargs_['return_population_rate']),
+                save_dir=str(pbe_kwargs_['save_dir']),
+                save_fn=str(pbe_kwargs_['save_fn']),
+                force_reload=bool(pbe_kwargs_['force_reload']),
+                dosave=bool(pbe_kwargs_['dosave']),
+            )  # output
 
         # ---- 2) bin spikes into event tensor/mat ----
         if bool(verbose):

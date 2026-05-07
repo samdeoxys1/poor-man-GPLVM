@@ -27,6 +27,8 @@ def analyze_replay_unsupervised_linear(
     force_reload_multi_dynamics=False,
     skip_compare_transition=True,
     neuron_indices=None,
+    pyr_only_pbe=True,
+    pbe_res_precomputed=None,
     verbose=True,
 ):
     '''
@@ -60,5 +62,7 @@ def analyze_replay_unsupervised_linear(
         force_reload_multi_dynamics=force_reload_multi_dynamics,
         skip_compare_transition=skip_compare_transition,
         neuron_indices=neuron_indices,
+        pyr_only_pbe=pyr_only_pbe,
+        pbe_res_precomputed=pbe_res_precomputed,
         verbose=verbose,
     )
