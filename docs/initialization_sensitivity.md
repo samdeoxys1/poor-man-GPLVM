@@ -61,6 +61,11 @@ The following values came from the default full diagnostic with parameter seeds
   parameter seed, so it starts from the true tuning parameters. This makes the
   notebook comparison an oracle initialization versus unrelated random starts,
   not four exchangeable parameter starts.
+- Separately, `AbstractGPLVMJump1D.init_latent_posterior` multiplies positive
+  uniform random draws by `random_scale` and then row-normalizes them. Any
+  positive scale therefore cancels exactly: for a fixed key, `random_scale=1`
+  and `random_scale=0.1` give the same posterior initialization. The key, not
+  this scale argument, controls the current jump-model posterior start.
 
 The M-step objective is convex in the default RBF/Poisson setup, and the Gaussian
 parameter prior makes it strictly convex. Exact M-step optimization would erase
