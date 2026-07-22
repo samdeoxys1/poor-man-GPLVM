@@ -581,17 +581,61 @@ def _parse_seeds(value: str) -> tuple[int, ...]:
     return seeds
 
 
+def _env_int(name: str, default: int) -> int:
+    return int(os.environ.get(name, default))
+
+
+def _env_float(name: str, default: float) -> float:
+    return float(os.environ.get(name, default))
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--param-init-seeds", type=_parse_seeds, default=(123, 0, 1, 2))
-    parser.add_argument("--n-neuron", type=int, default=100)
-    parser.add_argument("--n-time", type=int, default=10_000)
-    parser.add_argument("--n-latent-bin", type=int, default=100)
-    parser.add_argument("--em-iterations", type=int, default=20)
-    parser.add_argument("--m-step-maxiter", type=int, default=1_000)
-    parser.add_argument("--m-step-tol", type=float, default=1e-10)
-    parser.add_argument("--forced-long-maxiter", type=int, default=5_000)
+    output_dir_default = os.environ.get("PMG_INIT_SENSITIVITY_OUTPUT_DIR")
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path(output_dir_default) if output_dir_default else None,
+        required=output_dir_default is None,
+    )
+    parser.add_argument(
+        "--param-init-seeds",
+        type=_parse_seeds,
+        default=_parse_seeds(
+            os.environ.get("PMG_INIT_SENSITIVITY_PARAM_SEEDS", "123,0,1,2")
+        ),
+    )
+    parser.add_argument(
+        "--n-neuron", type=int, default=_env_int("PMG_INIT_SENSITIVITY_N_NEURON", 100)
+    )
+    parser.add_argument(
+        "--n-time", type=int, default=_env_int("PMG_INIT_SENSITIVITY_N_TIME", 10_000)
+    )
+    parser.add_argument(
+        "--n-latent-bin",
+        type=int,
+        default=_env_int("PMG_INIT_SENSITIVITY_N_LATENT_BIN", 100),
+    )
+    parser.add_argument(
+        "--em-iterations",
+        type=int,
+        default=_env_int("PMG_INIT_SENSITIVITY_EM_ITERATIONS", 20),
+    )
+    parser.add_argument(
+        "--m-step-maxiter",
+        type=int,
+        default=_env_int("PMG_INIT_SENSITIVITY_M_STEP_MAXITER", 1_000),
+    )
+    parser.add_argument(
+        "--m-step-tol",
+        type=float,
+        default=_env_float("PMG_INIT_SENSITIVITY_M_STEP_TOL", 1e-10),
+    )
+    parser.add_argument(
+        "--forced-long-maxiter",
+        type=int,
+        default=_env_int("PMG_INIT_SENSITIVITY_FORCED_LONG_MAXITER", 5_000),
+    )
     parser.add_argument(
         "--allow-cpu",
         action="store_true",

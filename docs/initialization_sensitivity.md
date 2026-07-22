@@ -28,3 +28,8 @@ The output directory contains `summary.json`, compressed raw arrays, and plots
 for fixed-posterior convergence, current versus forced-long Adam, and EM drift.
 The script requires a JAX GPU and `ptxas` by default; `--allow-cpu` is available
 only for explicitly requested CPU diagnostics.
+
+For launchers such as `jupyter run` that cannot forward script options, set
+`PMG_INIT_SENSITIVITY_OUTPUT_DIR` and run the module file without arguments.
+The other CLI defaults have matching `PMG_INIT_SENSITIVITY_*` environment
+variables; their names are visible in `build_arg_parser()`.
