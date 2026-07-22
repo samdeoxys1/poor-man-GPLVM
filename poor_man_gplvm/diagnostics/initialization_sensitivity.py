@@ -390,6 +390,20 @@ def build_summary(
     forced_gradients = np.asarray(
         [v["actual_final_gradient_norm"] for v in forced_long["per_seed"].values()]
     )
+    representative_loss = float(
+        np.mean(
+            [v["actual_final_loss"] for v in current["per_seed"].values()]
+        )
+    )
+    loss_spacing = float(np.spacing(np.float32(representative_loss)))
+    tolerance_loss_threshold = context.config.m_step_tol * abs(representative_loss)
+    basis = np.asarray(
+        _model_for_seed(context, context.config.param_init_seeds[0]).tuning_basis
+    )
+    basis_singular_values = np.linalg.svd(basis, compute_uv=False)
+    bias_cosines = np.abs(basis[:, 0] @ basis[:, 1:]) / (
+        np.linalg.norm(basis[:, 0]) * np.linalg.norm(basis[:, 1:], axis=0)
+    )
     return {
         "config": asdict(context.config),
         "environment": {
@@ -404,6 +418,23 @@ def build_summary(
             "Parameter seed 123 exactly matches the generative model seed; it is an "
             "oracle parameter initialization in this simulation."
         ),
+        "numerical_diagnostics": {
+            "representative_float32_loss": representative_loss,
+            "float32_spacing_at_representative_loss": loss_spacing,
+            "tol_times_representative_loss": tolerance_loss_threshold,
+            "spacing_over_tolerance_loss_threshold": float(
+                loss_spacing / max(tolerance_loss_threshold, 1e-30)
+            ),
+            "basis_shape": list(basis.shape),
+            "basis_condition_number": float(
+                basis_singular_values[0] / basis_singular_values[-1]
+            ),
+            "basis_smallest_singular_value": float(basis_singular_values[-1]),
+            "max_absolute_cosine_bias_vs_other_basis_column": float(
+                bias_cosines.max()
+            ),
+            "most_bias_aligned_basis_column": int(bias_cosines.argmax() + 1),
+        },
         "fixed_posterior_current_adam": _fixed_summary(current),
         "fixed_posterior_forced_long_adam": _fixed_summary(forced_long),
         "diagnostic_ratios": {
