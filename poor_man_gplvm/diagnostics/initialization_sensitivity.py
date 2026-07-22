@@ -662,4 +662,8 @@ def main(argv: Iterable[str] | None = None) -> dict:
 
 
 if __name__ == "__main__":
-    main()
+    # ``jupyter run`` executes the file inside ipykernel, whose own ``-f`` and
+    # connection-file arguments remain in sys.argv. Configuration for that
+    # launch mode comes from the PMG_INIT_SENSITIVITY_* environment variables.
+    argv = [] if "ipykernel_launcher" in Path(sys.argv[0]).name else None
+    main(argv)
