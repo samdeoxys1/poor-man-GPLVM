@@ -17,15 +17,12 @@ it is also the generative model's default seed in that notebook.
 from __future__ import annotations
 
 import argparse
-import contextlib
 import itertools
 import json
 import os
 import platform
 import shutil
 import sys
-import threading
-import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Dict, Iterable, Mapping, Sequence
@@ -592,27 +589,6 @@ def _env_float(name: str, default: float) -> float:
     return float(os.environ.get(name, default))
 
 
-@contextlib.contextmanager
-def _output_heartbeat(enabled: bool, interval_seconds: float = 5.0):
-    """Keep ``jupyter run`` alive while a compiled stage produces no output."""
-    if not enabled:
-        yield
-        return
-    stop = threading.Event()
-
-    def emit() -> None:
-        while not stop.wait(interval_seconds):
-            print(f"heartbeat_monotonic_seconds={time.monotonic():.1f}", flush=True)
-
-    thread = threading.Thread(target=emit, daemon=True)
-    thread.start()
-    try:
-        yield
-    finally:
-        stop.set()
-        thread.join(timeout=interval_seconds)
-
-
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     output_dir_default = os.environ.get("PMG_INIT_SENSITIVITY_OUTPUT_DIR")
@@ -691,5 +667,4 @@ if __name__ == "__main__":
     # launch mode comes from the PMG_INIT_SENSITIVITY_* environment variables.
     launched_by_ipykernel = "ipykernel_launcher" in Path(sys.argv[0]).name
     argv = [] if launched_by_ipykernel else None
-    with _output_heartbeat(enabled=launched_by_ipykernel):
-        main(argv)
+    main(argv)
