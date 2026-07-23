@@ -527,14 +527,18 @@ def fragmented_burst_windows(
     for start, stop in candidates:
         raw_shift = abs(int(state[start, 1]) - int(state[start - 1, 1]))
         circular_shift = min(raw_shift, n_latent_bin - raw_shift)
-        scored.append((circular_shift, start, stop))
+        scored.append((stop - start, circular_shift, start, stop))
     selected = []
-    for circular_shift, start, stop in sorted(scored, reverse=True):
+    # Long bursts expose whether a model can follow repeated relocations,
+    # without selecting examples based on any fitted model's error.
+    for duration, circular_shift, start, stop in sorted(
+        scored, reverse=True
+    ):
         if all(
             abs(start - selected_start) >= before + after
-            for _, selected_start, _ in selected
+            for _, _, selected_start, _ in selected
         ):
-            selected.append((circular_shift, start, stop))
+            selected.append((duration, circular_shift, start, stop))
         if len(selected) == n_windows:
             break
     return [
@@ -545,8 +549,8 @@ def fragmented_burst_windows(
             stop - start,
             circular_shift,
         )
-        for circular_shift, start, stop in sorted(
-            selected, key=lambda item: item[1]
+        for _, circular_shift, start, stop in sorted(
+            selected, key=lambda item: item[2]
         )
     ]
 
