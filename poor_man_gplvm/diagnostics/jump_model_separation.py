@@ -459,6 +459,103 @@ def plot_latent_closeups(
     plt.close(fig)
 
 
+def largest_reset_windows(
+    state: np.ndarray,
+    n_windows: int = 3,
+    before: int = 15,
+    after: int = 35,
+) -> list[tuple[int, int, int, int]]:
+    candidates = np.flatnonzero(state[:, 0] == 1)
+    candidates = candidates[
+        (candidates >= before) & (candidates + after < len(state))
+    ]
+    jump_size = np.abs(
+        state[candidates, 1] - state[candidates - 1, 1]
+    )
+    selected = []
+    for index in candidates[np.argsort(jump_size)[::-1]]:
+        if all(abs(int(index) - event) >= before + after for event in selected):
+            selected.append(int(index))
+        if len(selected) == n_windows:
+            break
+    return [
+        (
+            event - before,
+            event + after,
+            event,
+            int(abs(state[event, 1] - state[event - 1, 1])),
+        )
+        for event in sorted(selected)
+    ]
+
+
+def plot_reset_event_closeups(
+    context: SimulationContext,
+    results: list[FitResult],
+    output: Path,
+) -> None:
+    windows = largest_reset_windows(context.state)
+    colors = plt.cm.tab10.colors
+    fig, axes = plt.subplots(
+        len(results),
+        len(windows),
+        figsize=(14, 2.15 * len(results)),
+        sharex=True,
+        sharey=True,
+        squeeze=False,
+    )
+    for row, result in enumerate(results):
+        decoded = result.posterior.argmax(axis=1)
+        for column, (start, stop, event, jump_size) in enumerate(windows):
+            ax = axes[row, column]
+            time = np.arange(start, stop) - event
+            ax.plot(
+                time,
+                context.state[start:stop, 1],
+                color="black",
+                linewidth=2.0,
+                label="true latent",
+            )
+            ax.plot(
+                time,
+                decoded[start:stop],
+                color=colors[row % len(colors)],
+                linewidth=1.2,
+                alpha=0.9,
+                label="inferred MAP",
+            )
+            fragmented = context.state[start:stop, 0] == 1
+            for fragmented_time in time[fragmented]:
+                ax.axvspan(
+                    fragmented_time - 0.5,
+                    fragmented_time + 0.5,
+                    color="0.8",
+                    alpha=0.7,
+                    linewidth=0,
+                )
+            if row == 0:
+                ax.set_title(
+                    f"reset at t={event}; true step={jump_size} bins"
+                )
+            if column == 0:
+                ax.set_ylabel(f"{result.label}\nlatent bin")
+            ax.set_ylim(-3, context.config.n_latent_bin + 2)
+            ax.spines[["top", "right"]].set_visible(False)
+    for ax in axes[-1]:
+        ax.set_xlabel("time relative to reset")
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    fig.legend(
+        handles,
+        labels,
+        loc="upper center",
+        ncols=2,
+        frameon=False,
+    )
+    fig.tight_layout(rect=(0, 0, 1, 0.96))
+    fig.savefig(output, dpi=180, bbox_inches="tight")
+    plt.close(fig)
+
+
 def plot_tuning_population(
     context: SimulationContext,
     jump_result: FitResult,
@@ -513,12 +610,21 @@ def plot_tuning_examples(
             for neuron in range(context.config.n_neuron)
         ]
     )
-    ordered = np.argsort(jump_correlations)
+    nojump_correlations = np.asarray(
+        [
+            _safe_correlation(
+                best_nojump.tuning[:, neuron],
+                context.tuning_true[:, neuron],
+            )
+            for neuron in range(context.config.n_neuron)
+        ]
+    )
+    ordered = np.argsort(nojump_correlations)
     selected = ordered[
         np.rint(np.linspace(0.1, 0.9, 6) * (len(ordered) - 1)).astype(int)
     ]
     fig, axes = plt.subplots(2, 3, figsize=(11, 6), sharex=True)
-    for index, (ax, neuron) in enumerate(zip(axes.flat, selected)):
+    for ax, neuron in zip(axes.flat, selected):
         ax.plot(
             context.tuning_true[:, neuron],
             color="black",
@@ -536,18 +642,28 @@ def plot_tuning_examples(
             color="C3",
             linewidth=1.2,
             linestyle="--",
-            label=best_nojump.label,
+            label=f"best no-jump (scale {best_nojump.movement_scale:g})",
         )
-        ax.set_title(f"neuron {neuron}")
+        ax.set_title(
+            f"neuron {neuron}: "
+            f"r={jump_correlations[neuron]:.2f} jump, "
+            f"{nojump_correlations[neuron]:.2f} no-jump"
+        )
         ax.set_yticks([])
         ax.spines[["top", "right"]].set_visible(False)
-        if index == 0:
-            ax.legend(frameon=False)
     for ax in axes[-1]:
         ax.set_xlabel("latent bin")
     for ax in axes[:, 0]:
         ax.set_ylabel("firing rate")
-    fig.tight_layout()
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    fig.legend(
+        handles,
+        labels,
+        loc="upper center",
+        ncols=3,
+        frameon=False,
+    )
+    fig.tight_layout(rect=(0, 0, 1, 0.93))
     fig.savefig(output, dpi=180, bbox_inches="tight")
     plt.close(fig)
 
@@ -658,6 +774,9 @@ def run_experiment(
     plot_latent_closeups(
         context, results, output_dir / "latent_state_closeups.png"
     )
+    plot_reset_event_closeups(
+        context, results, output_dir / "reset_event_closeups.png"
+    )
     plot_tuning_population(
         context,
         jump_result,
@@ -681,6 +800,7 @@ def run_experiment(
             raise AssertionError(f"non-bijective permutation for {result.label}")
     for filename in (
         "latent_state_closeups.png",
+        "reset_event_closeups.png",
         "tuning_population.png",
         "tuning_examples.png",
         "results.npz",
