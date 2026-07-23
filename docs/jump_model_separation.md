@@ -1,82 +1,105 @@
 # Jump versus no-jump simulation diagnostic
 
-`poor_man_gplvm.diagnostics.jump_model_separation` searches for simulations in
-which an explicit jump state remains necessary after granting every fitted
-model the strongest simulation-only rescue:
+`poor_man_gplvm.diagnostics.jump_model_separation` tests whether an explicit
+jump state remains necessary after granting every fitted model the same strong,
+simulation-only rescue:
 
 1. the same random posterior initialization;
 2. an all-time oracle posterior-overlap permutation;
 3. one fixed-posterior Adam M-step after permutation; and
 4. one diagnostic E-step with the refitted tuning.
 
-The diagnostic does not initialize any fit from the true latent or the true
-parameters. The generative parameter seed is `123`, the fitted parameter seed
-is `124`, and the shared posterior seed is `5`.
+No fit is initialized from the true latent or true parameters. The generative
+parameter seed is `123`, the fitted parameter seed is `124`, and the shared
+posterior seed is `5`. Adam is deliberate here: the public M-step avoids the
+memory problems encountered with LBFGS.
 
-## Simulation that separates the models
+## Preferred non-isolated regime
 
-The successful setup has 100 neurons, 8,000 time bins, 100 latent bins,
-continuous movement scale `0.35`, tuning lengthscale `5`, and a `-1.5` shift of
-the generative bias parameters. Its dynamics transition probabilities are
-`p_move_to_jump=0.04` and `p_jump_to_move=0.90`. The observed fragmented
-fraction was `0.0459`, so fragmentation usually consists of isolated latent
-resets rather than long blocks of independently sampled positions.
+The default simulation uses 200 neurons, the first 3,500 bins of a fixed
+8,000-bin source simulation, 100 latent bins, continuous movement scale `0.35`,
+tuning lengthscale `5`, and a `-1.0` shift of the generative bias parameters.
+Its dynamics probabilities are `p_move_to_jump=0.04` and
+`p_jump_to_move=0.40`.
 
-After 20 EM iterations and the oracle alignment/refit:
+The realized fragmented fraction is `0.0889`. Fragmented bursts have mean
+length `2.51`, median length `2`, and maximum length `13`, so this is not an
+isolated-reset simulation. The mean count is `0.440` spikes per neuron per bin.
+
+After 20 EM iterations and oracle alignment/refit:
 
 | model | continuous latent MAE | fragmented latent MAE | median tuning correlation |
 |---|---:|---:|---:|
-| jump | 0.00194 | 0.0293 | 0.952 |
-| no jump, scale 0.35 | 0.285 | 0.320 | 0.536 |
-| no jump, scale 3 | 0.0748 | 0.191 | 0.867 |
-| no jump, scale 10 | 0.0282 | 0.143 | 0.878 |
-| no jump, scale 30 | 0.0374 | 0.101 | 0.872 |
+| jump | 0.00145 | 0.00952 | 0.928 |
+| no jump, scale 0.35 | 0.213 | 0.262 | 0.715 |
+| no jump, scale 3 | 0.0360 | 0.203 | 0.857 |
+| no jump, scale 10 | 0.00823 | 0.145 | 0.882 |
+| no jump, scale 30 | 0.00795 | 0.0398 | 0.884 |
 
-Errors are normalized by 100 latent bins. Scale `30` is the best tested
-no-jump model by minimax state-specific error, but its worst-state error remains
-3.46 times the jump model's error and its tuning is visibly distorted. The jump
-model's fragmentation-state accuracy is `0.9908`.
+Scale `30` is the best tested no-jump model by minimax state-specific error,
+but its fragmented error is still 4.19 times the jump model's error. The jump
+fit is essentially exact in both states. Its tuning is not perfectly smooth,
+but it preserves the true qualitative shape; the best no-jump tuning is more
+jagged and contains local peak distortions.
 
-`reset_event_closeups.png` shows the three largest isolated true resets, with
-windows selected from the simulated state alone. The jump model relocates in
-one bin and then continues smoothly. The strict no-jump fit stays in the old
-coordinate, intermediate scales drift gradually to the new coordinate, and the
-broadest scale becomes noisy around otherwise stable trajectories.
-`tuning_examples.png` shows neurons at representative quantiles of the best
-no-jump tuning correlations rather than selecting only the largest failures.
+`fragmented_burst_closeups.png` shows the three longest non-isolated true
+bursts. `short_fragmented_burst_closeups.png` shows length-2-to-4 bursts with
+the largest true onset relocations. Both panels select examples from the true
+simulated state alone, without looking at fitted-model errors. The short-burst
+panel makes the structural failure especially clear: a single no-jump
+transition scale either flattens the relocation, smears it over several bins,
+or only partially follows it. `tuning_examples.png` shows representative
+quantiles of the best no-jump per-neuron tuning correlations rather than only
+the worst neurons.
 
-## What made the separation work
+## Why total data creates a sweet spot
 
-The decisive feature was isolated reset events, not simply adding more
-fragmented time.
+Both models use temporal smoothness in the continuous state. The jump model's
+advantage is not generic smoothness; it is the ability to switch between a tight
+smooth transition and a uniform fragmented transition. A no-jump model must use
+one movement scale for both.
 
-- Long fragmented blocks allow a very broad no-jump transition kernel to behave
-  approximately like an independent decoder. With sufficient population
-  information, oracle permutation can then recover much of the tuning.
-- Reducing firing information indiscriminately does not solve this problem:
-  the correct jump model also loses fragmented-state precision because its
-  fragmented transition is uniform.
-- Isolated resets create a genuine state-dependent transition requirement.
-  Most observations benefit from a very tight smooth prior, while a small
-  number require a one-bin global relocation. No single no-jump movement scale
-  can satisfy both.
-- Moderate per-bin information and narrower tuning curves make wrong
-  post-reset assignments contaminate the tuning M-step. A global permutation
-  cannot repair these segment-specific offsets.
+The controlled information grid generated one 200-neuron, 8,000-bin source
+simulation and fit nested neuron and time prefixes. This removes simulation
+seed changes as a confound when varying total data.
 
-The unsuccessful intermediate regimes were also informative. A simulation with
-about 81% fragmented time, 60 neurons, and mean rate `0.655` spikes per neuron
-per bin left the jump model's fragmented error at `0.104`; it was too hard for
-the correct model. Increasing information and fragmented occupancy improved
-jump recovery, but broad no-jump models still recovered tuning correlations
-near `0.94`. Distributing comparable population information over 200
-lower-rate neurons improved latent recovery but did not create a larger tuning
-gap. Changing fragmentation from long blocks to isolated resets produced both
-the latent and tuning separation.
+| time bins | neurons | jump worst-state MAE | best no-jump MAE | jump tuning | no-jump tuning |
+|---:|---:|---:|---:|---:|---:|
+| 2,000 | 50 | 0.134 | 0.183 | 0.813 | 0.695 |
+| 2,000 | 100 | 0.0822 | 0.152 | 0.862 | 0.682 |
+| 2,000 | 200 | 0.00981 | 0.0517 | 0.867 | 0.781 |
+| 4,000 | 50 | 0.143 | 0.179 | 0.925 | 0.753 |
+| 4,000 | 100 | 0.0543 | 0.115 | 0.934 | 0.842 |
+| 4,000 | 200 | 0.0110 | 0.0410 | 0.930 | 0.884 |
+| 8,000 | 50 | 0.128 | 0.180 | 0.966 | 0.833 |
+| 8,000 | 100 | 0.0541 | 0.111 | 0.965 | 0.895 |
+| 8,000 | 200 | 0.00990 | 0.0292 | 0.968 | 0.943 |
+
+Neuron count supplies enough simultaneous evidence for the jump model to decode
+each fragmented bin. Duration supplies repeated coverage of the latent space
+needed to learn tuning. Too little of either hurts the jump fit. Too much
+duration lets the broad no-jump model improve its compromised tuning and partly
+catch up. Refining the 200-neuron duration axis located the knee at 3,500 bins:
+the jump latent remains essentially exact, tuning is qualitatively recovered,
+and the no-jump structural error remains visible.
+
+The duration effect is not perfectly monotone for a single seed. For example,
+the 3,000-bin prefix was a poor local fit for both models. The 3,500-bin result
+should therefore be treated as a verified simulation regime, not a theorem
+that every nearby duration will behave identically.
+
+## Preserved isolated-reset fallback
+
+The earlier isolated-reset candidate remains useful as a stronger fallback. It
+uses 100 neurons, 8,000 bins, `p_jump_to_move=0.90`, and rate-bias shift `-1.5`.
+Its jump worst-state MAE is `0.0293` and tuning correlation is `0.952`; the best
+no-jump fit has MAE `0.101` and tuning correlation `0.872`, a 3.46-fold error
+gap. It is retained because it cleanly demonstrates the one-scale tradeoff, but
+the preferred default above avoids relying on isolated fragmented bins.
 
 ## Reproduce
 
-Activate the established GPU environment and run the defaults:
+Activate the established GPU environment and run the preferred defaults:
 
 ```bash
 source /mnt/home/szheng/miniconda3/etc/profile.d/conda.sh
@@ -85,13 +108,27 @@ python -u -m poor_man_gplvm.diagnostics.jump_model_separation \
   --output-dir /mnt/home/szheng/ceph/poor_gplvm/diagnostics/jump_model_separation/my_run
 ```
 
-The verified run is stored remotely at
-`/mnt/home/szheng/ceph/poor_gplvm/diagnostics/jump_model_separation/jumpsep_stage4_isolated_resets_20260723/`
-and in the usual local Ceph mirror at
-`/Users/madsci/research_figs/ceph/poor_gplvm/diagnostics/jump_model_separation/jumpsep_stage4_isolated_resets_20260723/`.
+To reproduce the preserved isolated-reset candidate:
 
-On the H100 used for this diagnostic, the older JAX compiler aborted on the
-mixed `float32 posterior @ int32 count` matrix product in the M-step. The
-diagnostic stores the same integer-valued counts as `float32`, which preserves
-their values and lets the established `jaxnew2` GPU environment compile the
-operation. No optimizer, likelihood, or package environment was changed.
+```bash
+python -u -m poor_man_gplvm.diagnostics.jump_model_separation \
+  --output-dir /mnt/home/szheng/ceph/poor_gplvm/diagnostics/jump_model_separation/isolated_reset_candidate \
+  --name isolated_reset_candidate \
+  --n-neuron 100 \
+  --n-time 8000 \
+  --source-n-neuron 100 \
+  --source-n-time 8000 \
+  --p-jump-to-move 0.90 \
+  --rate-bias -1.5
+```
+
+The final preferred run is stored remotely at
+`/mnt/home/szheng/ceph/poor_gplvm/diagnostics/jump_model_separation/20260723_nonisolated_sweet_spot_final/`
+and in the local mirror at
+`/Users/madsci/research_figs/ceph/poor_gplvm/diagnostics/jump_model_separation/20260723_nonisolated_sweet_spot_final/`.
+
+On an H100 used during development, the older JAX compiler aborted on a mixed
+`float32 posterior @ int32 count` matrix product in the M-step. The diagnostic
+stores the same integer-valued counts as `float32`, preserving their values and
+allowing the established `jaxnew2` GPU environment to compile the operation. No
+optimizer, likelihood, or package environment was changed.

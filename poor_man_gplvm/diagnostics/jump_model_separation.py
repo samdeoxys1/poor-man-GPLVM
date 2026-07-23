@@ -34,21 +34,21 @@ from poor_man_gplvm import PoissonGPLVM1D, PoissonGPLVMJump1D
 
 @dataclass(frozen=True)
 class SimulationConfig:
-    name: str = "isolated_reset_events"
-    n_neuron: int = 100
-    n_time: int = 8_000
+    name: str = "nonisolated_burst_sweet_spot"
+    n_neuron: int = 200
+    n_time: int = 3_500
     n_latent_bin: int = 100
     movement_variance: float = 0.35
     tuning_lengthscale: float = 5.0
     p_move_to_jump: float = 0.04
-    p_jump_to_move: float = 0.90
-    rate_bias: float = -1.5
+    p_jump_to_move: float = 0.40
+    rate_bias: float = -1.0
     simulation_seed: int = 103
     generative_param_seed: int = 123
     fitted_param_seed: int = 124
     posterior_seed: int = 5
-    source_n_neuron: int | None = None
-    source_n_time: int | None = None
+    source_n_neuron: int | None = 200
+    source_n_time: int | None = 8_000
 
 
 @dataclass(frozen=True)
@@ -526,11 +526,14 @@ def fragmented_burst_windows(
     n_windows: int = 3,
     before: int = 10,
     after: int = 50,
+    max_duration: int | None = None,
+    rank_by: str = "duration",
 ) -> list[tuple[int, int, int, int, int]]:
     candidates = [
         (start, stop)
         for start, stop in fragmented_blocks(state)
         if stop - start >= 2
+        and (max_duration is None or stop - start <= max_duration)
         and start >= before
         and start + after < len(state)
     ]
@@ -540,11 +543,14 @@ def fragmented_burst_windows(
         circular_shift = min(raw_shift, n_latent_bin - raw_shift)
         scored.append((stop - start, circular_shift, start, stop))
     selected = []
-    # Long bursts expose whether a model can follow repeated relocations,
-    # without selecting examples based on any fitted model's error.
-    for duration, circular_shift, start, stop in sorted(
-        scored, reverse=True
-    ):
+    if rank_by == "duration":
+        scored.sort(key=lambda item: (item[0], item[1]))
+    elif rank_by == "onset_shift":
+        scored.sort(key=lambda item: (item[1], item[0]))
+    else:
+        raise ValueError(f"unknown burst ranking: {rank_by!r}")
+    # Both rankings use only the true simulated state, never fitted error.
+    for duration, circular_shift, start, stop in reversed(scored):
         if all(
             abs(start - selected_start) >= before + after
             for _, _, selected_start, _ in selected
@@ -645,9 +651,15 @@ def plot_fragmented_burst_closeups(
     context: SimulationContext,
     results: list[FitResult],
     output: Path,
+    *,
+    max_duration: int | None = None,
+    rank_by: str = "duration",
 ) -> None:
     windows = fragmented_burst_windows(
-        context.state, context.config.n_latent_bin
+        context.state,
+        context.config.n_latent_bin,
+        max_duration=max_duration,
+        rank_by=rank_by,
     )
     if not windows:
         raise RuntimeError(
@@ -959,6 +971,13 @@ def run_experiment(
     plot_fragmented_burst_closeups(
         context, results, output_dir / "fragmented_burst_closeups.png"
     )
+    plot_fragmented_burst_closeups(
+        context,
+        results,
+        output_dir / "short_fragmented_burst_closeups.png",
+        max_duration=4,
+        rank_by="onset_shift",
+    )
     plot_tuning_population(
         context,
         jump_result,
@@ -983,6 +1002,7 @@ def run_experiment(
     expected_artifacts = [
         "latent_state_closeups.png",
         "fragmented_burst_closeups.png",
+        "short_fragmented_burst_closeups.png",
         "tuning_population.png",
         "tuning_examples.png",
         "results.npz",
@@ -1014,15 +1034,15 @@ def _parse_scales(value: str) -> tuple[float, ...]:
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--name", default="isolated_reset_events")
-    parser.add_argument("--n-neuron", type=int, default=100)
-    parser.add_argument("--n-time", type=int, default=8_000)
+    parser.add_argument("--name", default="nonisolated_burst_sweet_spot")
+    parser.add_argument("--n-neuron", type=int, default=200)
+    parser.add_argument("--n-time", type=int, default=3_500)
     parser.add_argument("--n-latent-bin", type=int, default=100)
     parser.add_argument("--movement-variance", type=float, default=0.35)
     parser.add_argument("--tuning-lengthscale", type=float, default=5.0)
     parser.add_argument("--p-move-to-jump", type=float, default=0.04)
-    parser.add_argument("--p-jump-to-move", type=float, default=0.90)
-    parser.add_argument("--rate-bias", type=float, default=-1.5)
+    parser.add_argument("--p-jump-to-move", type=float, default=0.40)
+    parser.add_argument("--rate-bias", type=float, default=-1.0)
     parser.add_argument("--simulation-seed", type=int, default=103)
     parser.add_argument("--generative-param-seed", type=int, default=123)
     parser.add_argument("--fitted-param-seed", type=int, default=124)
@@ -1030,13 +1050,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--source-n-neuron",
         type=int,
-        default=None,
+        default=200,
         help="generate this many neurons, then fit the first n-neuron",
     )
     parser.add_argument(
         "--source-n-time",
         type=int,
-        default=None,
+        default=8_000,
         help="generate this many bins, then fit the first n-time",
     )
     parser.add_argument("--em-iterations", type=int, default=20)
