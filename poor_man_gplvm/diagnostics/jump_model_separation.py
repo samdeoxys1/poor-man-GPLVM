@@ -123,7 +123,10 @@ def build_simulation(config: SimulationConfig) -> SimulationContext:
     return SimulationContext(
         config=config,
         state=np.asarray(state),
-        observations=np.asarray(observations),
+        # This preserves integer count values while avoiding an old H100
+        # compiler failure for the mixed float32-posterior @ int32-count
+        # matrix product in get_statistics.
+        observations=np.asarray(observations, dtype=np.float32),
         tuning_true=np.asarray(tuning_true),
         log_posterior_init=np.asarray(jnp.log(initial)),
     )
