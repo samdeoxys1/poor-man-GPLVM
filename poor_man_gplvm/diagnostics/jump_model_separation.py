@@ -462,13 +462,21 @@ def plot_latent_closeups(
 def largest_reset_windows(
     state: np.ndarray,
     n_windows: int = 3,
-    before: int = 15,
-    after: int = 35,
+    before: int = 10,
+    after: int = 25,
 ) -> list[tuple[int, int, int, int]]:
     candidates = np.flatnonzero(state[:, 0] == 1)
     candidates = candidates[
         (candidates >= before) & (candidates + after < len(state))
     ]
+    candidates = np.asarray(
+        [
+            index
+            for index in candidates
+            if np.sum(state[index - before : index + after, 0]) == 1
+        ],
+        dtype=int,
+    )
     jump_size = np.abs(
         state[candidates, 1] - state[candidates - 1, 1]
     )
@@ -538,7 +546,12 @@ def plot_reset_event_closeups(
                     f"reset at t={event}; true step={jump_size} bins"
                 )
             if column == 0:
-                ax.set_ylabel(f"{result.label}\nlatent bin")
+                short_label = (
+                    "jump"
+                    if result.model_kind == "jump"
+                    else f"no jump\nscale {result.movement_scale:g}"
+                )
+                ax.set_ylabel(f"{short_label}\nlatent bin")
             ax.set_ylim(-3, context.config.n_latent_bin + 2)
             ax.spines[["top", "right"]].set_visible(False)
     for ax in axes[-1]:
