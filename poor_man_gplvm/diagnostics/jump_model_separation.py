@@ -34,15 +34,15 @@ from poor_man_gplvm import PoissonGPLVM1D, PoissonGPLVMJump1D
 
 @dataclass(frozen=True)
 class SimulationConfig:
-    name: str = "candidate"
-    n_neuron: int = 60
+    name: str = "isolated_reset_events"
+    n_neuron: int = 100
     n_time: int = 8_000
     n_latent_bin: int = 100
     movement_variance: float = 0.35
-    tuning_lengthscale: float = 6.0
-    p_move_to_jump: float = 0.06
-    p_jump_to_move: float = 0.02
-    rate_bias: float = -0.5
+    tuning_lengthscale: float = 5.0
+    p_move_to_jump: float = 0.04
+    p_jump_to_move: float = 0.90
+    rate_bias: float = -1.5
     simulation_seed: int = 103
     generative_param_seed: int = 123
     fitted_param_seed: int = 124
@@ -842,15 +842,15 @@ def _parse_scales(value: str) -> tuple[float, ...]:
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--name", default="candidate")
-    parser.add_argument("--n-neuron", type=int, default=60)
+    parser.add_argument("--name", default="isolated_reset_events")
+    parser.add_argument("--n-neuron", type=int, default=100)
     parser.add_argument("--n-time", type=int, default=8_000)
     parser.add_argument("--n-latent-bin", type=int, default=100)
     parser.add_argument("--movement-variance", type=float, default=0.35)
-    parser.add_argument("--tuning-lengthscale", type=float, default=6.0)
-    parser.add_argument("--p-move-to-jump", type=float, default=0.06)
-    parser.add_argument("--p-jump-to-move", type=float, default=0.02)
-    parser.add_argument("--rate-bias", type=float, default=-0.5)
+    parser.add_argument("--tuning-lengthscale", type=float, default=5.0)
+    parser.add_argument("--p-move-to-jump", type=float, default=0.04)
+    parser.add_argument("--p-jump-to-move", type=float, default=0.90)
+    parser.add_argument("--rate-bias", type=float, default=-1.5)
     parser.add_argument("--simulation-seed", type=int, default=103)
     parser.add_argument("--generative-param-seed", type=int, default=123)
     parser.add_argument("--fitted-param-seed", type=int, default=124)
