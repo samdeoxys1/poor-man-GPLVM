@@ -497,12 +497,68 @@ def largest_reset_windows(
     ]
 
 
+def fragmented_blocks(state: np.ndarray) -> list[tuple[int, int]]:
+    dynamics = state[:, 0].astype(int)
+    boundaries = np.flatnonzero(dynamics[1:] != dynamics[:-1]) + 1
+    starts = np.r_[0, boundaries]
+    stops = np.r_[boundaries, len(dynamics)]
+    return [
+        (int(start), int(stop))
+        for start, stop in zip(starts, stops)
+        if dynamics[start] == 1
+    ]
+
+
+def fragmented_burst_windows(
+    state: np.ndarray,
+    n_latent_bin: int,
+    n_windows: int = 3,
+    before: int = 10,
+    after: int = 50,
+) -> list[tuple[int, int, int, int, int]]:
+    candidates = [
+        (start, stop)
+        for start, stop in fragmented_blocks(state)
+        if stop - start >= 2
+        and start >= before
+        and start + after < len(state)
+    ]
+    scored = []
+    for start, stop in candidates:
+        raw_shift = abs(int(state[start, 1]) - int(state[start - 1, 1]))
+        circular_shift = min(raw_shift, n_latent_bin - raw_shift)
+        scored.append((circular_shift, start, stop))
+    selected = []
+    for circular_shift, start, stop in sorted(scored, reverse=True):
+        if all(
+            abs(start - selected_start) >= before + after
+            for _, selected_start, _ in selected
+        ):
+            selected.append((circular_shift, start, stop))
+        if len(selected) == n_windows:
+            break
+    return [
+        (
+            start - before,
+            start + after,
+            start,
+            stop - start,
+            circular_shift,
+        )
+        for circular_shift, start, stop in sorted(
+            selected, key=lambda item: item[1]
+        )
+    ]
+
+
 def plot_reset_event_closeups(
     context: SimulationContext,
     results: list[FitResult],
     output: Path,
-) -> None:
+) -> bool:
     windows = largest_reset_windows(context.state)
+    if not windows:
+        return False
     colors = plt.cm.tab10.colors
     fig, axes = plt.subplots(
         len(results),
@@ -565,6 +621,92 @@ def plot_reset_event_closeups(
         frameon=False,
     )
     fig.tight_layout(rect=(0, 0, 1, 0.96))
+    fig.savefig(output, dpi=180, bbox_inches="tight")
+    plt.close(fig)
+    return True
+
+
+def plot_fragmented_burst_closeups(
+    context: SimulationContext,
+    results: list[FitResult],
+    output: Path,
+) -> None:
+    windows = fragmented_burst_windows(
+        context.state, context.config.n_latent_bin
+    )
+    if not windows:
+        raise RuntimeError(
+            "simulation produced no non-isolated fragmented bursts to plot"
+        )
+    colors = plt.cm.tab10.colors
+    fig, axes = plt.subplots(
+        len(results),
+        len(windows),
+        figsize=(14, 2.15 * len(results)),
+        sharex=True,
+        sharey=True,
+        squeeze=False,
+    )
+    for row, result in enumerate(results):
+        decoded = result.posterior.argmax(axis=1)
+        for column, (
+            start,
+            stop,
+            onset,
+            duration,
+            onset_shift,
+        ) in enumerate(windows):
+            ax = axes[row, column]
+            time = np.arange(start, stop) - onset
+            ax.plot(
+                time,
+                context.state[start:stop, 1],
+                color="black",
+                linewidth=2.0,
+                label="true latent",
+            )
+            ax.plot(
+                time,
+                decoded[start:stop],
+                color=colors[row % len(colors)],
+                linewidth=1.2,
+                alpha=0.9,
+                label="inferred MAP",
+            )
+            fragmented = context.state[start:stop, 0] == 1
+            for fragmented_time in time[fragmented]:
+                ax.axvspan(
+                    fragmented_time - 0.5,
+                    fragmented_time + 0.5,
+                    color="0.8",
+                    alpha=0.7,
+                    linewidth=0,
+                )
+            if row == 0:
+                ax.set_title(
+                    f"burst at t={onset}; length={duration} bins\n"
+                    f"true onset shift={onset_shift} bins"
+                )
+            if column == 0:
+                short_label = (
+                    "jump"
+                    if result.model_kind == "jump"
+                    else f"no jump\nscale {result.movement_scale:g}"
+                )
+                ax.set_ylabel(f"{short_label}\nlatent bin")
+            ax.set_ylim(-3, context.config.n_latent_bin + 2)
+            ax.spines[["top", "right"]].set_visible(False)
+    for ax in axes[-1]:
+        ax.set_xlabel("time relative to fragmented-burst onset")
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    fig.legend(
+        handles,
+        labels,
+        loc="upper center",
+        ncols=2,
+        frameon=False,
+    )
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
     fig.savefig(output, dpi=180, bbox_inches="tight")
     plt.close(fig)
 
@@ -748,6 +890,9 @@ def run_experiment(
     )
     jump_metrics = metrics[jump_result.label]
     best_metrics = metrics[best_nojump.label]
+    burst_lengths = np.asarray(
+        [stop - start for start, stop in fragmented_blocks(context.state)]
+    )
     summary = {
         "simulation": asdict(simulation_config),
         "run": asdict(run_config),
@@ -760,6 +905,12 @@ def run_experiment(
         "actual_fragmented_fraction": float(
             np.mean(context.state[:, 0] == 1)
         ),
+        "fragmented_bursts": {
+            "count": int(len(burst_lengths)),
+            "mean_length": float(np.mean(burst_lengths)),
+            "median_length": float(np.median(burst_lengths)),
+            "max_length": int(np.max(burst_lengths)),
+        },
         "mean_observed_spikes_per_neuron_per_bin": float(
             context.observations.mean()
         ),
@@ -787,8 +938,11 @@ def run_experiment(
     plot_latent_closeups(
         context, results, output_dir / "latent_state_closeups.png"
     )
-    plot_reset_event_closeups(
+    reset_plot_created = plot_reset_event_closeups(
         context, results, output_dir / "reset_event_closeups.png"
+    )
+    plot_fragmented_burst_closeups(
+        context, results, output_dir / "fragmented_burst_closeups.png"
     )
     plot_tuning_population(
         context,
@@ -811,14 +965,17 @@ def run_experiment(
             np.arange(simulation_config.n_latent_bin),
         ):
             raise AssertionError(f"non-bijective permutation for {result.label}")
-    for filename in (
+    expected_artifacts = [
         "latent_state_closeups.png",
-        "reset_event_closeups.png",
+        "fragmented_burst_closeups.png",
         "tuning_population.png",
         "tuning_examples.png",
         "results.npz",
         "summary.json",
-    ):
+    ]
+    if reset_plot_created:
+        expected_artifacts.append("reset_event_closeups.png")
+    for filename in expected_artifacts:
         if (output_dir / filename).stat().st_size < 1_000:
             raise AssertionError(f"missing or empty artifact: {filename}")
     print(f"saved_summary={summary_path}", flush=True)
