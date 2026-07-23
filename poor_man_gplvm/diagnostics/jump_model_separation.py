@@ -47,6 +47,8 @@ class SimulationConfig:
     generative_param_seed: int = 123
     fitted_param_seed: int = 124
     posterior_seed: int = 5
+    source_n_neuron: int | None = None
+    source_n_time: int | None = None
 
 
 @dataclass(frozen=True)
@@ -97,8 +99,14 @@ def preflight(require_gpu: bool = True) -> dict:
 
 
 def build_simulation(config: SimulationConfig) -> SimulationContext:
+    source_n_neuron = config.source_n_neuron or config.n_neuron
+    source_n_time = config.source_n_time or config.n_time
+    if source_n_neuron < config.n_neuron:
+        raise ValueError("source_n_neuron must be at least n_neuron")
+    if source_n_time < config.n_time:
+        raise ValueError("source_n_time must be at least n_time")
     generator = PoissonGPLVMJump1D(
-        config.n_neuron,
+        source_n_neuron,
         n_latent_bin=config.n_latent_bin,
         movement_variance=config.movement_variance,
         tuning_lengthscale=config.tuning_lengthscale,
@@ -111,24 +119,27 @@ def build_simulation(config: SimulationConfig) -> SimulationContext:
         generative_params, {}, generator.tuning_basis
     )
     state, observations = generator.sample(
-        config.n_time,
+        source_n_time,
         key=jax.random.PRNGKey(config.simulation_seed),
         tuning=tuning_true,
     )
     initial = jax.random.uniform(
         jax.random.PRNGKey(config.posterior_seed),
-        shape=(config.n_time, config.n_latent_bin),
+        shape=(source_n_time, config.n_latent_bin),
     )
     initial = initial / initial.sum(axis=1, keepdims=True)
     return SimulationContext(
         config=config,
-        state=np.asarray(state),
+        state=np.asarray(state[: config.n_time]),
         # This preserves integer count values while avoiding an old H100
         # compiler failure for the mixed float32-posterior @ int32-count
         # matrix product in get_statistics.
-        observations=np.asarray(observations, dtype=np.float32),
-        tuning_true=np.asarray(tuning_true),
-        log_posterior_init=np.asarray(jnp.log(initial)),
+        observations=np.asarray(
+            observations[: config.n_time, : config.n_neuron],
+            dtype=np.float32,
+        ),
+        tuning_true=np.asarray(tuning_true[:, : config.n_neuron]),
+        log_posterior_init=np.asarray(jnp.log(initial[: config.n_time])),
     )
 
 
@@ -1016,6 +1027,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--generative-param-seed", type=int, default=123)
     parser.add_argument("--fitted-param-seed", type=int, default=124)
     parser.add_argument("--posterior-seed", type=int, default=5)
+    parser.add_argument(
+        "--source-n-neuron",
+        type=int,
+        default=None,
+        help="generate this many neurons, then fit the first n-neuron",
+    )
+    parser.add_argument(
+        "--source-n-time",
+        type=int,
+        default=None,
+        help="generate this many bins, then fit the first n-time",
+    )
     parser.add_argument("--em-iterations", type=int, default=20)
     parser.add_argument("--m-step-step-size", type=float, default=0.01)
     parser.add_argument("--m-step-maxiter", type=int, default=1_000)
@@ -1046,6 +1069,8 @@ def main(argv: Iterable[str] | None = None) -> dict:
         generative_param_seed=args.generative_param_seed,
         fitted_param_seed=args.fitted_param_seed,
         posterior_seed=args.posterior_seed,
+        source_n_neuron=args.source_n_neuron,
+        source_n_time=args.source_n_time,
     )
     run_config = RunConfig(
         em_iterations=args.em_iterations,
